@@ -17,6 +17,8 @@ from aqelyn.kernel.config import AQELYNConfig
 from aqelyn.kernel.kernel import AQKernel
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.kernel.wiring import BusObjectEventSink
+from aqelyn.mission.engine import MissionEngine
+from aqelyn.mission.service import MissionEngineService
 from aqelyn.objects import InMemoryObjectStore, ObjectStore, ObjectTypeRegistry
 from aqelyn.objects.postgres import PostgresObjectStore
 from aqelyn.trust.engine import TrustEngine
@@ -38,6 +40,8 @@ class Runtime:
     knowledge_graph_service: KnowledgeGraphService
     trust_engine: TrustEngine
     trust_engine_service: TrustEngineService
+    mission_engine: MissionEngine
+    mission_engine_service: MissionEngineService
 
 
 class _RuntimeService:
@@ -110,8 +114,9 @@ def _register_runtime_services(
     object_store: ObjectStore,
     knowledge_graph: KnowledgeGraph,
     trust_engine: TrustEngine,
+    mission_engine: MissionEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
-) -> tuple[KnowledgeGraphService, TrustEngineService]:
+) -> tuple[KnowledgeGraphService, TrustEngineService, MissionEngineService]:
     kernel.register(_RuntimeService("event_bus"))
     trust_service = TrustEngineService(trust_engine)
     kernel.register(trust_service)
@@ -125,7 +130,9 @@ def _register_runtime_services(
     )
     graph_service = KnowledgeGraphService(knowledge_graph, object_store)
     kernel.register(graph_service)
-    return graph_service, trust_service
+    mission_service = MissionEngineService(mission_engine)
+    kernel.register(mission_service)
+    return graph_service, trust_service, mission_service
 
 
 def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
@@ -146,12 +153,16 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     )
     knowledge_graph = InMemoryKnowledgeGraph(object_store)
     trust_engine = TrustEngine(registry=InMemorySourceReliabilityRegistry())
+    mission_engine = MissionEngine(object_store, knowledge_graph)
     kernel = AQKernel(cfg, event_bus=bus)
-    knowledge_graph_service, trust_engine_service = _register_runtime_services(
-        kernel,
-        object_store=object_store,
-        knowledge_graph=knowledge_graph,
-        trust_engine=trust_engine,
+    knowledge_graph_service, trust_engine_service, mission_engine_service = (
+        _register_runtime_services(
+            kernel,
+            object_store=object_store,
+            knowledge_graph=knowledge_graph,
+            trust_engine=trust_engine,
+            mission_engine=mission_engine,
+        )
     )
     return Runtime(
         kernel=kernel,
@@ -164,6 +175,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         knowledge_graph_service=knowledge_graph_service,
         trust_engine=trust_engine,
         trust_engine_service=trust_engine_service,
+        mission_engine=mission_engine,
+        mission_engine_service=mission_engine_service,
     )
 
 
@@ -192,13 +205,17 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     )
     knowledge_graph = PostgresKnowledgeGraph(object_store._pool)
     trust_engine = TrustEngine(registry=InMemorySourceReliabilityRegistry())
+    mission_engine = MissionEngine(object_store, knowledge_graph)
     kernel = AQKernel(cfg, event_bus=bus)
-    knowledge_graph_service, trust_engine_service = _register_runtime_services(
-        kernel,
-        object_store=object_store,
-        knowledge_graph=knowledge_graph,
-        trust_engine=trust_engine,
-        close_object_store=object_store.close,
+    knowledge_graph_service, trust_engine_service, mission_engine_service = (
+        _register_runtime_services(
+            kernel,
+            object_store=object_store,
+            knowledge_graph=knowledge_graph,
+            trust_engine=trust_engine,
+            mission_engine=mission_engine,
+            close_object_store=object_store.close,
+        )
     )
     return Runtime(
         kernel=kernel,
@@ -211,4 +228,6 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         knowledge_graph_service=knowledge_graph_service,
         trust_engine=trust_engine,
         trust_engine_service=trust_engine_service,
+        mission_engine=mission_engine,
+        mission_engine_service=mission_engine_service,
     )
