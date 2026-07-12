@@ -11,6 +11,7 @@ from aqelyn.graph.graph import (
     validate_max_paths,
     validate_within_hops,
 )
+from aqelyn.graph.memory import InMemoryKnowledgeGraph
 from aqelyn.graph.models import (
     Direction,
     EdgeView,
@@ -30,6 +31,7 @@ __all__ = [
     "EdgeView",
     "ImpactHit",
     "ImpactResult",
+    "InMemoryKnowledgeGraph",
     "KnowledgeGraph",
     "NodeView",
     "Path",
