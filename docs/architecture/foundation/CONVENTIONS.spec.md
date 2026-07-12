@@ -135,6 +135,7 @@ Every created/changed record and every event carries the responsible actor.
 | `FindingNotFound` | Finding | no |
 | `InvalidFindingTransition` | Finding | no |
 | `EvidenceRequired` | Finding | no |
+| `GraphQueryInvalid` | EA-0005 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

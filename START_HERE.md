@@ -39,7 +39,8 @@ AQELYN/
 ├── docs/
 │   └── architecture/
 │       ├── decisions/        # Architecture Decision Records (ADR-NNNN-*.md)
-│       └── foundation/       # Code-ready foundation specs (EA-000x-*.spec.md)
+│       ├── foundation/       # Code-ready foundation specs (C-001: EA-0001-0004, Finding, Conventions)
+│       └── modules/          # Code-ready module specs post-foundation (EA-0005+)
 ├── src/
 │   └── aqelyn/               # C-001 package: conventions, objects, events,
 │                             #   evidence, findings, kernel
@@ -80,17 +81,18 @@ Read these documents first:
 2. `docs/architecture/decisions/README.md` - Architecture Decision Records (ADR) index. **ADRs are binding technical decisions and are authoritative for runtime, stack, and deployment choices. Read all applicable ADRs before implementing any Engineering Archive.**
 3. `docs/architecture/decisions/ADR-0001-runtime-and-deployment-stack.md` - Runtime, deployment target, and core technology stack (applies to every EA)
 4. `docs/architecture/foundation/README.md` - Code-ready foundation specifications for the C-001 Foundation Runtime (complete): CONVENTIONS, EA-0002 Universal Object Model, EA-0003 Event Bus, EA-0004 Evidence, Finding model, EA-0001 Kernel. **Read CONVENTIONS first, then implement in the dependency order given in that README. Each spec carries a Definition of Ready; do not begin a spec until it is Accepted.**
-5. Project Charter
-6. Engineering Principles
-7. Repository Standard
-8. Architecture Guide
-9. Development Rules
-10. EA-0058 - Development & Coding Standards
-11. EA-0059 - AQELYN Design System
-12. EA-0060 - AI Engineering Handbook
-13. EA-0061 - Developer Handbook
-14. EA-0062 - AQELYN Engineering Portal & Mission Control
-15. EA-0063 - AQELYN Final Readiness & Market Leadership Blueprint
+5. `docs/architecture/modules/README.md` - Code-ready module specifications after the foundation (EA-0005 Knowledge Graph and onward), each with its own build task bundle. **Build one module at a time, in the order released; report back after each merges.**
+6. Project Charter
+7. Engineering Principles
+8. Repository Standard
+9. Architecture Guide
+10. Development Rules
+11. EA-0058 - Development & Coding Standards
+12. EA-0059 - AQELYN Design System
+13. EA-0060 - AI Engineering Handbook
+14. EA-0061 - Developer Handbook
+15. EA-0062 - AQELYN Engineering Portal & Mission Control
+16. EA-0063 - AQELYN Final Readiness & Market Leadership Blueprint
 
 Only then begin implementation.
 

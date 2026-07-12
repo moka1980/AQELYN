@@ -109,6 +109,11 @@ class EvidenceRequired(AQError):
     code = "EvidenceRequired"
 
 
+# --- EA-0005 ---
+class GraphQueryInvalid(AQError):
+    code = "GraphQueryInvalid"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
