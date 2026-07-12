@@ -12,6 +12,7 @@ from aqelyn.objects.store import ObjectStore, validate_object_id
 
 MAX_DEPTH = 32
 MAX_NODES = 100_000
+MAX_WORK = 1_000_000
 VALID_DIRECTIONS: frozenset[str] = frozenset(("out", "in", "both"))
 DEFAULT_IMPACT_RELATION_TYPES: frozenset[str] = frozenset(("depends_on", "runs_on", "member_of"))
 
@@ -55,6 +56,7 @@ class KnowledgeGraph(Protocol):
         relation_types: Sequence[str] | None = None,
         max_depth: int = 6,
         max_paths: int = 10,
+        max_work: int = 50_000,
     ) -> list[Path]: ...
 
     async def impact(
@@ -106,6 +108,12 @@ def validate_max_paths(max_paths: int) -> int:
     if max_paths < 1:
         raise GraphQueryInvalid("max_paths must be >= 1")
     return max_paths
+
+
+def validate_max_work(max_work: int) -> int:
+    if max_work < 1:
+        raise GraphQueryInvalid("max_work must be >= 1")
+    return min(max_work, MAX_WORK)
 
 
 async def require_node(object_store: ObjectStore, node_id: str) -> AQObject:
