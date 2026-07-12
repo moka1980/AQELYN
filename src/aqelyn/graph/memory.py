@@ -7,12 +7,22 @@ from collections.abc import Iterable, Sequence
 
 from aqelyn.conventions.errors import GraphQueryInvalid, ObjectNotFound
 from aqelyn.graph.graph import (
+    DEFAULT_IMPACT_RELATION_TYPES,
     normalize_limits,
     require_node,
     validate_direction,
     validate_max_paths,
+    validate_within_hops,
 )
-from aqelyn.graph.models import Direction, EdgeView, NodeView, Path, Subgraph
+from aqelyn.graph.models import (
+    Direction,
+    EdgeView,
+    ImpactHit,
+    ImpactResult,
+    NodeView,
+    Path,
+    Subgraph,
+)
 from aqelyn.objects.models import AQObject, AQRelationship
 from aqelyn.objects.store import ObjectStore
 
@@ -193,6 +203,137 @@ class InMemoryKnowledgeGraph:
                     continue
                 queue.append((adjacent_id, adjacent_node_ids, adjacent_edges))
         return found
+
+    async def impact(
+        self,
+        node_id: str,
+        *,
+        direction: str = "in",
+        relation_types: Sequence[str] | None = None,
+        max_depth: int = 6,
+        max_nodes: int = 10_000,
+    ) -> ImpactResult:
+        start = await self._visible_start(node_id)
+        normalized_direction = validate_direction(direction)
+        rel_types = (
+            DEFAULT_IMPACT_RELATION_TYPES if relation_types is None else frozenset(relation_types)
+        )
+        limits = normalize_limits(max_depth=max_depth, max_nodes=max_nodes)
+        hits: dict[str, ImpactHit] = {}
+        visited: set[str] = {start.id}
+        queue: deque[tuple[str, list[str], list[EdgeView]]] = deque([(start.id, [start.id], [])])
+        truncated = False
+
+        while queue:
+            current_id, node_ids, edges = queue.popleft()
+            current_edges = await self._visible_edges(
+                current_id,
+                tenant_id=start.tenant_id,
+                direction=normalized_direction,
+                relation_types=rel_types,
+            )
+            if len(edges) >= limits.max_depth:
+                if await self._has_unseen_neighbor(
+                    current_id, current_edges.values(), normalized_direction, visited
+                ):
+                    truncated = True
+                continue
+            for rel in sorted(current_edges.values(), key=lambda edge: edge.id):
+                for adjacent_id in _adjacent_ids(current_id, rel, normalized_direction):
+                    if adjacent_id in visited:
+                        continue
+                    adjacent = await self._visible_node(adjacent_id, tenant_id=start.tenant_id)
+                    if adjacent is None:
+                        continue
+                    if len(visited) >= limits.max_nodes:
+                        truncated = True
+                        continue
+                    adjacent_node_ids = [*node_ids, adjacent.id]
+                    adjacent_edges = [*edges, _edge_view(rel)]
+                    path = Path(
+                        node_ids=adjacent_node_ids,
+                        edges=adjacent_edges,
+                        length=len(adjacent_edges),
+                    )
+                    visited.add(adjacent.id)
+                    hits[adjacent.id] = ImpactHit(node=_node_view(adjacent), via=path)
+                    queue.append((adjacent.id, adjacent_node_ids, adjacent_edges))
+
+        return ImpactResult(
+            hits=[hits[node_id] for node_id in sorted(hits)],
+            truncated=truncated,
+        )
+
+    async def correlate(
+        self,
+        seed_ids: Sequence[str],
+        *,
+        within_hops: int = 2,
+        relation_types: Sequence[str] | None = None,
+        max_nodes: int = 10_000,
+    ) -> Subgraph:
+        if not seed_ids:
+            raise GraphQueryInvalid("seed_ids must not be empty")
+        depth_limit = validate_within_hops(within_hops)
+        limits = normalize_limits(max_depth=depth_limit, max_nodes=max_nodes)
+        rel_types = frozenset(relation_types) if relation_types is not None else None
+        seeds = sorted(
+            [await self._visible_start(seed_id) for seed_id in seed_ids],
+            key=lambda node: node.id,
+        )
+        nodes: dict[str, NodeView] = {}
+        edges: dict[str, EdgeView] = {}
+        visited: set[str] = set()
+        queue: deque[tuple[str, str | None, int]] = deque()
+        truncated = False
+
+        for seed in seeds:
+            if seed.id in visited:
+                continue
+            if len(nodes) >= limits.max_nodes:
+                truncated = True
+                continue
+            visited.add(seed.id)
+            nodes[seed.id] = _node_view(seed)
+            queue.append((seed.id, seed.tenant_id, 0))
+
+        while queue:
+            current_id, tenant_id, depth = queue.popleft()
+            current_edges = await self._visible_edges(
+                current_id,
+                tenant_id=tenant_id,
+                direction="both",
+                relation_types=rel_types,
+            )
+            if depth >= limits.max_depth:
+                if await self._has_unseen_neighbor(
+                    current_id, current_edges.values(), "both", visited
+                ):
+                    truncated = True
+                continue
+            for rel in sorted(current_edges.values(), key=lambda edge: edge.id):
+                edge_view = _edge_view(rel)
+                for adjacent_id in _adjacent_ids(current_id, rel, "both"):
+                    if adjacent_id in visited:
+                        if rel.from_id in nodes and rel.to_id in nodes:
+                            edges[edge_view.id] = edge_view
+                        continue
+                    adjacent = await self._visible_node(adjacent_id, tenant_id=tenant_id)
+                    if adjacent is None:
+                        continue
+                    if len(nodes) >= limits.max_nodes:
+                        truncated = True
+                        continue
+                    visited.add(adjacent.id)
+                    nodes[adjacent.id] = _node_view(adjacent)
+                    edges[edge_view.id] = edge_view
+                    queue.append((adjacent.id, tenant_id, depth + 1))
+
+        return Subgraph(
+            nodes=[nodes[node_id] for node_id in sorted(nodes)],
+            edges=[edges[edge_id] for edge_id in sorted(edges)],
+            truncated=truncated,
+        )
 
     async def explain_path(self, path: Path) -> list[dict[str, object]]:
         if path.length != len(path.edges) or len(path.node_ids) != len(path.edges) + 1:
