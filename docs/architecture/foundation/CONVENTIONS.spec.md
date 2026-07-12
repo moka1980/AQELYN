@@ -11,9 +11,11 @@ relies on. Other specs reference this rather than restating it.
 
 ## 1. Identifiers
 
-- Internal key: **UUIDv7** (time-ordered), app-generated (`uuid-utils`), stored
-  as PostgreSQL `uuid`.
-- Canonical external form: `{prefix}_{uuid-hex-without-dashes}`.
+- ID payload: **UUIDv7** (time-ordered), app-generated (`uuid-utils`).
+- Canonical and persisted ID form: `{prefix}_{uuid-hex-without-dashes}` stored
+  as PostgreSQL `text`. The prefix is part of the persisted key and foreign
+  keys; implementations MUST validate the prefix and UUIDv7 payload with
+  `parse_id` before persistence or cross-module reference.
 - IDs are **immutable**. Reserved prefixes:
 
 | Prefix | Family | Defined in |
@@ -61,8 +63,9 @@ manifests). Rules:
 
 ## 5. Tenancy convention
 
-- `tenant_id: uuid | null` on every tenant-owned record. **NULL = local /
-  single-tenant install.** Non-null = enterprise tenant.
+- `tenant_id: str | null` on every tenant-owned record, persisted as PostgreSQL
+  `text NULL`. **NULL = local / single-tenant install.** Non-null = enterprise
+  tenant and MUST validate as a UUID string.
 - Local mode scopes all queries to `tenant_id IS NULL`. Enterprise mode requires
   an explicit tenant scope (or admin cross-tenant scope) and rejects unscoped
   access. Cross-tenant references are forbidden.

@@ -63,7 +63,7 @@ timestamp anchoring (reserved, §4 D4).
 | Field | Type | Req | Description |
 |---|---|---|---|
 | `id` | ID (`evd_…`) | yes | Immutable identifier. |
-| `tenant_id` | UUID \| null | no | Owning tenant; NULL local. Defines the chain partition. |
+| `tenant_id` | str \| null | no | Owning tenant; NULL local; non-null validates as UUID string. Defines the chain partition. |
 | `evidence_type` | string | yes | Registered kind, e.g. `config.snapshot`, `network.observation`, `log.record`. |
 | `schema_version` | int | yes | Version of the content schema. |
 | `subject` | Subject | yes | Object(s) this evidence is about (reuses EA-0003 `Subject`). |
@@ -184,15 +184,15 @@ class EvidencePackage(BaseModel):
 
 ```sql
 CREATE TABLE aq_evidence (
-    id            uuid PRIMARY KEY,
-    tenant_id     uuid        NULL,
+    id            text PRIMARY KEY,
+    tenant_id     text        NULL,
     evidence_type text        NOT NULL,
     schema_version int        NOT NULL,
     subject       jsonb       NOT NULL,
     collected_at  timestamptz NOT NULL,
     recorded_at   timestamptz NOT NULL DEFAULT now(),
     collector     jsonb       NOT NULL,
-    source_id     uuid        NOT NULL,
+    source_id     text        NOT NULL,
     method        text        NOT NULL,
     content       jsonb       NULL,
     content_ref   jsonb       NULL,
@@ -213,7 +213,7 @@ CREATE INDEX ix_evidence_hash ON aq_evidence (content_hash);
 
 CREATE TABLE aq_evidence_custody (
     seq         bigserial PRIMARY KEY,
-    evidence_id uuid        NOT NULL,
+    evidence_id text        NOT NULL,
     action      text        NOT NULL CHECK (action IN ('read','export','package')),
     actor       jsonb       NOT NULL,
     at          timestamptz NOT NULL DEFAULT now(),
@@ -221,8 +221,8 @@ CREATE TABLE aq_evidence_custody (
 );
 
 CREATE TABLE aq_evidence_package (
-    id            uuid PRIMARY KEY,
-    tenant_id     uuid        NULL,
+    id            text PRIMARY KEY,
+    tenant_id     text        NULL,
     evidence_ids  jsonb       NOT NULL,
     manifest_hash text        NOT NULL,
     package_hash  text        NOT NULL,

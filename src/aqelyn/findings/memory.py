@@ -13,7 +13,12 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.events import Event, EventBus, Subject
 from aqelyn.findings.models import TRANSITIONS, AuditEntry, Finding, FindingQuery
-from aqelyn.findings.store import EvidenceExists, validate_finding
+from aqelyn.findings.store import (
+    EvidenceExists,
+    validate_evidence_refs,
+    validate_finding,
+    validate_finding_id,
+)
 
 
 class InMemoryFindingStore:
@@ -109,6 +114,7 @@ class InMemoryFindingStore:
         return copy.deepcopy(created)
 
     async def get(self, finding_id: str) -> Finding | None:
+        validate_finding_id(finding_id)
         f = self._by_id.get(finding_id)
         return copy.deepcopy(f) if f else None
 
@@ -142,6 +148,7 @@ class InMemoryFindingStore:
         note: str | None,
         expected_version: int,
     ) -> Finding:
+        validate_finding_id(finding_id)
         f = self._by_id.get(finding_id)
         if f is None:
             raise FindingNotFound(finding_id)
@@ -171,6 +178,8 @@ class InMemoryFindingStore:
     async def add_evidence(
         self, finding_id: str, evidence_ids: list[str], *, by: ActorRef, expected_version: int
     ) -> Finding:
+        validate_finding_id(finding_id)
+        validate_evidence_refs(evidence_ids)
         f = self._by_id.get(finding_id)
         if f is None:
             raise FindingNotFound(finding_id)

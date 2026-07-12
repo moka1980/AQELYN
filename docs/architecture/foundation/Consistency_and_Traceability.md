@@ -73,7 +73,8 @@ the Kernel (EA-0001), which is intentionally last and wires all others. ✔
 
 ### 3.6 Cross-cutting invariants honored by every spec
 
-- Tenancy: `tenant_id uuid | null`, NULL = local, cross-tenant refs rejected. ✔
+- Tenancy: `tenant_id str | null`, NULL = local, non-null UUID-validated,
+  cross-tenant refs rejected. ✔
 - Timestamps: UTC RFC3339 µs. ✔
 - Hashing: sha256 over CONVENTIONS §3 canonical JSON (EA-0004 packages/chain). ✔
 - Append-only audit surfaces: `aq_object_history`, `aq_event_log`, `aq_evidence`,

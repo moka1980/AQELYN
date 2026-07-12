@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from aqelyn.conventions import ActorRef
+from aqelyn.conventions import ActorRef, new_id, parse_id
 from aqelyn.conventions.errors import (
     EvidenceRequired,
     InvalidFindingTransition,
@@ -38,8 +38,8 @@ def _finding(**kw: Any) -> Finding:
         "why_it_matters": "Attackers can attempt to brute-force SSH.",
         "how_determined": "A TCP connect scan observed an open port 22.",
         "risk_of_inaction": "Unauthorized access is likely over time.",
-        "evidence_ids": ["evd_1"],
-        "affected_object_ids": ["obj_dev1"],
+        "evidence_ids": [new_id("evd")],
+        "affected_object_ids": [new_id("obj")],
         "remediation": Remediation(
             summary="Restrict SSH to trusted networks.",
             steps=["Add a firewall rule", "Verify access"],
@@ -65,11 +65,30 @@ async def test_finding_requires_evidence(finding_store: Any) -> None:
         await finding_store.raise_finding(_finding(evidence_ids=[]))
 
 
+async def test_finding_persisted_ids_are_typed(finding_store: Any) -> None:
+    saved = await finding_store.raise_finding(_finding())
+    assert parse_id(saved.id)[0] == "fnd"
+    assert all(parse_id(evidence_id)[0] == "evd" for evidence_id in saved.evidence_ids)
+    assert all(parse_id(object_id)[0] == "obj" for object_id in saved.affected_object_ids)
+
+
+async def test_finding_malformed_typed_id_rejected() -> None:
+    with pytest.raises(SchemaValidationError):
+        _finding(evidence_ids=["evd_not-a-uuid"])
+
+
+async def test_finding_non_uuid_tenant_rejected() -> None:
+    with pytest.raises(SchemaValidationError):
+        _finding(tenant_id="not-a-uuid")
+
+
 async def test_finding_dedup(finding_store: Any) -> None:
-    a = await finding_store.raise_finding(_finding(evidence_ids=["evd_1"]))
-    b = await finding_store.raise_finding(_finding(evidence_ids=["evd_2"]))
+    first_evidence_id = new_id("evd")
+    second_evidence_id = new_id("evd")
+    a = await finding_store.raise_finding(_finding(evidence_ids=[first_evidence_id]))
+    b = await finding_store.raise_finding(_finding(evidence_ids=[second_evidence_id]))
     assert a.id == b.id
-    assert set(b.evidence_ids) == {"evd_1", "evd_2"}
+    assert set(b.evidence_ids) == {first_evidence_id, second_evidence_id}
 
 
 async def test_finding_regression_reopen(finding_store: Any) -> None:
@@ -142,7 +161,7 @@ async def test_finding_evidence_exists() -> None:
 
     store = InMemoryFindingStore(evidence_exists=no)
     with pytest.raises(EvidenceRequired):
-        await store.raise_finding(_finding(evidence_ids=["evd_missing"]))
+        await store.raise_finding(_finding(evidence_ids=[new_id("evd")]))
 
 
 async def test_finding_query_by_severity(finding_store: Any) -> None:

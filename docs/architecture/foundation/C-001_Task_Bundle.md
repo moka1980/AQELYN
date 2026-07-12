@@ -9,12 +9,13 @@ has signed off each ticket against its spec.
 
 ---
 
-**BUILD STATUS: COMPLETE, PENDING ECR-0001 DECISION.** T0-T7 are implemented
-and green - with Postgres + Redis enabled, 89 tests pass and 1 is skipped,
-`ruff` + `mypy --strict` clean, and the C-001 walking skeleton (T7) runs end to
-end. Source is under `src/aqelyn/`, tests under `tests/`. The tickets below are
-retained as the specification of what was built and the acceptance criteria each
-satisfies.
+**BUILD STATUS: COMPLETE, ECR-0001 ACCEPTED (OPTION B).** T0-T7 are implemented
+and green. ECR-0001 reconciles typed-ID persistence as prefixed text with
+UUIDv7 payload validation and `tenant_id` as a UUID-validated string. With
+Postgres + Redis enabled, the C-001 gate passes; `ruff` + `mypy --strict` are
+clean; and the C-001 walking skeleton (T7) runs end to end. Source is under
+`src/aqelyn/`, tests under `tests/`. The tickets below are retained as the
+specification of what was built and the acceptance criteria each satisfies.
 
 ---
 

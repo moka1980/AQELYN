@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Protocol
 
-from aqelyn.conventions import ActorRef
+from aqelyn.conventions import ActorRef, require_typed_id
 from aqelyn.conventions.errors import EvidenceRequired, SchemaValidationError
 from aqelyn.findings.models import Finding, FindingQuery, Remediation
 
@@ -20,6 +20,15 @@ def validate_finding(f: Finding) -> None:
     _validate_remediation(f.remediation)
     if not f.evidence_ids:
         raise EvidenceRequired("finding requires at least one evidence reference")
+
+
+def validate_evidence_refs(evidence_ids: list[str]) -> None:
+    for evidence_id in evidence_ids:
+        require_typed_id(evidence_id, "evd", field="evidence_ids")
+
+
+def validate_finding_id(finding_id: str) -> str:
+    return require_typed_id(finding_id, "fnd", field="finding_id")
 
 
 def _validate_remediation(r: Remediation) -> None:

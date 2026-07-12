@@ -84,8 +84,8 @@ The one record serves all six levels without duplicating data:
 
 | Field | Type | Req | Description |
 |---|---|---|---|
-| `id` | ID (`fnd_…`) | yes | Immutable identifier. |
-| `tenant_id` | UUID \| null | no | Owning tenant; NULL local. |
+| `id` | ID (`fnd_…`) | yes | Immutable typed ID with UUIDv7 payload. |
+| `tenant_id` | str \| null | no | Owning tenant; NULL local; non-null validates as UUID string. |
 | `finding_type` | string | yes | Registered type `aqelyn.finding.<domain>.<slug>`. |
 | `schema_version` | int | yes | Type schema version. |
 | `dedup_key` | string | yes | Stable identity of the issue (for D3). |
@@ -231,8 +231,8 @@ class FindingStore(Protocol):
 
 ```sql
 CREATE TABLE aq_finding (
-    id                 uuid PRIMARY KEY,
-    tenant_id          uuid NULL,
+    id                 text PRIMARY KEY,
+    tenant_id          text NULL,
     finding_type       text NOT NULL,
     schema_version     int  NOT NULL,
     dedup_key          text NOT NULL,
@@ -260,18 +260,18 @@ CREATE UNIQUE INDEX uq_finding_dedup ON aq_finding (tenant_id, finding_type, ded
 CREATE INDEX ix_finding_status_sev ON aq_finding (tenant_id, status, severity_score DESC);
 
 CREATE TABLE aq_finding_evidence (
-    finding_id  uuid NOT NULL REFERENCES aq_finding(id),
-    evidence_id uuid NOT NULL,
+    finding_id  text NOT NULL REFERENCES aq_finding(id),
+    evidence_id text NOT NULL,
     PRIMARY KEY (finding_id, evidence_id)
 );
 CREATE TABLE aq_finding_asset (
-    finding_id uuid NOT NULL REFERENCES aq_finding(id),
-    object_id  uuid NOT NULL,
+    finding_id text NOT NULL REFERENCES aq_finding(id),
+    object_id  text NOT NULL,
     PRIMARY KEY (finding_id, object_id)
 );
 CREATE TABLE aq_finding_audit (
     seq         bigserial PRIMARY KEY,
-    finding_id  uuid NOT NULL REFERENCES aq_finding(id),
+    finding_id  text NOT NULL REFERENCES aq_finding(id),
     at          timestamptz NOT NULL DEFAULT now(),
     actor       jsonb NOT NULL,
     action      text NOT NULL,

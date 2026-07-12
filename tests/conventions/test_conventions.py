@@ -4,6 +4,8 @@ import io
 import json
 import logging
 
+import pytest
+
 from aqelyn.conventions import (
     ALL_ERROR_CODES,
     canonical_json,
@@ -27,6 +29,8 @@ def test_conv_id_roundtrip() -> None:
     assert is_valid(oid, "obj")
     assert not is_valid(oid, "evt")
     assert not is_valid("obj_notvalid")
+    with pytest.raises(ValueError, match="UUIDv7"):
+        parse_id("obj_0123456789abcdef0123456789abcdef")
 
 
 def test_conv_canonical_json_stable() -> None:
@@ -53,10 +57,11 @@ def test_conv_logging_redaction() -> None:
     logger.addHandler(handler)
     logger.setLevel("INFO")
     logger.propagate = False
-    logger.info("login", extra={"password": "hunter2", "tenant_id": "t1"})
+    tenant_id = "018f0000-0000-7000-8000-000000000001"
+    logger.info("login", extra={"password": "hunter2", "tenant_id": tenant_id})
     record = json.loads(stream.getvalue())
     assert record["password"] == "***"
-    assert record["tenant_id"] == "t1"
+    assert record["tenant_id"] == tenant_id
     assert record["msg"] == "login"
 
 

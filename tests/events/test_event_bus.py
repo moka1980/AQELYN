@@ -16,10 +16,13 @@ from aqelyn.events import Event, InMemoryEventBus, Subject
 from aqelyn.events.registry import EventTypeRegistry
 
 SYS = ActorRef(actor_type="system", actor_id="test")
+TENANT_A = "018f0000-0000-7000-8000-000000000001"
+TENANT_B = "018f0000-0000-7000-8000-000000000002"
 
 
 def _event(etype: str = "aqelyn.object.created", **kw: Any) -> Event:
     now = datetime.now(UTC)
+    object_id = new_id("obj")
     base: dict[str, Any] = {
         "id": new_id("evt"),
         "event_type": etype,
@@ -27,9 +30,9 @@ def _event(etype: str = "aqelyn.object.created", **kw: Any) -> Event:
         "occurred_at": now,
         "recorded_at": now,
         "producer": SYS,
-        "subject": Subject(object_ids=["obj_1"]),
+        "subject": Subject(object_ids=[object_id]),
         "payload": {"object_type": "generic"},
-        "partition_key": "obj_1",
+        "partition_key": object_id,
     }
     base.update(kw)
     return Event(**base)
@@ -138,9 +141,9 @@ async def test_bus_backpressure_raises() -> None:
 
 
 async def test_bus_cross_tenant_rejected() -> None:
-    bus = InMemoryEventBus(registry=EventTypeRegistry(), tenant_resolver=lambda _oid: "tenantA")
+    bus = InMemoryEventBus(registry=EventTypeRegistry(), tenant_resolver=lambda _oid: TENANT_A)
     with pytest.raises(CrossTenantEvent):
-        await bus.publish(_event(tenant_id="tenantB"))
+        await bus.publish(_event(tenant_id=TENANT_B))
 
 
 async def test_bus_publish_many_atomic() -> None:

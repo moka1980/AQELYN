@@ -29,6 +29,7 @@ from aqelyn.objects.store import (
     ObjectEventSink,
     dedupe_sources,
     merge_attributes,
+    validate_object_id,
 )
 
 _COLS = (
@@ -178,6 +179,7 @@ class PostgresObjectStore:
 
     # --- interface ---
     async def get(self, object_id: str, *, resolve_merged: bool = True) -> AQObject | None:
+        validate_object_id(object_id)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(f"SELECT {_COLS} FROM aq_object WHERE id=$1", object_id)
             if row is None:
@@ -333,6 +335,7 @@ class PostgresObjectStore:
     async def relationships(
         self, object_id: str, *, direction: str = "both", relation_type: str | None = None
     ) -> list[AQRelationship]:
+        validate_object_id(object_id)
         clauses = ["lifecycle_state = 'active'"]
         args: list[Any] = []
         if direction == "out":
@@ -360,6 +363,8 @@ class PostgresObjectStore:
         return result
 
     async def merge(self, survivor_id: str, duplicate_id: str, *, by: ActorRef) -> AQObject:
+        validate_object_id(survivor_id, field="survivor_id")
+        validate_object_id(duplicate_id, field="duplicate_id")
         async with self._pool.acquire() as conn, conn.transaction():
             srow = await conn.fetchrow(
                 f"SELECT {_COLS} FROM aq_object WHERE id=$1 FOR UPDATE", survivor_id
@@ -405,6 +410,7 @@ class PostgresObjectStore:
     async def set_state(
         self, object_id: str, state: str, *, by: ActorRef, expected_version: int
     ) -> AQObject:
+        validate_object_id(object_id)
         async with self._pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
                 f"SELECT {_COLS} FROM aq_object WHERE id=$1 FOR UPDATE", object_id
@@ -428,6 +434,7 @@ class PostgresObjectStore:
             return obj
 
     async def history(self, object_id: str) -> list[dict[str, Any]]:
+        validate_object_id(object_id)
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 "SELECT seq, version, snapshot, changed_at, changed_by FROM aq_object_history "

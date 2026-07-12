@@ -72,10 +72,10 @@ and the observability/metrics backend (own ADR later).
 
 | Field | Type | Req | Description |
 |---|---|---|---|
-| `id` | ID (`evt_…`) | yes | Immutable UUIDv7 identifier. |
+| `id` | ID (`evt_…`) | yes | Immutable typed ID with UUIDv7 payload. |
 | `event_type` | string | yes | Registered namespaced key (§7). |
 | `schema_version` | int | yes | Version of the payload schema. |
-| `tenant_id` | UUID \| null | no | Owning tenant; **NULL in local mode** (consistent with EA-0002). |
+| `tenant_id` | str \| null | no | Owning tenant; **NULL in local mode**; non-null validates as UUID string. |
 | `occurred_at` | timestamp (UTC) | yes | When the real-world thing happened. |
 | `recorded_at` | timestamp (UTC) | yes | When the bus accepted the event. |
 | `producer` | ActorRef | yes | Who/what emitted it (reuses EA-0002 `ActorRef`). |
@@ -227,10 +227,10 @@ groups for competing consumers, `XAUTOCLAIM` for stuck entries.
 ```sql
 CREATE TABLE aq_event_log (
     seq             bigserial PRIMARY KEY,     -- global arrival order (audit only)
-    id              uuid        NOT NULL UNIQUE,-- event id (dedup)
+    id              text        NOT NULL UNIQUE,-- evt_<uuidv7hex> event id (dedup)
     event_type      text        NOT NULL,
     schema_version  int         NOT NULL,
-    tenant_id       uuid        NULL,
+    tenant_id       text        NULL,
     partition_key   text        NOT NULL,
     occurred_at     timestamptz NOT NULL,
     recorded_at     timestamptz NOT NULL DEFAULT now(),
@@ -238,7 +238,7 @@ CREATE TABLE aq_event_log (
     subject         jsonb       NOT NULL,
     payload         jsonb       NOT NULL,
     correlation_id  text        NULL,
-    causation_id    uuid        NULL,
+    causation_id    text        NULL,
     trace_id        text        NULL
 );
 CREATE INDEX ix_eventlog_type_time   ON aq_event_log (event_type, recorded_at);
@@ -248,7 +248,7 @@ CREATE INDEX ix_eventlog_correlation ON aq_event_log (correlation_id);
 
 CREATE TABLE aq_event_dlq (
     seq          bigserial PRIMARY KEY,
-    id           uuid        NOT NULL,
+    id           text        NOT NULL,
     event_type   text        NOT NULL,
     envelope     jsonb       NOT NULL,   -- full event
     error        text        NOT NULL,

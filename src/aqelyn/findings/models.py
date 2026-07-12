@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from aqelyn.conventions import ActorRef
+from aqelyn.conventions import ActorRef, require_tenant_id, require_typed_id
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Status = Literal[
@@ -68,6 +68,26 @@ class Finding(BaseModel):
     audit: list[AuditEntry] = Field(default_factory=list)
     version: int = 1
 
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        return require_typed_id(value, "fnd", field="id", allow_empty=True)
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("evidence_ids")
+    @classmethod
+    def _evidence_ids(cls, values: list[str]) -> list[str]:
+        return [require_typed_id(value, "evd", field="evidence_ids") for value in values]
+
+    @field_validator("affected_object_ids")
+    @classmethod
+    def _affected_object_ids(cls, values: list[str]) -> list[str]:
+        return [require_typed_id(value, "obj", field="affected_object_ids") for value in values]
+
 
 class FindingQuery(BaseModel):
     tenant_id: str | None = None
@@ -77,6 +97,18 @@ class FindingQuery(BaseModel):
     affected_object_id: str | None = None
     limit: int = 100
     cursor: str | None = None
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("affected_object_id")
+    @classmethod
+    def _affected_object_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "obj", field="affected_object_id")
 
 
 TRANSITIONS: dict[str, set[str]] = {

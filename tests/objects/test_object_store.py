@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from aqelyn.conventions import ActorRef
+from aqelyn.conventions import ActorRef, new_id, parse_id
 from aqelyn.conventions.errors import (
     CrossTenantReference,
     MissingProvenance,
@@ -34,7 +34,7 @@ def _obj(**kw: Any) -> AQObject:
         "object_type": "generic",
         "schema_version": 1,
         "display_name": "thing",
-        "sources": [SourceRef(source_id="src_1", observed_at=now, method="test")],
+        "sources": [SourceRef(source_id=new_id("src"), observed_at=now, method="test")],
         "first_seen_at": now,
         "last_seen_at": now,
         "created_at": now,
@@ -52,6 +52,23 @@ async def test_uom_id_assigned_and_immutable(object_store: Any) -> None:
     again = await object_store.get(saved.id)
     assert again is not None
     assert again.id == saved.id
+
+
+async def test_uom_persisted_ids_are_typed(object_store: Any) -> None:
+    saved = await object_store.upsert(_obj())
+    assert parse_id(saved.id)[0] == "obj"
+    assert all(parse_id(source.source_id)[0] == "src" for source in saved.sources)
+
+
+async def test_uom_malformed_typed_id_rejected() -> None:
+    now = datetime.now(UTC)
+    with pytest.raises(SchemaValidationError):
+        SourceRef(source_id="src_not-a-uuid", observed_at=now, method="test")
+
+
+async def test_uom_non_uuid_tenant_rejected() -> None:
+    with pytest.raises(SchemaValidationError):
+        _obj(tenant_id="not-a-uuid")
 
 
 async def test_uom_unknown_object_type_rejected(object_store: Any) -> None:
@@ -146,8 +163,8 @@ async def test_uom_history_append_only(object_store: Any) -> None:
 
 async def test_uom_cross_tenant_edge_rejected() -> None:
     store = InMemoryObjectStore(registry=ObjectTypeRegistry(), mode="enterprise")
-    a = await store.upsert(_obj(tenant_id="t1"))
-    b = await store.upsert(_obj(tenant_id="t2"))
+    a = await store.upsert(_obj(tenant_id="018f0000-0000-7000-8000-000000000001"))
+    b = await store.upsert(_obj(tenant_id="018f0000-0000-7000-8000-000000000002"))
     with pytest.raises(CrossTenantReference):
         await store.relate(
             AQRelationship(

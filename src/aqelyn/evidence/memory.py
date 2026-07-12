@@ -18,7 +18,13 @@ from aqelyn.evidence.models import (
     EvidenceRecord,
     VerifyResult,
 )
-from aqelyn.evidence.store import compute_record_hash
+from aqelyn.evidence.store import (
+    compute_record_hash,
+    validate_chain_tenant,
+    validate_evidence_id,
+    validate_evidence_ids,
+    validate_package_id,
+)
 
 
 class InMemoryBlobStore:
@@ -92,6 +98,7 @@ class InMemoryEvidenceStore:
         )
 
     async def get(self, evidence_id: str, *, actor: ActorRef) -> EvidenceRecord:
+        validate_evidence_id(evidence_id)
         rec = self._by_id.get(evidence_id)
         if rec is None:
             raise EvidenceNotFound(evidence_id)
@@ -106,12 +113,14 @@ class InMemoryEvidenceStore:
         return rec
 
     async def exists(self, evidence_id: str) -> bool:
+        validate_evidence_id(evidence_id)
         return evidence_id in self._by_id
 
     def custody_of(self, evidence_id: str) -> list[dict[str, Any]]:
         return [c for c in self._custody if c["evidence_id"] == evidence_id]
 
     async def verify(self, evidence_id: str) -> VerifyResult:
+        validate_evidence_id(evidence_id)
         rec = self._by_id.get(evidence_id)
         if rec is None:
             raise EvidenceNotFound(evidence_id)
@@ -127,6 +136,7 @@ class InMemoryEvidenceStore:
     async def verify_chain(
         self, *, tenant_id: str | None, from_seq: int = 0, to_seq: int | None = None
     ) -> VerifyResult:
+        validate_chain_tenant(tenant_id)
         chain = self._chains.get(tenant_id, [])
         prev: str | None = None
         for rec in chain:
@@ -146,6 +156,7 @@ class InMemoryEvidenceStore:
     async def package(
         self, evidence_ids: list[str], *, by: ActorRef, reason: str
     ) -> EvidencePackage:
+        validate_evidence_ids(evidence_ids)
         tenant: str | None = None
         hashes: list[str] = []
         for eid in evidence_ids:
@@ -183,6 +194,7 @@ class InMemoryEvidenceStore:
         return pkg
 
     async def verify_package(self, package_id: str) -> VerifyResult:
+        validate_package_id(package_id)
         pkg = self._packages.get(package_id)
         if pkg is None:
             raise EvidenceNotFound(package_id)

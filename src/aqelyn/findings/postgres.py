@@ -18,7 +18,12 @@ from aqelyn.conventions.errors import (
 from aqelyn.events import Event, EventBus, Subject
 from aqelyn.findings.ddl import DDL
 from aqelyn.findings.models import TRANSITIONS, AuditEntry, Finding, FindingQuery
-from aqelyn.findings.store import EvidenceExists, validate_finding
+from aqelyn.findings.store import (
+    EvidenceExists,
+    validate_evidence_refs,
+    validate_finding,
+    validate_finding_id,
+)
 
 _FINDING_COLS = (
     "id, tenant_id, finding_type, schema_version, dedup_key, title, severity, severity_score, "
@@ -277,6 +282,7 @@ class PostgresFindingStore:
         return result
 
     async def get(self, finding_id: str) -> Finding | None:
+        validate_finding_id(finding_id)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 f"SELECT {_FINDING_COLS} FROM aq_finding WHERE id=$1", finding_id
@@ -327,6 +333,7 @@ class PostgresFindingStore:
         note: str | None,
         expected_version: int,
     ) -> Finding:
+        validate_finding_id(finding_id)
         async with self._pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
                 f"SELECT {_FINDING_COLS} FROM aq_finding WHERE id=$1 FOR UPDATE", finding_id
@@ -361,6 +368,8 @@ class PostgresFindingStore:
     async def add_evidence(
         self, finding_id: str, evidence_ids: list[str], *, by: ActorRef, expected_version: int
     ) -> Finding:
+        validate_finding_id(finding_id)
+        validate_evidence_refs(evidence_ids)
         await self._check_evidence_ids(evidence_ids)
         async with self._pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(

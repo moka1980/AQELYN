@@ -21,6 +21,7 @@ from aqelyn.objects.store import (
     ObjectEventSink,
     dedupe_sources,
     merge_attributes,
+    validate_object_id,
 )
 
 
@@ -84,6 +85,7 @@ class InMemoryObjectStore:
 
     # --- interface ---
     async def get(self, object_id: str, *, resolve_merged: bool = True) -> AQObject | None:
+        validate_object_id(object_id)
         obj = self._objs.get(object_id)
         if obj is None:
             return None
@@ -197,6 +199,7 @@ class InMemoryObjectStore:
     async def relationships(
         self, object_id: str, *, direction: str = "both", relation_type: str | None = None
     ) -> list[AQRelationship]:
+        validate_object_id(object_id)
         out: list[AQRelationship] = []
         for rel in self._rels.values():
             if rel.lifecycle_state != "active":
@@ -211,6 +214,8 @@ class InMemoryObjectStore:
         return out
 
     async def merge(self, survivor_id: str, duplicate_id: str, *, by: ActorRef) -> AQObject:
+        validate_object_id(survivor_id, field="survivor_id")
+        validate_object_id(duplicate_id, field="duplicate_id")
         survivor = self._objs.get(survivor_id)
         duplicate = self._objs.get(duplicate_id)
         if survivor is None or duplicate is None:
@@ -249,6 +254,7 @@ class InMemoryObjectStore:
     async def set_state(
         self, object_id: str, state: str, *, by: ActorRef, expected_version: int
     ) -> AQObject:
+        validate_object_id(object_id)
         obj = self._objs.get(object_id)
         if obj is None:
             raise ObjectNotFound(object_id)
@@ -268,4 +274,5 @@ class InMemoryObjectStore:
         return copy.deepcopy(obj)
 
     async def history(self, object_id: str) -> list[dict[str, Any]]:
+        validate_object_id(object_id)
         return list(self._history.get(object_id, []))

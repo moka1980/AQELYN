@@ -59,13 +59,13 @@ published -> evidence recorded -> finding raised -> healthy -> stop.
 |---|---|
 | [Consistency & Traceability](Consistency_and_Traceability.md) | Cross-spec consistency check (pass) + Charter→spec traceability matrix. |
 | [C-001 Task Bundle](C-001_Task_Bundle.md) | Ordered build tickets (T0–T7) for Codex; review protocol for Claude Code. |
-| [ECR-0001 Identifier Storage Representation](ECR-0001-identifier-storage-representation.md) | Proposed change request for the C-001 UUID-vs-text persistence decision. |
+| [ECR-0001 Identifier Storage Representation](ECR-0001-identifier-storage-representation.md) | Accepted Option B decision for C-001 typed-ID text persistence and UUID-validated tenant strings. |
 
 ## Status
 
-All specs are **Accepted**. The C-001 foundation is **implemented and green**
-except for proposed ECR-0001, which must be accepted or rejected before final
-foundation sign-off. See `../../..` source under `src/aqelyn/` and the test
-suite under `tests/`. With Postgres + Redis enabled, 89 tests pass and 1 is
-skipped; `ruff` + `mypy --strict` clean; the C-001 walking skeleton runs end to
-end.
+All specs are **Accepted**. ECR-0001 is **Accepted (Option B)**: typed IDs are
+persisted as full prefixed text values with UUIDv7 payload validation, and
+non-null `tenant_id` values are UUID-validated strings. See `../../..` source
+under `src/aqelyn/` and the test suite under `tests/`. With Postgres + Redis
+enabled, the full C-001 gate passes; `ruff` + `mypy --strict` are clean; the
+C-001 walking skeleton runs end to end.

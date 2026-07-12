@@ -6,7 +6,11 @@ Internal key is UUIDv7 (time-ordered); canonical external form is
 
 from __future__ import annotations
 
+import uuid
+
 import uuid_utils
+
+from aqelyn.conventions.errors import SchemaValidationError
 
 # Reserved prefixes -> family (CONVENTIONS §1). One owner per prefix.
 PREFIXES: dict[str, str] = {
@@ -38,8 +42,34 @@ def parse_id(value: str) -> tuple[str, str]:
     prefix, _, hexpart = value.partition("_")
     if prefix not in PREFIXES or len(hexpart) != 32:
         raise ValueError(f"malformed typed id: {value!r}")
-    int(hexpart, 16)  # raises ValueError if not hex
+    parsed = uuid.UUID(hex=hexpart)
+    if parsed.version != 7:
+        raise ValueError(f"typed id payload must be UUIDv7: {value!r}")
     return prefix, hexpart
+
+
+def require_typed_id(value: str, prefix: str, *, field: str, allow_empty: bool = False) -> str:
+    """Validate a typed id field and return the original value."""
+    if allow_empty and value == "":
+        return value
+    try:
+        parsed_prefix, _ = parse_id(value)
+    except ValueError as exc:
+        raise SchemaValidationError(f"{field} must be a valid {prefix}_ typed id") from exc
+    if parsed_prefix != prefix:
+        raise SchemaValidationError(f"{field} must use {prefix}_ prefix")
+    return value
+
+
+def require_tenant_id(value: str | None, *, field: str = "tenant_id") -> str | None:
+    """Validate a tenant id while preserving NULL/local-mode semantics."""
+    if value is None:
+        return None
+    try:
+        uuid.UUID(value)
+    except ValueError as exc:
+        raise SchemaValidationError(f"{field} must be a UUID string or null") from exc
+    return value
 
 
 def is_valid(value: str, prefix: str | None = None) -> bool:

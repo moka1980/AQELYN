@@ -16,7 +16,13 @@ from aqelyn.conventions.errors import (
 from aqelyn.events import Event, EventBus, Subject
 from aqelyn.evidence.ddl import DDL
 from aqelyn.evidence.models import EvidencePackage, EvidenceRecord, VerifyResult
-from aqelyn.evidence.store import compute_record_hash
+from aqelyn.evidence.store import (
+    compute_record_hash,
+    validate_chain_tenant,
+    validate_evidence_id,
+    validate_evidence_ids,
+    validate_package_id,
+)
 
 _COLS = (
     "id, tenant_id, evidence_type, schema_version, subject, collected_at, recorded_at, "
@@ -128,6 +134,7 @@ class PostgresEvidenceStore:
         return rec
 
     async def get(self, evidence_id: str, *, actor: ActorRef) -> EvidenceRecord:
+        validate_evidence_id(evidence_id)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(f"SELECT {_COLS} FROM aq_evidence WHERE id=$1", evidence_id)
             if row is None:
@@ -141,6 +148,7 @@ class PostgresEvidenceStore:
         return _row(row)
 
     async def custody_count(self, evidence_id: str) -> int:
+        validate_evidence_id(evidence_id)
         async with self._pool.acquire() as conn:
             n = await conn.fetchval(
                 "SELECT count(*) FROM aq_evidence_custody WHERE evidence_id=$1", evidence_id
@@ -148,6 +156,7 @@ class PostgresEvidenceStore:
         return int(n)
 
     async def verify(self, evidence_id: str) -> VerifyResult:
+        validate_evidence_id(evidence_id)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(f"SELECT {_COLS} FROM aq_evidence WHERE id=$1", evidence_id)
         if row is None:
@@ -165,6 +174,7 @@ class PostgresEvidenceStore:
     async def verify_chain(
         self, *, tenant_id: str | None, from_seq: int = 0, to_seq: int | None = None
     ) -> VerifyResult:
+        validate_chain_tenant(tenant_id)
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 f"SELECT {_COLS} FROM aq_evidence WHERE tenant_id IS NOT DISTINCT FROM $1 "
@@ -190,6 +200,7 @@ class PostgresEvidenceStore:
     async def package(
         self, evidence_ids: list[str], *, by: ActorRef, reason: str
     ) -> EvidencePackage:
+        validate_evidence_ids(evidence_ids)
         async with self._pool.acquire() as conn, conn.transaction():
             tenant: str | None = None
             hashes: list[str] = []
@@ -240,6 +251,7 @@ class PostgresEvidenceStore:
         return pkg
 
     async def verify_package(self, package_id: str) -> VerifyResult:
+        validate_package_id(package_id)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT evidence_ids, manifest_hash, reason FROM aq_evidence_package WHERE id=$1",

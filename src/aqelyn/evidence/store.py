@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from aqelyn.conventions import ActorRef, sha256_hex
+from aqelyn.conventions import ActorRef, require_tenant_id, require_typed_id, sha256_hex
 from aqelyn.evidence.models import (
     BlobRef,
     EvidencePackage,
@@ -17,6 +17,23 @@ def compute_record_hash(record: dict[str, Any], prev_hash: str | None) -> str:
     """record_hash = sha256(canonical(record without record_hash) || prev_hash)."""
     body = {k: v for k, v in record.items() if k != "record_hash"}
     return sha256_hex({"body": body, "prev": prev_hash})
+
+
+def validate_evidence_id(value: str, *, field: str = "evidence_id") -> str:
+    return require_typed_id(value, "evd", field=field)
+
+
+def validate_package_id(value: str, *, field: str = "package_id") -> str:
+    return require_typed_id(value, "pkg", field=field)
+
+
+def validate_evidence_ids(values: list[str]) -> None:
+    for value in values:
+        validate_evidence_id(value, field="evidence_ids")
+
+
+def validate_chain_tenant(tenant_id: str | None) -> None:
+    require_tenant_id(tenant_id)
 
 
 class BlobStore(Protocol):

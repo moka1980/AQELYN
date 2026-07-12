@@ -101,7 +101,7 @@ async def test_kernel_dependency_injection() -> None:
     # object store's sink publishes to the SAME injected bus
     from datetime import UTC, datetime
 
-    from aqelyn.conventions import ActorRef
+    from aqelyn.conventions import ActorRef, new_id
     from aqelyn.objects import AQObject, SourceRef
 
     now = datetime.now(UTC)
@@ -112,7 +112,7 @@ async def test_kernel_dependency_injection() -> None:
             object_type="generic",
             schema_version=1,
             display_name="x",
-            sources=[SourceRef(source_id="src_1", observed_at=now, method="t")],
+            sources=[SourceRef(source_id=new_id("src"), observed_at=now, method="t")],
             first_seen_at=now,
             last_seen_at=now,
             created_at=now,

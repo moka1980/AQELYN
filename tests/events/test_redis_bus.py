@@ -15,6 +15,7 @@ SYS = ActorRef(actor_type="system", actor_id="test")
 
 def _event() -> Event:
     now = datetime.now(UTC)
+    object_id = new_id("obj")
     return Event(
         id=new_id("evt"),
         event_type="aqelyn.object.created",
@@ -22,9 +23,9 @@ def _event() -> Event:
         occurred_at=now,
         recorded_at=now,
         producer=SYS,
-        subject=Subject(object_ids=["obj_1"]),
+        subject=Subject(object_ids=[object_id]),
         payload={"object_type": "generic"},
-        partition_key="obj_1",
+        partition_key=object_id,
     )
 
 

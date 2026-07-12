@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from aqelyn.conventions import ActorRef
-from aqelyn.conventions.errors import EvidenceNotFound
+from aqelyn.conventions import ActorRef, new_id, parse_id
+from aqelyn.conventions.errors import EvidenceNotFound, SchemaValidationError
 from aqelyn.events import InMemoryEventBus, Subject
 from aqelyn.evidence import (
     EvidenceRecord,
@@ -23,11 +23,11 @@ def _rec(**kw: Any) -> EvidenceRecord:
         "id": "",
         "evidence_type": "config.snapshot",
         "schema_version": 1,
-        "subject": Subject(object_ids=["obj_1"]),
+        "subject": Subject(object_ids=[new_id("obj")]),
         "collected_at": now,
         "recorded_at": now,
         "collector": SYS,
-        "source_id": "src_1",
+        "source_id": new_id("src"),
         "method": "test",
         "content": {"k": "v"},
         "content_hash": "",
@@ -55,9 +55,24 @@ async def test_evd_content_hash(evidence_store: Any) -> None:
     assert (await evidence_store.verify(r.id)).ok
 
 
-async def test_evd_content_xor_ref() -> None:
-    from aqelyn.conventions.errors import SchemaValidationError
+async def test_evd_persisted_ids_are_typed(evidence_store: Any) -> None:
+    r = await evidence_store.add(_rec())
+    assert parse_id(r.id)[0] == "evd"
+    assert parse_id(r.source_id)[0] == "src"
+    assert all(parse_id(object_id)[0] == "obj" for object_id in r.subject.object_ids)
 
+
+async def test_evd_malformed_typed_id_rejected() -> None:
+    with pytest.raises(SchemaValidationError):
+        _rec(source_id="src_not-a-uuid")
+
+
+async def test_evd_non_uuid_tenant_rejected() -> None:
+    with pytest.raises(SchemaValidationError):
+        _rec(tenant_id="not-a-uuid")
+
+
+async def test_evd_content_xor_ref() -> None:
     with pytest.raises(SchemaValidationError):
         _rec(content=None, content_ref=None)
 
@@ -120,4 +135,4 @@ async def test_evd_blob_integrity() -> None:
 
 async def test_evd_not_found(evidence_store: Any) -> None:
     with pytest.raises(EvidenceNotFound):
-        await evidence_store.verify("evd_missing")
+        await evidence_store.verify(new_id("evd"))

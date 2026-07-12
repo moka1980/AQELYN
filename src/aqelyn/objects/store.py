@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
-from aqelyn.conventions import ActorRef
+from aqelyn.conventions import ActorRef, require_typed_id
 from aqelyn.objects.models import AQObject, AQRelationship, ObjectQuery
 
 
@@ -53,6 +53,10 @@ def merge_attributes(base: dict[str, Any], incoming: dict[str, Any]) -> dict[str
     out = dict(base)
     out.update(incoming)
     return out
+
+
+def validate_object_id(value: str, *, field: str = "object_id") -> str:
+    return require_typed_id(value, "obj", field=field)
 
 
 def dedupe_sources(items: Sequence[Any]) -> list[Any]:

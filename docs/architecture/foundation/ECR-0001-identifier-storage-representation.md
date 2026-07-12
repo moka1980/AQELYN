@@ -1,17 +1,18 @@
 # ECR-0001 - Identifier and Tenant Storage Representation
 
-**Status:** Proposed
+**Status:** Accepted - Option B
 **Raised:** 2026-07-12
+**Accepted:** 2026-07-12
 **Raised by:** Codex, from Claude Code C-001 review finding
 **Scope:** C-001 Foundation Runtime; CONVENTIONS; EA-0002; EA-0003; EA-0004; Finding model; EA-0001 wiring
 
 ## 1. Summary
 
-C-001 currently persists AQELYN typed identifiers and `tenant_id` values as
-PostgreSQL `text`, while the accepted CONVENTIONS spec says internal keys are
-UUIDv7 values stored as PostgreSQL `uuid`, and tenant IDs are `uuid | null`.
-The implementation is internally coherent, but it diverges from the binding
-specs and must be resolved by an explicit owner decision.
+C-001 persists AQELYN typed identifiers as full canonical strings
+(`{prefix}_{uuidv7hex}`) in PostgreSQL `text` columns. ECR-0001 accepts that
+representation and amends the foundation specs to match it. `tenant_id` remains
+`str | null`: `NULL` means local mode, and any non-null value MUST validate as a
+UUID string.
 
 ## 2. Evidence
 
@@ -24,14 +25,15 @@ Binding specs:
 - The persistence sections in the foundation specs use UUID-typed IDs and
   tenant IDs in their SQL examples.
 
-Implementation:
+Original implementation finding:
 
 - `src/aqelyn/conventions/ids.py` mints canonical external identifiers such as
   `obj_<uuidhex>` and `fnd_<uuidhex>`.
 - Postgres DDL files persist those canonical external identifiers directly as
   `text` primary keys and foreign keys.
 - Postgres DDL files persist `tenant_id` as `text NULL`.
-- In-memory tests use simple tenant strings such as `t1` and `t2`.
+- Older in-memory tests used simple tenant strings such as `t1` and `t2`; these
+  have been replaced with UUID strings.
 
 ## 3. Why It Matters
 
@@ -72,8 +74,8 @@ Risks:
 Amend CONVENTIONS and the foundation persistence specs to state that the
 canonical persisted key for C-001 typed IDs is the full external form
 `{prefix}_{uuidhex}` stored as `text`, while the UUIDv7 payload remains mandatory
-inside the typed ID. Also explicitly decide whether `tenant_id` is an opaque text
-scope key for C-001 or a UUID string that must validate as UUID.
+inside the typed ID. `tenant_id` is a UUID string that must validate as UUID
+when non-null.
 
 Required follow-up:
 
@@ -100,13 +102,12 @@ Risks:
 
 ## 5. Recommendation
 
-Approve Option B for C-001, with a strict validation requirement:
+Option B is accepted for C-001, with a strict validation requirement:
 
-- Typed artifact IDs remain full canonical strings in storage, but the UUIDv7
+- Typed artifact IDs remain full canonical strings in storage, and the UUIDv7
   payload inside them must validate through `parse_id`.
-- `tenant_id` must be decided explicitly before EA-0005 begins. If the owner
-  wants enterprise tenants to be UUIDs, keep API type `str` but validate UUID
-  shape and update tests away from `t1`/`t2`.
+- `tenant_id` stays nullable for local mode. Non-null values keep API/model type
+  `str`, but must validate as UUID strings before persistence or query use.
 
 This recommendation preserves the green C-001 implementation while making the
 convention explicit and reviewable.
@@ -124,6 +125,14 @@ PR that:
 
 ## 7. Current Disposition
 
-No runtime changes are authorized by this ECR while it is Proposed. C-001 may be
-considered functionally green, but final foundation sign-off should wait for the
-owner to approve Option A or Option B and for the resulting PR to pass review.
+Accepted Option B is implemented in this PR:
+
+- `CONVENTIONS.spec.md` sections 1 and 5 define persisted typed IDs as text and
+  `tenant_id` as a UUID-validated string.
+- EA-0002, EA-0003, EA-0004, and the Finding model SQL examples use `text` for
+  typed IDs, typed-ID foreign keys, and `tenant_id`.
+- Runtime models validate typed IDs through `parse_id` and reject malformed
+  `tenant_id` values with `SchemaValidationError`.
+- Tests cover persisted typed IDs, malformed typed ID rejection, malformed
+  tenant rejection, and replacement of placeholder test tenants with UUID
+  strings.

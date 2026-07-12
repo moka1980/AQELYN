@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from aqelyn.conventions import ActorRef
+from aqelyn.conventions import ActorRef, require_tenant_id, require_typed_id
 
 LifecycleState = Literal["active", "archived", "merged", "deleted"]
 
@@ -22,6 +22,18 @@ class SourceRef(BaseModel):
     evidence_id: str | None = None
     observed_at: datetime
     method: str
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str) -> str:
+        return require_typed_id(value, "src", field="source_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "evd", field="evidence_id")
 
 
 class AQObject(BaseModel):
@@ -45,6 +57,23 @@ class AQObject(BaseModel):
     created_by: ActorRef
     updated_by: ActorRef
 
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        return require_typed_id(value, "obj", field="id", allow_empty=True)
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("merged_into")
+    @classmethod
+    def _merged_into(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "obj", field="merged_into")
+
 
 class AQRelationship(BaseModel):
     id: str
@@ -62,6 +91,21 @@ class AQRelationship(BaseModel):
     created_by: ActorRef
     updated_by: ActorRef
 
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        return require_typed_id(value, "rel", field="id", allow_empty=True)
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("from_id", "to_id")
+    @classmethod
+    def _object_ref(cls, value: str) -> str:
+        return require_typed_id(value, "obj", field="relationship endpoint")
+
 
 class ObjectQuery(BaseModel):
     tenant_id: str | None = None
@@ -71,3 +115,8 @@ class ObjectQuery(BaseModel):
     include_states: tuple[str, ...] = ("active", "archived")
     limit: int = 100
     cursor: str | None = None
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)

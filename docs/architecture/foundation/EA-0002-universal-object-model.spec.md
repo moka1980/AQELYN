@@ -68,10 +68,10 @@ language (EA-0005), and any collection/scanning logic.
 
 ## 5. Identifiers
 
-- Internal primary key: **UUIDv7** (time-ordered), generated in the application
-  (dependency: `uuid-utils`), stored natively as PostgreSQL `uuid`.
-- Canonical external form: a **type-prefixed string** for readability, safety at
-  API boundaries, and log grep-ability:
+- ID payload: **UUIDv7** (time-ordered), generated in the application
+  (dependency: `uuid-utils`).
+- Canonical and persisted form: a **type-prefixed string** for readability,
+  safety at API boundaries, and log grep-ability:
 
   ```
   {prefix}_{uuid-hex-without-dashes}
@@ -99,7 +99,7 @@ Every AQObject has these fields regardless of type:
 | `id` | ID (`obj_…`) | yes | Immutable primary identifier (§5). |
 | `object_type` | string | yes | Registered type key (e.g. `device`). |
 | `schema_version` | int | yes | Version of this object_type's attribute schema. |
-| `tenant_id` | UUID \| null | no | Owning tenant; **NULL in local mode** (D2). |
+| `tenant_id` | str \| null | no | Owning tenant; **NULL in local mode**; non-null validates as UUID string (D2). |
 | `display_name` | string | yes | Human-readable label (charter: understandable output). |
 | `attributes` | object (JSONB) | yes | Type-specific fields, validated by the type's schema. |
 | `labels` | map<string,string> | no | Free-form key/value tags for grouping/filtering. |
@@ -284,10 +284,10 @@ class ObjectStore(Protocol):
 
 ```sql
 CREATE TABLE aq_object (
-    id              uuid PRIMARY KEY,               -- UUIDv7
+    id              text PRIMARY KEY,               -- obj_<uuidv7hex>
     object_type     text        NOT NULL,
     schema_version  int         NOT NULL,
-    tenant_id       uuid        NULL,               -- NULL = local mode (D2)
+    tenant_id       text        NULL,               -- NULL = local mode; non-null UUID string (D2)
     display_name    text        NOT NULL,
     attributes      jsonb       NOT NULL DEFAULT '{}',
     labels          jsonb       NOT NULL DEFAULT '{}',
@@ -295,7 +295,7 @@ CREATE TABLE aq_object (
                     CHECK (confidence >= 0 AND confidence <= 1),
     lifecycle_state text        NOT NULL DEFAULT 'active'
                     CHECK (lifecycle_state IN ('active','archived','merged','deleted')),
-    merged_into     uuid        NULL REFERENCES aq_object(id),
+    merged_into     text        NULL REFERENCES aq_object(id),
     version         int         NOT NULL DEFAULT 1,
     first_seen_at   timestamptz NOT NULL,
     last_seen_at    timestamptz NOT NULL,
@@ -310,8 +310,8 @@ CREATE INDEX ix_object_labels ON aq_object USING gin (labels);
 CREATE INDEX ix_object_attrs  ON aq_object USING gin (attributes);
 
 CREATE TABLE aq_object_natural_key (
-    object_id   uuid  NOT NULL REFERENCES aq_object(id),
-    tenant_id   uuid  NULL,
+    object_id   text  NOT NULL REFERENCES aq_object(id),
+    tenant_id   text  NULL,
     namespace   text  NOT NULL,
     value       text  NOT NULL,
     PRIMARY KEY (object_id, namespace, value)
@@ -321,19 +321,19 @@ CREATE UNIQUE INDEX uq_natural_key_live
     ON aq_object_natural_key (tenant_id, namespace, value);
 
 CREATE TABLE aq_object_source (
-    id          uuid PRIMARY KEY,
-    object_id   uuid  NOT NULL REFERENCES aq_object(id),
-    source_id   uuid  NOT NULL,
-    evidence_id uuid  NULL,                         -- filled once EA-0004 exists
+    id          text PRIMARY KEY,
+    object_id   text  NOT NULL REFERENCES aq_object(id),
+    source_id   text  NOT NULL,
+    evidence_id text  NULL,                         -- filled once EA-0004 exists
     observed_at timestamptz NOT NULL,
     method      text  NOT NULL
 );
 
 CREATE TABLE aq_relationship (
-    id              uuid PRIMARY KEY,
-    tenant_id       uuid NULL,
-    from_id         uuid NOT NULL REFERENCES aq_object(id),
-    to_id           uuid NOT NULL REFERENCES aq_object(id),
+    id              text PRIMARY KEY,
+    tenant_id       text NULL,
+    from_id         text NOT NULL REFERENCES aq_object(id),
+    to_id           text NOT NULL REFERENCES aq_object(id),
     relation_type   text NOT NULL,
     attributes      jsonb NOT NULL DEFAULT '{}',
     confidence      double precision NOT NULL DEFAULT 1.0,
@@ -350,7 +350,7 @@ CREATE INDEX ix_rel_to   ON aq_relationship (to_id, relation_type);
 -- Append-only audit history (D4): one row per mutation.
 CREATE TABLE aq_object_history (
     seq         bigserial PRIMARY KEY,
-    object_id   uuid NOT NULL,
+    object_id   text NOT NULL,
     version     int  NOT NULL,
     snapshot    jsonb NOT NULL,          -- full object state after the change
     changed_at  timestamptz NOT NULL DEFAULT now(),
@@ -363,7 +363,7 @@ CREATE INDEX ix_history_object ON aq_object_history (object_id, version);
 
 ### Functional (testable — replaces the placeholder "capability N")
 
-- **FR-1** The store SHALL assign an immutable UUIDv7 id, rendered externally as `obj_<hex>`, to every new object.
+- **FR-1** The store SHALL assign an immutable typed ID, persisted as `obj_<uuidv7hex>`, to every new object.
 - **FR-2** The store SHALL reject writes whose `object_type` is not registered (`UnknownObjectType`).
 - **FR-3** The store SHALL validate `attributes` against the registered JSON Schema for `(object_type, schema_version)`.
 - **FR-4** On `upsert`, the store SHALL match on `(tenant_id, object_type, natural_key)` and update-in-place when matched, else create (§9).

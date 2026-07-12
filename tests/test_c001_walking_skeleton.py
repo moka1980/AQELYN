@@ -7,7 +7,7 @@ Runs on in-memory infra with no external services.
 
 from datetime import UTC, datetime
 
-from aqelyn.conventions import ActorRef
+from aqelyn.conventions import ActorRef, new_id
 from aqelyn.events import Event
 from aqelyn.evidence import EvidenceRecord
 from aqelyn.findings import Automation, Finding, Remediation
@@ -35,7 +35,7 @@ async def test_c001_walking_skeleton() -> None:
                 collected_at=now,
                 recorded_at=now,
                 collector=SYS,
-                source_id="src_1",
+                source_id=new_id("src"),
                 method="skeleton",
                 content={"observed": True},
                 content_hash="",
@@ -81,7 +81,7 @@ async def test_c001_walking_skeleton() -> None:
             object_type="generic",
             schema_version=1,
             display_name="skeleton-object",
-            sources=[SourceRef(source_id="src_1", observed_at=now, method="skeleton")],
+            sources=[SourceRef(source_id=new_id("src"), observed_at=now, method="skeleton")],
             first_seen_at=now,
             last_seen_at=now,
             created_at=now,
