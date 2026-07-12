@@ -9,7 +9,7 @@
 
 ## How to use this bundle
 
-Build tickets **in order** (G1 → G5). Each names its spec section and the exact
+Build tickets **in order** (G1 → G2 → G3 → G3a → G4 → G5). Each names its spec section and the exact
 `pytest` ids from EA-0005 §9. The graph is a **read/analysis layer over
 EA-0002** — do not add node/edge storage. If a needed behavior isn't in the
 spec, raise an Engineering Change Request.
@@ -21,8 +21,8 @@ src/aqelyn/graph/
 ├── __init__.py       # exports KnowledgeGraph, service, types
 ├── models.py         # NodeView, EdgeView, Subgraph, Path, ImpactResult, TraversalLimits (G1)
 ├── graph.py          # KnowledgeGraph protocol + shared bounds/validation (G1)
-├── memory.py         # InMemoryKnowledgeGraph over ObjectStore (G2/G3/G4)
-├── postgres.py       # PostgresKnowledgeGraph via recursive CTEs (G2/G3/G4)
+├── memory.py         # InMemoryKnowledgeGraph over ObjectStore (G2/G3/G3a/G4)
+├── postgres.py       # PostgresKnowledgeGraph via recursive CTEs (G2/G3/G3a/G4)
 └── service.py        # KnowledgeGraphService(AQService) (G5)
 tests/graph/          # shared contract suite parametrized [inmemory, postgres]
 ```
@@ -58,6 +58,17 @@ tenant-scoped, lifecycle-aware).
 type + evidence/source refs).
 **Depends on:** G2.
 **Acceptance:** `test_kg_shortest_path`, `test_kg_explain_path`.
+
+## G3a — paths() work budget (ECR-0001)
+
+**Spec:** FR-13, AC-15, ECR-0001.
+**Deliverables:** add `max_work: int = 50_000` to `paths()` on the
+`KnowledgeGraph` protocol, `InMemoryKnowledgeGraph`, and `PostgresKnowledgeGraph`.
+Validate `max_work >= 1`; hard-cap it at `1_000_000`; count expanded
+nodes/partial paths during enumeration; when the budget is reached, return the
+paths found so far rather than continuing. Existing callers remain compatible.
+**Depends on:** G3.
+**Acceptance:** `test_kg_paths_work_budget`.
 
 ## G4 — Impact, correlation & Postgres implementation
 
