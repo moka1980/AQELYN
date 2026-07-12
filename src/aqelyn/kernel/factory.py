@@ -19,6 +19,9 @@ from aqelyn.kernel.service import HealthStatus
 from aqelyn.kernel.wiring import BusObjectEventSink
 from aqelyn.objects import InMemoryObjectStore, ObjectStore, ObjectTypeRegistry
 from aqelyn.objects.postgres import PostgresObjectStore
+from aqelyn.trust.engine import TrustEngine
+from aqelyn.trust.registry import InMemorySourceReliabilityRegistry
+from aqelyn.trust.service import TrustEngineService
 
 
 @dataclass
@@ -33,6 +36,8 @@ class Runtime:
     blob_store: InMemoryBlobStore
     knowledge_graph: KnowledgeGraph
     knowledge_graph_service: KnowledgeGraphService
+    trust_engine: TrustEngine
+    trust_engine_service: TrustEngineService
 
 
 class _RuntimeService:
@@ -104,9 +109,12 @@ def _register_runtime_services(
     *,
     object_store: ObjectStore,
     knowledge_graph: KnowledgeGraph,
+    trust_engine: TrustEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
-) -> KnowledgeGraphService:
+) -> tuple[KnowledgeGraphService, TrustEngineService]:
     kernel.register(_RuntimeService("event_bus"))
+    trust_service = TrustEngineService(trust_engine)
+    kernel.register(trust_service)
     kernel.register(
         _RuntimeService(
             "object_store",
@@ -115,9 +123,9 @@ def _register_runtime_services(
             close=close_object_store,
         )
     )
-    service = KnowledgeGraphService(knowledge_graph, object_store)
-    kernel.register(service)
-    return service
+    graph_service = KnowledgeGraphService(knowledge_graph, object_store)
+    kernel.register(graph_service)
+    return graph_service, trust_service
 
 
 def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
@@ -137,11 +145,13 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         mode=cfg.tenant_mode, event_bus=bus, evidence_exists=evidence_store.exists
     )
     knowledge_graph = InMemoryKnowledgeGraph(object_store)
+    trust_engine = TrustEngine(registry=InMemorySourceReliabilityRegistry())
     kernel = AQKernel(cfg, event_bus=bus)
-    knowledge_graph_service = _register_runtime_services(
+    knowledge_graph_service, trust_engine_service = _register_runtime_services(
         kernel,
         object_store=object_store,
         knowledge_graph=knowledge_graph,
+        trust_engine=trust_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -152,6 +162,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         blob_store=InMemoryBlobStore(),
         knowledge_graph=knowledge_graph,
         knowledge_graph_service=knowledge_graph_service,
+        trust_engine=trust_engine,
+        trust_engine_service=trust_engine_service,
     )
 
 
@@ -179,11 +191,13 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         mode=cfg.tenant_mode, event_bus=bus, evidence_exists=evidence_store.exists
     )
     knowledge_graph = PostgresKnowledgeGraph(object_store._pool)
+    trust_engine = TrustEngine(registry=InMemorySourceReliabilityRegistry())
     kernel = AQKernel(cfg, event_bus=bus)
-    knowledge_graph_service = _register_runtime_services(
+    knowledge_graph_service, trust_engine_service = _register_runtime_services(
         kernel,
         object_store=object_store,
         knowledge_graph=knowledge_graph,
+        trust_engine=trust_engine,
         close_object_store=object_store.close,
     )
     return Runtime(
@@ -195,4 +209,6 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         blob_store=InMemoryBlobStore(),
         knowledge_graph=knowledge_graph,
         knowledge_graph_service=knowledge_graph_service,
+        trust_engine=trust_engine,
+        trust_engine_service=trust_engine_service,
     )
