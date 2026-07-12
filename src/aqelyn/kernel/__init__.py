@@ -2,7 +2,7 @@
 AQService, AQKernel, lifecycle, health, wiring; ends in the C-001 skeleton (T7)."""
 
 from aqelyn.kernel.config import AQELYNConfig
-from aqelyn.kernel.factory import Runtime, create_inmemory_runtime
+from aqelyn.kernel.factory import Runtime, create_inmemory_runtime, create_runtime
 from aqelyn.kernel.kernel import AQKernel
 from aqelyn.kernel.service import AQService, HealthStatus, KernelState
 from aqelyn.kernel.wiring import BusObjectEventSink
@@ -16,4 +16,5 @@ __all__ = [
     "KernelState",
     "Runtime",
     "create_inmemory_runtime",
+    "create_runtime",
 ]
