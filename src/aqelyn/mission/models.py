@@ -105,6 +105,8 @@ class PriorityItem(BaseModel):
     severity_weight: float
     confidence: float
     top_mission: MissionView | None = None
+    impacts: list[MissionImpact] = Field(default_factory=list)
+    truncated: bool = False
     reason: str
 
     @field_validator("finding_id")
