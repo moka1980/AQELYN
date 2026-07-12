@@ -119,8 +119,8 @@ class KnowledgeGraph(Protocol):
     async def paths(
         self, from_id: str, to_id: str, *, direction: str = "both",
         relation_types: Sequence[str] | None = None,
-        max_depth: int = 6, max_paths: int = 10,
-    ) -> list[Path]: ...
+        max_depth: int = 6, max_paths: int = 10, max_work: int = 50_000,
+    ) -> list[Path]: ...   # max_work bounds enumeration effort (ECR-0001); truncates, never hangs
 
     async def impact(
         self, node_id: str, *, direction: str = "in",
@@ -182,6 +182,7 @@ class KnowledgeGraph(Protocol):
 - **FR-10** `explain_path` SHALL yield, per hop, the relation type plus the evidence/source references behind that edge (Charter "how AQELYN knows").
 - **FR-11** Invalid parameters (`max_depth < 1`, `within_hops < 1`, unknown direction) SHALL raise `GraphQueryInvalid`; an unknown start node SHALL raise `ObjectNotFound`.
 - **FR-12** `KnowledgeGraphService` SHALL register as an `AQService` with health/readiness reflecting object-store availability (EA-0001).
+- **FR-13** (ECR-0001) `paths()` SHALL bound its enumeration effort by `max_work` (nodes/partial-paths expanded); on reaching it, `paths()` SHALL return the paths found so far rather than continue, guaranteeing termination on dense graphs even below `max_depth`/`max_paths`. Hard cap `max_work ≤ 1_000_000`.
 
 ### Non-functional (initial targets)
 
@@ -208,6 +209,7 @@ class KnowledgeGraph(Protocol):
 | AC-12 | In-memory & Postgres pass one suite | `test_kg_contract[inmemory]` / `[postgres]` |
 | AC-13 | Cycle-safe termination | `test_kg_cycle_safe` |
 | AC-14 | Registers as AQService with health | `test_kg_service_health` |
+| AC-15 | paths() stops at max_work on a dense graph (ECR-0001) | `test_kg_paths_work_budget` |
 
 ## 10. Error taxonomy (contributions)
 
