@@ -109,7 +109,7 @@ def validate_max_paths(max_paths: int) -> int:
 
 async def require_node(object_store: ObjectStore, node_id: str) -> AQObject:
     validate_object_id(node_id, field="node_id")
-    obj = await object_store.get(node_id)
+    obj = await object_store.get(node_id, resolve_merged=False)
     if obj is None:
         raise ObjectNotFound(node_id)
     return obj
