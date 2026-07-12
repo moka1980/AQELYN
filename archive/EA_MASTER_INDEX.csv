@@ -1,0 +1,9 @@
+EA,IS,Title,Package,Path
+EA-0001,IS-001,AQELYN Kernel,PKG-001,archive/EA-0001
+EA-0002,IS-002,Universal Object Model,PKG-002,archive/EA-0002
+EA-0003,IS-003,AQELYN Event Bus,PKG-003,archive/EA-0003
+EA-0004,IS-004,AQELYN Evidence Engine,PKG-004,archive/EA-0004
+EA-0005,IS-005,AQELYN Knowledge Graph,PKG-005,archive/EA-0005
+EA-0006,IS-006,AQELYN Trust Engine,PKG-006,archive/EA-0006
+EA-0007,IS-007,AQELYN Mission Engine,PKG-007,archive/EA-0007
+EA-0008,IS-008,AQELYN Workflow Engine,PKG-008,archive/EA-0008

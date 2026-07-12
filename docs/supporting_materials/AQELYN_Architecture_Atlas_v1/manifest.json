@@ -1,0 +1,150 @@
+{
+  "package": "AQELYN Architecture Atlas v1.0",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "fcc946879c616680e5a461a8cebbb3a236bb7250a22577dbaffd127efb5c9cc6",
+      "bytes": 815
+    },
+    {
+      "path": "diagrams/01_master_roadmap.svg",
+      "sha256": "1ad4ee0e496b5ba16342ea00931f678a65a4efbf2205c22373030fa2032302ae",
+      "bytes": 8526
+    },
+    {
+      "path": "diagrams/02_system_architecture.svg",
+      "sha256": "70bfd3d4208be3b6262ef321c85a26ac092f42ce20e3559758a85e49fb68a965",
+      "bytes": 5342
+    },
+    {
+      "path": "diagrams/03_dependency_graph.svg",
+      "sha256": "a8645320464133f3a0b295a7e33f0e45842d7e1e2d7b221eee7491e6fb47d8ba",
+      "bytes": 14931
+    },
+    {
+      "path": "diagrams/04_coding_roadmap.svg",
+      "sha256": "081bbebfc73c44a6695d41403dfed13dd20e0c961ee257e8bf33910183a3836b",
+      "bytes": 12806
+    },
+    {
+      "path": "diagrams/05_runtime_architecture.svg",
+      "sha256": "293ba4e1beb1ee28c852d41e9cbd0d5f3ecae33e94d9cccc5eae902cb74e438a",
+      "bytes": 6964
+    },
+    {
+      "path": "diagrams/06_data_flow.svg",
+      "sha256": "91f08180966c18bbe8749747099befa07928627883d105b63ff001d2faaacd80",
+      "bytes": 6951
+    },
+    {
+      "path": "diagrams/07_event_flow.svg",
+      "sha256": "d0ed49c1706acbe2d0a82eba33bc997c72af439d5bac3c52726a8b5e65c8af0f",
+      "bytes": 6188
+    },
+    {
+      "path": "diagrams/08_deployment_architecture.svg",
+      "sha256": "531b9a2b5cc8b2dd17564021b020eb718ffcaa14a7c21236f0bd7e0a41bbd6a8",
+      "bytes": 6221
+    },
+    {
+      "path": "diagrams/09_cicd_pipeline.svg",
+      "sha256": "8d123163c87132c0f6d65e9be588b7988e1373b3d9bdf04923158fe1f51c3255",
+      "bytes": 6965
+    },
+    {
+      "path": "diagrams/10_security_lifecycle.svg",
+      "sha256": "9b6e28fba1cf2c7276eab400d4c02406228a22801b6bc2c03392c497e9b1c4a1",
+      "bytes": 5757
+    },
+    {
+      "path": "diagrams/11_repository_structure.svg",
+      "sha256": "858f0fb26c41d8bb5fc8c1d92f516fe3d31e99e0ae39a56bd30b9e6c044282c0",
+      "bytes": 9992
+    },
+    {
+      "path": "diagrams/12_object_model.svg",
+      "sha256": "e0afb3f181971710537f06a04f49a91e9ccb725347b2445adc361ca5a31344e6",
+      "bytes": 7496
+    },
+    {
+      "path": "diagrams/13_identity_platform.svg",
+      "sha256": "15d1eb755fd6093646880cc8b7603ff537f2a303dcb892821a422b5a90f6cbb0",
+      "bytes": 6184
+    },
+    {
+      "path": "diagrams/14_endpoint_platform.svg",
+      "sha256": "fc6b2af3831cb37d7ea308ac36ccd1d6b9db6ddaa9de89d117b6043bef944484",
+      "bytes": 6212
+    },
+    {
+      "path": "diagrams/15_web_intelligence.svg",
+      "sha256": "449f7194b0f00c7ec6ac25b77c9730c6959519ecd2d5d8a917257847424b649c",
+      "bytes": 6183
+    },
+    {
+      "path": "diagrams/16_attack_surface.svg",
+      "sha256": "828e31745195c5818a7018755f3d7982d5c91b61e07f3080d6d64385cfd94477",
+      "bytes": 6203
+    },
+    {
+      "path": "diagrams/17_vulnerability_intel.svg",
+      "sha256": "e06e6748f4b9133669d14275127709e690d798a73529e4b46ec6f7c885f62562",
+      "bytes": 6214
+    },
+    {
+      "path": "diagrams/18_asset_discovery.svg",
+      "sha256": "9423d0d646a0bb26961f35e9e1ab21854de684b4cb43b4a08119de97916bb7aa",
+      "bytes": 6221
+    },
+    {
+      "path": "diagrams/19_ai_platform.svg",
+      "sha256": "91f407e9270ee3fdb54edbe395c3f5c8403a3555a2403033fef563fb905380ee",
+      "bytes": 6211
+    },
+    {
+      "path": "diagrams/20_automation_platform.svg",
+      "sha256": "125f2d4de8ad140fcbbc6a3531761b5414b45470bda47ae62ce87e2976b6337a",
+      "bytes": 6322
+    },
+    {
+      "path": "diagrams/21_api_gateway.svg",
+      "sha256": "4720fdc69f486bf1f388a54b2d4951109475d21a41cf66b3f9449e77397e3139",
+      "bytes": 6191
+    },
+    {
+      "path": "diagrams/22_data_storage.svg",
+      "sha256": "4f038dd4e3360f35df7b6597dd939c51a8f2d723b30064e985df8de05e9b9ce4",
+      "bytes": 6227
+    },
+    {
+      "path": "diagrams/23_observability.svg",
+      "sha256": "43c7ed9f019cab5ecff962633fe05c24f4d9a6e5ffc7ec6d144dd300a8fe21fe",
+      "bytes": 6192
+    },
+    {
+      "path": "diagrams/24_release_ops.svg",
+      "sha256": "e16fbde468af666b974ffc5e6d19721a70b511b6a52114381853c23099196553",
+      "bytes": 6203
+    },
+    {
+      "path": "diagrams/25_architecture_atlas_index.svg",
+      "sha256": "5c7d1d3068801507f9c1900ce926baca7854f8cc86f1acd5f93e5ccec1277150",
+      "bytes": 6198
+    },
+    {
+      "path": "html/index.html",
+      "sha256": "a18e2ca442003641b1c8c4a83288a18a37d05800a6cb92994337db227a6d2bc9",
+      "bytes": 8770
+    },
+    {
+      "path": "pdf/AQELYN_Architecture_Atlas_v1.pdf",
+      "sha256": "be9e2d5839249d447433b473bd2b8f2494df0b0a6cbd6be79176b764621202d2",
+      "bytes": 71343
+    },
+    {
+      "path": "poster/AQELYN_Color_Overview_Poster.svg",
+      "sha256": "ffe6e2586aa0c2a81695bb499b953cd4ad4d046258bf4db7f440fea22478afcf",
+      "bytes": 15804
+    }
+  ]
+}

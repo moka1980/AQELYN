@@ -1,0 +1,13 @@
+{
+  "assessmentId": "assess-001",
+  "identityId": "mi-001",
+  "score": 88,
+  "classification": "Good",
+  "findings": [
+    {
+      "id": "find-001",
+      "severity": "Medium",
+      "description": "Credential rotation due within policy window"
+    }
+  ]
+}

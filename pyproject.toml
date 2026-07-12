@@ -1,0 +1,58 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "aqelyn"
+version = "0.1.0"
+description = "AQELYN — AI-driven Cyber Intelligence Platform (C-001 Foundation Runtime)"
+requires-python = ">=3.12"
+readme = "BUILDING.md"
+license = { text = "Proprietary" }
+dependencies = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "uuid-utils>=0.9",
+    "asyncpg>=0.29",
+    "SQLAlchemy[asyncio]>=2.0",
+    "alembic>=1.13",
+    "redis>=5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.2",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.10",
+    "ruff>=0.5",
+    "pre-commit>=3.7",
+]
+
+[project.scripts]
+aqelyn = "aqelyn.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/aqelyn"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "C4", "PT", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["uuid_utils.*", "asyncpg.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"

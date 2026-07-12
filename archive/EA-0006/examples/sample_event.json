@@ -1,0 +1,7 @@
+{
+  "archive": "EA-0006",
+  "brand": "AQELYN",
+  "module": "AQELYN Trust Engine",
+  "event_type": "AQELYNTrustEngineAssessmentCompleted",
+  "evidence_required": true
+}

@@ -1,0 +1,210 @@
+# AQELYN Blueprint - Volume 006
+
+**Title:** Human-Centered Security Experience
+
+**Source pages:** 325-331
+
+--- Page 325 ---
+
+Volume 06
+Human-Centered Security Experience
+Version: 1.0
+Status: Draft
+Chapter 1
+Design Philosophy
+Project  AQELYN  shall  provide  enterprise-grade  cybersecurity  while  remaining  simple
+enough for non-technical users.
+The platform shall adapt to the user—not the other way around.
+Chapter 2
+One Mission Interface
+The user should never have to decide which module to use.
+Instead they start with a mission.
+Examples:
+•  Secure My Home
+•  Scan My Website
+•  Scan My Company
+•  Secure My Mobile Device
+•  Check My Cloud
+•  Investigate an Incident
+•  Hunt for Threats
+•  Verify Compliance
+The platform automatically activates the required engines.
+Chapter 3
+Mobile Security Mission
+This will become one of AQELYN's flagship capabilities.
+The goal is not to spy on users or bypass operating system protections.
+The  goal  is  to  help  users  understand  the  security  posture  of  their  own  authorized
+devices.
+Supported platforms:
+•  Android
+•  iOS (within Apple's security model)
+
+
+--- Page 326 ---
+
+•  Windows
+•  macOS
+•  Linux
+Chapter 4
+Mobile Security Assessment
+AQELYN shall evaluate, where the operating system permits:
+Device Health
+•  Operating system version
+•  Security patch level
+•  Encryption status
+•  Screen lock configuration
+•  Biometric protection
+•  Secure boot status (where available)
+Application Security
+•  Installed applications
+•  Application permissions
+•  Dangerous permissions
+•  Unknown application sources
+•  Excessive privilege requests
+•  Applications no longer maintained
+•  Known vulnerable versions (where vulnerability data is available)
+Network Security
+•  Wi-Fi configuration
+•  VPN status
+•  DNS configuration
+•  Certificate trust
+•  Network exposure
+Identity Security
+•  MFA enabled
+•  Password hygiene
+•  Connected accounts
+•  Security settings
+Privacy Review
+•  Camera access
+•  Microphone access
+
+
+--- Page 327 ---
+
+•  Location access
+•  Background activity
+•  Accessibility service usage (where available)
+•  Notification access
+The platform should explain why each permission matters rather than simply listing it.
+Chapter 5
+Guided Remediation
+Example:
+AQELYN reports:
+"Application  X  has  access  to  your  microphone,  location  and  contacts  but  has  not  been
+used for six months."
+Options:
+•  Review permissions
+•  Disable unnecessary permissions
+•  Uninstall application (with user confirmation)
+•  Ignore
+•  Learn More
+The user remains in control.
+Chapter 6
+Hidden Risk Detection
+One of our design goals is to help users identify software that may not be immediately
+obvious.
+Within  the  capabilities  provided  by  the  operating  system  and  the  user's  granted
+permissions, the platform may evaluate indicators such as:
+•  Installed applications.
+•  Background services exposed by the OS.
+•  Device administrator or device owner status.
+•  Accessibility services in use.
+•  Notification listener services.
+•  VPN services.
+•  Unknown certificates.
+•  Unusual battery or network activity trends.
+•  Unexpected startup behavior.
+The platform shall clearly state the evidence supporting each finding.
+Important: Modern  operating  systems  intentionally  restrict  visibility  into  hidden
+processes and applications for security and privacy reasons. AQELYN will respect
+those boundaries and will not attempt to bypass OS security protections.
+
+
+--- Page 328 ---
+
+Chapter 7
+Cyber Health Summary
+Instead of presenting hundreds of technical findings, users see a simple overview.
+Example:
+Overall Device Health
+Chapter 8
+Guided Repair
+The platform explains every recommendation.
+Example:
+Recommendation
+Chapter 9
+Family Protection
+One installation may manage multiple devices.
+Example:
+Family
+
+
+--- Page 329 ---
+
+Each user sees only the devices they are authorized to manage.
+Chapter 10
+Business Device Management
+Organizations can organize assets by:
+•  Department
+•  Office
+•  Team
+•  Country
+•  Business Unit
+The same platform scales from home to enterprise.
+PS-ADR-0004
+Human-Centered Cybersecurity
+Status: Accepted
+Decision
+AQELYN shall present cybersecurity information in a way that is understandable to
+non-technical users while preserving the depth required by professional analysts.
+Advanced functionality shall be progressively disclosed rather than shown by default.
+New Proposal – Trust Center
+I would like to add a dedicated Trust Center as a first-class feature.
+Instead of only reporting vulnerabilities, it answers a broader question:
+"Can I trust this device, application, service, or identity today?"
+The Trust Center combines evidence from multiple engines:
+•  Security posture
+•  Update status
+•  Identity protection
+•  Configuration quality
+•  Backup status
+•  Certificate health
+•  Device integrity
+•  Compliance status
+Rather than producing a simple "good" or "bad" verdict, it explains the reasons behind
+the current trust assessment and what actions would most improve it.
+One refinement to keep us technically grounded
+
+
+--- Page 330 ---
+
+Throughout the Blueprint, I will continue to distinguish between:
+•  Features we can implement directly with Python, Linux, documented operating
+system APIs, and open standards.
+•  Features that depend on platform limitations, particularly on mobile operating
+systems like Android and iOS.
+For example, on Android we can build much deeper device assessments (especially for
+enterprise-managed  devices)  than  on  standard  iOS  devices  because  Apple's  security
+model  intentionally  restricts  system  visibility.  The  Blueprint  will  always  describe  these
+platform  differences  clearly  so  that  our  promises  remain  achievable  and  technically
+accurate.
+=====[ USER ]=====
+Good and continue
+=====[ ASSISTANT ]=====
+Excellent. I think we have now reached the point where AQELYN starts becoming
+something fundamentally different from existing cybersecurity platforms.
+Most security products answer one question:
+"What is wrong?"
+I want AQELYN to answer five questions:
+1.  What do I own? (Asset Intelligence)
+2.  What is happening? (Observability & Events)
+3.  What is wrong? (Security Analysis)
+4.  Why is it happening? (Knowledge & Reasoning)
+5.  What should I do next? (Guided Decision Support)
+That philosophy should drive every module we build.
+AQELYN BLUEPRINT
+
+
+--- Page 331 ---
+
+Volume 07

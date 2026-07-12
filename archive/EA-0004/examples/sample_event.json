@@ -1,0 +1,7 @@
+{
+  "archive": "EA-0004",
+  "brand": "AQELYN",
+  "module": "AQELYN Evidence Engine",
+  "event_type": "AQELYNEvidenceEngineAssessmentCompleted",
+  "evidence_required": true
+}

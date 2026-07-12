@@ -1,0 +1,7 @@
+{
+  "archive": "EA-0055",
+  "title": "AQELYN Attack Surface Discovery Engine",
+  "example": 3,
+  "status": "sample",
+  "authorized_scope_required": true
+}

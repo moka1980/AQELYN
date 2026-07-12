@@ -1,0 +1,285 @@
+<!doctype html><html><head><meta charset="utf-8">
+<title>Project AQELYN Charter v2.0 Product Principles</title>
+<style>
+body{font-family:Arial,Helvetica,sans-serif;max-width:960px;margin:40px auto;
+line-height:1.55;color:#0b1f33;padding:0 16px}
+h1{color:#063b66;border-bottom:2px solid #0B74C8;padding-bottom:6px;font-size:26px}
+h2{color:#063b66;font-size:19px}
+h3{color:#0B74C8;font-size:15px}
+blockquote{border-left:4px solid #0B74C8;background:#eef6fd;margin:16px 0;
+padding:10px 16px;font-weight:bold;color:#063b66}
+code{background:#f0f4f8;padding:1px 5px;border-radius:4px;font-size:90%}
+pre{background:#f0f4f8;padding:12px;border-radius:6px;overflow-x:auto}
+pre code{background:none;padding:0}
+table{border-collapse:collapse;width:100%;margin:14px 0;font-size:14px}
+td,th{border:1px solid #cbd5e1;padding:8px;text-align:left;vertical-align:top}
+th{background:#0B74C8;color:#fff}
+tr:nth-child(even) td{background:#f6fafd}
+hr{border:none;border-top:1px solid #dbe4ec;margin:28px 0}
+</style></head><body>
+<h1>Project AQELYN Project Charter v2.0</h1>
+<h2>Product Philosophy &amp; User Experience Principles</h2>
+<p>Project: Project AQELYN
+Document: Project Charter v2.0 - Product Philosophy &amp; User Experience Principles
+Status: Approved for Pre-Coding Baseline
+Date: 2026-07-09
+Language: English
+Scope: Applies to all future Engineering Archives, implementation milestones, user interfaces, APIs, reports, dashboards, automated recommendations, AI explanations, and remediation workflows.</p>
+<hr />
+<h1>1. Purpose</h1>
+<p>This Charter update establishes mandatory product and user-experience principles for Project AQELYN.</p>
+<p>Detecting security problems is not enough. The platform must make security understandable, explainable, evidence-based, and actionable for users ranging from home users to enterprise security professionals. To that end, this document defines the human-centered security model that every finding, recommendation, workflow, report, dashboard, and automated action is required to follow.</p>
+<hr />
+<h1>2. Mission Statement</h1>
+<p>Project AQELYN provides an intelligent Cyber Security Operating Environment that enables users of all experience levels to understand, evaluate, and improve their security posture through evidence-driven analysis, understandable explanations, and practical remediation guidance.</p>
+<p>Clarity, trust, transparency, privacy, and usability take priority throughout the platform, without sacrificing technical depth or engineering quality.</p>
+<hr />
+<h1>3. Permanent Product Principle</h1>
+<blockquote>
+<p>Every finding must be understandable by a non-expert and actionable by an expert.</p>
+</blockquote>
+<p>This principle is mandatory and applies across the full product lifecycle. A finding is not considered complete unless it explains what was found, why it matters, how it was determined, which evidence supports it, what should be done next, and what deeper technical details are available.</p>
+<hr />
+<h1>4. Product Philosophy Principles</h1>
+<h2>Principle 1 - Explain Before You Recommend</h2>
+<p>A finding must clearly explain what happened, why it matters, how AQELYN reached its conclusion, and which evidence supports it. It must also describe the risks of taking no action, the remediation steps that are recommended, and the expected outcome once those steps are complete. Recommendations never appear without an accompanying explanation.</p>
+<h2>Principle 2 - Simplicity First</h2>
+<p>Security information is presented in language appropriate to the user's experience level. Complex technical terminology is introduced only when necessary and is always accompanied by a plain-language explanation. Understanding a security risk must never require prior knowledge of cybersecurity terminology.</p>
+<h2>Principle 3 - Evidence Before Opinion</h2>
+<p>Recommendations are never generated from assumptions alone. Each one references collected evidence, policy evaluation, engineering rules, threat intelligence, risk calculations, or deterministic analysis, and that evidence remains accessible to the user at all times.</p>
+<h2>Principle 4 - Human-Centered Security</h2>
+<p>The objective is to help people improve security, not to overwhelm them with technical information. Interactions should reduce uncertainty and increase confidence, encouraging secure behavior through education, understandable guidance, and actionable recommendations.</p>
+<h2>Principle 5 - Expert Depth on Demand</h2>
+<p>A simplified finding is a starting point, not a ceiling. Progressively deeper technical information remains available behind it, and the user interface supports multiple information levels without duplicating data.</p>
+<h3>Progressive Detail Model</h3>
+<table>
+<thead>
+<tr>
+<th>Level</th>
+<th>Name</th>
+<th>Question it answers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Summary</td>
+<td>What is the problem?</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Explanation</td>
+<td>Why does it matter?</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Evidence</td>
+<td>What data proves it?</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Technical Detail</td>
+<td>What exact configuration, event, object, or rule caused it?</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Remediation</td>
+<td>What should be done, manually or automatically?</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Audit Trail</td>
+<td>What changed and when?</td>
+</tr>
+</tbody>
+</table>
+<h2>Principle 6 - Transparency by Design</h2>
+<p>Users can always see what data has been collected, why it was collected, where it is processed, how long it is retained, and who can access it. Whether an analysis runs locally, is cloud-assisted, or is enterprise-managed is stated openly. Platform behavior should never come as a surprise.</p>
+<h2>Principle 7 - Privacy First</h2>
+<p>Privacy is a fundamental design constraint, not an optional feature. The platform supports local-only operation and offline analysis where practical, user-controlled telemetry, data minimization, explicit consent, encryption by default, and clear retention policies. Only the information required to perform the requested analysis is collected.</p>
+<h2>Principle 8 - Security Without Fear</h2>
+<p>Alarmist messaging has no place in the product. Rather than creating anxiety, the platform explains risks objectively, prioritizes findings, recommends achievable actions, and measures improvement over time.</p>
+<h2>Principle 9 - Progressive Guidance</h2>
+<p>Recommendations are prioritized in a fixed order: critical actions first, then high-value improvements, then best practices, and finally long-term optimization. Users should always know what to do next.</p>
+<h2>Principle 10 - Trust Through Engineering</h2>
+<p>Wherever possible, components are deterministic, evidence-driven, traceable, auditable, reproducible, and explainable. Trust is earned through engineering quality rather than marketing claims.</p>
+<hr />
+<h1>5. Finding Communication Standard</h1>
+<p>User-facing findings follow a single standard structure.</p>
+<h2>Required Finding Fields</h2>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Purpose</th>
+<th>Required</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Title</td>
+<td>Plain-language summary</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Severity</td>
+<td>Risk level</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>What Happened</td>
+<td>Direct explanation of the issue</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Why It Matters</td>
+<td>Security impact</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Evidence</td>
+<td>Supporting data and references</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Affected Assets</td>
+<td>Devices, identities, domains, applications, or services</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Recommended Action</td>
+<td>Clear next step</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Fix Difficulty</td>
+<td>Expected effort</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Automation Eligibility</td>
+<td>Whether AQELYN can safely fix it</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Expert Details</td>
+<td>Technical expansion</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Audit Trail</td>
+<td>History and decisions</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1>6. Standard User Output Pattern</h1>
+<p>Findings are rendered using a consistent pattern:</p>
+<pre><code class="language-text">Problem: What AQELYN found.
+Risk: Why it matters.
+Evidence: What proves it.
+Fix: What should be done.
+Impact: What changes after the fix.
+Details: Expand for technical evidence.
+</code></pre>
+<hr />
+<h1>7. Example Finding</h1>
+<h2>Non-Preferred Output</h2>
+<pre><code class="language-text">Weak password detected.
+</code></pre>
+<h2>AQELYN-Compliant Output</h2>
+<pre><code class="language-text">Problem
+Your NAS administrator account is using a password that does not meet the security policy.
+
+Why it matters
+Administrative accounts can control files, backups, and system settings. If this account is compromised, an attacker may gain broad access to your data.
+
+Evidence
+- Password age: 1,247 days
+- Required complexity not met
+- Similar credential pattern observed in breach intelligence
+- MFA is not enabled for this account
+
+Recommended action
+Change the password immediately and enable multi-factor authentication.
+
+Fix difficulty
+Low
+
+AQELYN automation
+Manual approval required before any account changes are made.
+
+Expert details
+Policy: SEC-AUTH-004
+Identity object: id:nas-admin-001
+Evidence record: ev-identity-auth-2391
+Risk score impact: -18 points
+</code></pre>
+<hr />
+<h1>8. User Experience Requirements</h1>
+<table>
+<thead>
+<tr>
+<th>UX Requirement</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UX-001</td>
+<td>Every finding shall have a non-technical summary.</td>
+</tr>
+<tr>
+<td>UX-002</td>
+<td>Every finding shall have an expert-detail expansion.</td>
+</tr>
+<tr>
+<td>UX-003</td>
+<td>Every recommendation shall identify expected effort.</td>
+</tr>
+<tr>
+<td>UX-004</td>
+<td>Every recommendation shall identify expected security benefit.</td>
+</tr>
+<tr>
+<td>UX-005</td>
+<td>Every automated remediation shall require clear user consent unless pre-approved by policy.</td>
+</tr>
+<tr>
+<td>UX-006</td>
+<td>Every finding shall be linked to evidence.</td>
+</tr>
+<tr>
+<td>UX-007</td>
+<td>Every user-facing explanation shall avoid unnecessary fear-based language.</td>
+</tr>
+<tr>
+<td>UX-008</td>
+<td>The platform shall support home, SMB, enterprise, and expert communication modes.</td>
+</tr>
+<tr>
+<td>UX-009</td>
+<td>Users shall always be able to understand what data AQELYN used to reach a conclusion.</td>
+</tr>
+<tr>
+<td>UX-010</td>
+<td>Users shall always know what to do next.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h1>9. Engineering Impact</h1>
+<p>These principles are mandatory architectural requirements. They apply to all Engineering Archives, implementation specifications, and coding milestones, and to every user interface, API, report, dashboard, AI-generated explanation, automated recommendation, and documentation set, including future product modules.</p>
+<p>In practice this means that any engine producing a finding implements the Finding Communication Standard, any engine producing remediation guidance implements the Evidence Before Opinion principle, and any user-facing workflow implements both Simplicity First and Expert Depth on Demand.</p>
+<hr />
+<h1>10. Acceptance Criteria</h1>
+<p>This Charter update is accepted when the principles are included in the Project Charter and referenced by future Engineering Archives, the Finding Communication Standard is included in the implementation guidelines, and the UX requirements are part of the implementation readiness baseline. Future coding milestones must treat findings and recommendations as structured objects rather than plain text, and every future UI design must support progressive disclosure from simple explanation to technical evidence.</p>
+<hr />
+<h1>11. Implementation Guidance for Codex</h1>
+<p>When implementing Project AQELYN, Codex should treat findings as structured, typed objects. The implementation should include a canonical <code>Finding</code> model with fields for summary, explanation, evidence, recommended actions, severity, confidence, technical details, and audit history.</p>
+<p>Raw technical findings are never rendered directly to non-expert users. Instead, they are transformed into user-appropriate explanations using the communication mode selected for the user or organization.</p>
+<hr />
+<h1>12. Charter Amendment Status</h1>
+<p>This document is approved as a Project AQELYN Charter v2.0 amendment and is included in the pre-coding baseline.</p>
+</body></html>

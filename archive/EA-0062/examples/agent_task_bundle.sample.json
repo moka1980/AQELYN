@@ -1,0 +1,9 @@
+{
+  "agent": "claude-code",
+  "ea": "EA-0001",
+  "instructions": [
+    "Read START_HERE.md",
+    "Do not redesign architecture",
+    "Implement only EA-0001 scope"
+  ]
+}

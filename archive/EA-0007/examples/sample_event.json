@@ -1,0 +1,7 @@
+{
+  "archive": "EA-0007",
+  "brand": "AQELYN",
+  "module": "AQELYN Mission Engine",
+  "event_type": "AQELYNMissionEngineAssessmentCompleted",
+  "evidence_required": true
+}

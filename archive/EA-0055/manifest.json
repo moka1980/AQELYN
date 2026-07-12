@@ -1,0 +1,92 @@
+{
+  "archive": "EA-0055",
+  "brand": "AQELYN",
+  "generated_at": "2026-07-09T21:39:11.396009Z",
+  "files": [
+    {
+      "path": "EA-0055_Master.md",
+      "sha256": "a52d96dc786a6077f32c3973e08d38cf042bbee0efc8a7486da9a984d4dc66dc",
+      "bytes": 27446
+    },
+    {
+      "path": "README.md",
+      "sha256": "4955f9754465f86ad77f5aaf5f7c712354b24cca3f0d37a67684709aae54da02",
+      "bytes": 94
+    },
+    {
+      "path": "diagrams/Architecture.svg",
+      "sha256": "a561d8845946299d0d09473002c27cfc10f704a8783446ff7f51c5b087162808",
+      "bytes": 2191
+    },
+    {
+      "path": "diagrams/Component.svg",
+      "sha256": "f85cc8cd75a2c10062a3640d153d0b6979b2e0ee241bd605f5141525fb42b7d7",
+      "bytes": 2176
+    },
+    {
+      "path": "diagrams/EventFlow.svg",
+      "sha256": "7a1584ce999c7a3e1c48d2840c91e81186fad1070246199ad917ad34db0d17f8",
+      "bytes": 1930
+    },
+    {
+      "path": "diagrams/Integration.svg",
+      "sha256": "3cdd324a6e71b081d8b0ec9fc45f640591f9d6e0e5104d728397a7c3e3c43e3f",
+      "bytes": 2181
+    },
+    {
+      "path": "diagrams/Workflow.svg",
+      "sha256": "508d764aa7a468c6b866fad09f35210e0fb8052987b9a2c1e06bf5143b217e87",
+      "bytes": 2173
+    },
+    {
+      "path": "examples/EA-0055_sample_artifact.json",
+      "sha256": "2714b9eabfae61d41892cc23e9f5a50e9a925efa2715fe0d720aaaf9cbd6bfa3",
+      "bytes": 95
+    },
+    {
+      "path": "examples/example_1.json",
+      "sha256": "f27bcddc5f69ba0e8202122bfc588b23376cf0e0c1d0ce81b60b3bfd39fa28a8",
+      "bytes": 154
+    },
+    {
+      "path": "examples/example_2.json",
+      "sha256": "28daa1aff125d337496573c79f3237175907a869e9e1942fe01b8a1c25798f51",
+      "bytes": 154
+    },
+    {
+      "path": "examples/example_3.json",
+      "sha256": "618e72030348324e0c81312e50cfe8c7d0478b9ca74a809f30b288a827137de0",
+      "bytes": 154
+    },
+    {
+      "path": "html/EA-0055.html",
+      "sha256": "71337b04c8abcd799b9dffe3db2ba2338e526b5454c2a87fbe18049b3f685ca7",
+      "bytes": 30674
+    },
+    {
+      "path": "index/EA-0055_Index.md",
+      "sha256": "716553ca4e8eb6deb7ee93aba173833432b7bea1c5efad5d177e586a6605aab7",
+      "bytes": 136
+    },
+    {
+      "path": "journal/Engineering_Journal.md",
+      "sha256": "9cfdd4c4b82e3934267a04c2fbcb7ee402d10111e9415bebeb130c921b7772fc",
+      "bytes": 88
+    },
+    {
+      "path": "pdf/EA-0055.pdf",
+      "sha256": "1c1dbcced177581e1402e4538199336f9ea6bd1745ef72df842747a8b4491e5e",
+      "bytes": 20004
+    },
+    {
+      "path": "requirements/Requirements_Matrix.md",
+      "sha256": "ac2b09f3dc282ccade601deb9dc235dae8a1adec809f5132152fc0d010845244",
+      "bytes": 1250
+    },
+    {
+      "path": "requirements/Traceability_Matrix.md",
+      "sha256": "0519f6db8809935c8870cedb1c3b87cbf0eab80bd09bc0de092dd41bcd62d12c",
+      "bytes": 919
+    }
+  ]
+}

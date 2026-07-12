@@ -1,0 +1,38 @@
+<!doctype html><html><head><meta charset='utf-8'><title>IS-004 AQELYN Evidence Engine</title><style>body{font-family:Arial;margin:40px;line-height:1.55;max-width:1000px}pre{white-space:pre-wrap;background:#f7f7f7;padding:14px}</style></head><body><pre># Implementation Specification IS-004 - AQELYN Evidence Engine
+
+Status: Approved for Design
+Priority: Critical
+Package ID: PKG-004
+Depends on: IS-001, IS-002, IS-003
+Referenced Blueprint Volumes: 22, 24, 56
+
+## Vision
+
+The Evidence Engine is the foundation of trust in AQELYN. Every conclusion, recommendation, alert, mission, report, AI response and trust score must be backed by evidence.
+
+## Core Principle
+
+Evidence is immutable. Interpretation is not.
+
+## Evidence Examples
+
+Running process, network connection, certificate, Windows Event Log, Linux syslog entry, browser extension, installed application, file hash, DNS response, registry key, authentication event, cloud API response, vulnerability scan result, AI analysis result and user confirmation.
+
+## Evidence Structure
+
+Evidence ID, Source, Collection Time, Collector, Object Reference, Integrity Status, Classification, Confidence, Chain of Custody, Metadata.
+
+## Lifecycle
+
+Collected -&gt; Validated -&gt; Stored -&gt; Correlated -&gt; Referenced -&gt; Archived -&gt; Retained / Purged (Policy)
+
+## Requirements
+
+REQ-EVIDENCE-001: Every evidence item shall have a globally unique Evidence ID.
+REQ-EVIDENCE-002: Evidence shall be immutable after validation.
+REQ-EVIDENCE-003: Evidence shall record its source and collection time.
+REQ-EVIDENCE-004: Derived evidence shall reference originating evidence.
+REQ-EVIDENCE-005: Evidence integrity shall be verifiable.
+REQ-EVIDENCE-006: Evidence shall support correlation with other objects.
+REQ-EVIDENCE-007: AI-generated evidence shall always be identified as AI-derived.
+</pre></body></html>

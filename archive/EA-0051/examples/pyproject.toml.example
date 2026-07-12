@@ -1,0 +1,15 @@
+[project]
+name = "project-sentinel"
+version = "0.1.0"
+description = "AQELYN Cyber Security Operating Environment"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov", "ruff", "mypy", "hypothesis"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

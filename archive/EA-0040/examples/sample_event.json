@@ -1,0 +1,14 @@
+{
+  "event_id": "EV-0040-SAMPLE",
+  "event_type": "AssessmentCompleted",
+  "source_engine": "AQELYN Attack Path & Exposure Graph Engine",
+  "evidence_refs": [
+    "EV-0040-001"
+  ],
+  "trust_context": {
+    "required": true
+  },
+  "mission_context": {
+    "required": true
+  }
+}

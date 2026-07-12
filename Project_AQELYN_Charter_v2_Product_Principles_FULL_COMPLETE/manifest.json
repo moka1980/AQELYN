@@ -1,0 +1,51 @@
+{
+  "package": "Project_AQELYN_Charter_v2_Product_Principles_FULL_COMPLETE",
+  "generated": "2026-07-10",
+  "files": [
+    {
+      "path": "README.md",
+      "sha256": "83f75f7ac5fc9b007f054a87add5ebe18aa7060cf8753cf0a140e91669f173b8",
+      "size": 681
+    },
+    {
+      "path": "diagrams/Product_Principles_Model.svg",
+      "sha256": "d1daea539b0ca9fa7456b721fca107a40772ab98a9f6e6ec2938b47bd261eae4",
+      "size": 2530
+    },
+    {
+      "path": "docs/Project_Charter_v2_Product_Principles.md",
+      "sha256": "17b0c7647d62e4c5af2428c61565ff002bfc6e3487003818d9d9a0e59c151471",
+      "size": 9989
+    },
+    {
+      "path": "examples/Finding_Output_Examples.md",
+      "sha256": "d481861fb49678a89c295a222c6a1efdecc38efffc7fe7f3278681857badc30e",
+      "size": 801
+    },
+    {
+      "path": "html/Project_Charter_v2_Product_Principles.html",
+      "sha256": "a3ae99777373523e48143b95741d23603346802df96ea2b1abe050368a3e6692",
+      "size": 12420
+    },
+    {
+      "path": "journal/Engineering_Journal.md",
+      "sha256": "74ae2ebcc29a62fbe36f398aec0ef59d52ed4c5394df665675a7bc05b934872e",
+      "size": 445
+    },
+    {
+      "path": "markdown/Project_Charter_v2_Product_Principles.md",
+      "sha256": "17b0c7647d62e4c5af2428c61565ff002bfc6e3487003818d9d9a0e59c151471",
+      "size": 9989
+    },
+    {
+      "path": "pdf/Project_Charter_v2_Product_Principles.pdf",
+      "sha256": "4344e4430bc1985b79a1d906cf730094f5ed80109629303f8c3b3e7f2a10509b",
+      "size": 14832
+    },
+    {
+      "path": "requirements/UX_Requirements_Matrix.md",
+      "sha256": "3892362db531be7cb8bcbb89f101640eaa5a6ff5e0f7059c691eaa7763b8e6c2",
+      "size": 949
+    }
+  ]
+}

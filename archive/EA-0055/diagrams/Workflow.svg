@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="520" viewBox="0 0 1000 520">
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#333"/></marker></defs>
+<rect width="100%" height="100%" fill="#ffffff"/>
+<text x="30" y="40" font-size="24" font-family="Arial" font-weight="bold">Workflow: AQELYN Attack Surface Discovery Engine</text>
+<rect x="40" y="170" width="120" height="70" rx="10" fill="#f2f2f2" stroke="#333"/>
+<text x="50" y="212" font-size="14" font-family="Arial">Scope</text>
+<line x1="160" y1="205" x2="180" y2="205" stroke="#333" marker-end="url(#arrow)"/>
+<rect x="180" y="170" width="120" height="70" rx="10" fill="#f2f2f2" stroke="#333"/>
+<text x="190" y="212" font-size="14" font-family="Arial">Collect</text>
+<line x1="300" y1="205" x2="320" y2="205" stroke="#333" marker-end="url(#arrow)"/>
+<rect x="320" y="170" width="120" height="70" rx="10" fill="#f2f2f2" stroke="#333"/>
+<text x="330" y="212" font-size="14" font-family="Arial">Validate</text>
+<line x1="440" y1="205" x2="460" y2="205" stroke="#333" marker-end="url(#arrow)"/>
+<rect x="460" y="170" width="120" height="70" rx="10" fill="#f2f2f2" stroke="#333"/>
+<text x="470" y="212" font-size="14" font-family="Arial">Score</text>
+<line x1="580" y1="205" x2="600" y2="205" stroke="#333" marker-end="url(#arrow)"/>
+<rect x="600" y="170" width="120" height="70" rx="10" fill="#f2f2f2" stroke="#333"/>
+<text x="610" y="212" font-size="14" font-family="Arial">Recommend</text>
+<line x1="720" y1="205" x2="740" y2="205" stroke="#333" marker-end="url(#arrow)"/>
+<rect x="740" y="170" width="120" height="70" rx="10" fill="#f2f2f2" stroke="#333"/>
+<text x="750" y="212" font-size="14" font-family="Arial">Review</text>
+<line x1="860" y1="205" x2="880" y2="205" stroke="#333" marker-end="url(#arrow)"/>
+<rect x="880" y="170" width="120" height="70" rx="10" fill="#f2f2f2" stroke="#333"/>
+<text x="890" y="212" font-size="14" font-family="Arial">Remediate</text>
+<text x="40" y="360" font-size="16" font-family="Arial">Generated as part of AQELYN FULL_COMPLETE publication standard.</text>
+</svg>

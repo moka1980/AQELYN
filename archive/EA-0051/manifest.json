@@ -1,0 +1,87 @@
+{
+  "archive": "EA-0051",
+  "brand": "AQELYN",
+  "generated_at": "2026-07-09T21:39:11.384737Z",
+  "files": [
+    {
+      "path": "EA-0051_Master.md",
+      "sha256": "79d67b193365b94fc097b1483c846fc69222d0770018fb49bc7873b95aef2477",
+      "bytes": 34172
+    },
+    {
+      "path": "README.md",
+      "sha256": "4118c55bb2ed28cfaa38e41096ff8ee883f3609cf95d0a73db3d5ecea53db9b5",
+      "bytes": 481
+    },
+    {
+      "path": "diagrams/Architecture.svg",
+      "sha256": "fa42acfb1438384c40ba08a555d486f170ef10b23e0d5f8a28039e6b07484734",
+      "bytes": 1281
+    },
+    {
+      "path": "diagrams/Component.svg",
+      "sha256": "5eff567b9610ff1ba0a1e854bf98cc28d6054817d45707d3c85195c28ccc823b",
+      "bytes": 1278
+    },
+    {
+      "path": "diagrams/EventFlow.svg",
+      "sha256": "8f414d6c6a77a91f724bc2cfc895781d1e95d967840d1424d44e14f7eb791876",
+      "bytes": 1278
+    },
+    {
+      "path": "diagrams/Integration.svg",
+      "sha256": "d76a7314d63f20d2902296a2ba3a936d9b5afd69689838aa2c5b6680504c6881",
+      "bytes": 1280
+    },
+    {
+      "path": "diagrams/Workflow.svg",
+      "sha256": "81aa05e33ba76c426a9e29a0f131da78b4ffd66b51a74e3d8968aea39c922a3a",
+      "bytes": 1277
+    },
+    {
+      "path": "examples/core_interfaces.py",
+      "sha256": "e169d42e4e89ddeca12227d159eb166af3f803fb9af278b506dba2485eb9a0fc",
+      "bytes": 429
+    },
+    {
+      "path": "examples/pyproject.toml.example",
+      "sha256": "68ffdb1f9d424bf111f9764fbbe8b328278616dfcff78f543bec77788bc2772d",
+      "bytes": 332
+    },
+    {
+      "path": "examples/smoke_runtime.py",
+      "sha256": "02036a4d30274347d0dd5e4509e045a80e66fe934134def2ea7708eb87072019",
+      "bytes": 341
+    },
+    {
+      "path": "html/EA-0051.html",
+      "sha256": "18a975d8348edfc186eab69e1f9a737821143a9cccbd8e15abd12188ce6b7fe6",
+      "bytes": 38925
+    },
+    {
+      "path": "index/EA-0051_Index.md",
+      "sha256": "d1f5a87d8669ec3c342f5d9bc61b3b260a7cd3f5ad6047ae3751a73a1d12c47e",
+      "bytes": 349
+    },
+    {
+      "path": "journal/Engineering_Journal.md",
+      "sha256": "e724df15b87a96590a7f955770b02c42ef1ee9abc443530628240da2728093e5",
+      "bytes": 432
+    },
+    {
+      "path": "pdf/EA-0051.pdf",
+      "sha256": "eb1110c185aa727242ad76e37503416bd2372611a4b3e75a847d0085769222db",
+      "bytes": 41109
+    },
+    {
+      "path": "requirements/Requirements_Matrix.md",
+      "sha256": "ca79283060d06020b317fee075445073cbfbd2009176198268a38227058c570a",
+      "bytes": 789
+    },
+    {
+      "path": "requirements/Traceability_Matrix.md",
+      "sha256": "c7471a7f41a31ec4d345f31adfbcba064055a28b6690d4588342b88f04b3e4b0",
+      "bytes": 901
+    }
+  ]
+}

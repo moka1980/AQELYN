@@ -1,0 +1,7 @@
+{
+  "archive": "EA-0009",
+  "brand": "AQELYN",
+  "module": "AQELYN Policy Engine",
+  "event_type": "AQELYNPolicyEngineAssessmentCompleted",
+  "evidence_required": true
+}

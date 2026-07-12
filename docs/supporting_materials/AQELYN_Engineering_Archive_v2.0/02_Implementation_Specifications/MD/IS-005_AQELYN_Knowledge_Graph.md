@@ -1,0 +1,49 @@
+# Implementation Specification IS-005 - AQELYN Knowledge Graph
+
+Status: Approved for Design
+Priority: Critical
+Package ID: PKG-005
+Depends on: IS-001, IS-002, IS-003, IS-004
+Referenced Blueprint Volumes: 14, 16, 31, 39
+
+## Vision
+
+The Knowledge Graph is the memory of AQELYN. Databases store records. The Knowledge Graph stores relationships and meaning.
+
+## Core Principle
+
+Knowledge is built from verified evidence. No node enters the graph without traceable evidence.
+
+## Graph Components
+
+Objects -> Relationships -> Evidence Links -> Knowledge Links -> Context -> History
+
+## Node Types
+
+Device, User, Identity, Organization, Workspace, Process, File, Certificate, Network Connection, Application, Vulnerability, Threat, Mission, Finding, Evidence, Policy, Rule, Report, Cloud Resource.
+
+## Relationship Types
+
+User owns Device.
+Device runs Process.
+Process connects_to IP Address.
+Finding supported_by Evidence.
+Policy protects Asset.
+
+## Graph Rules
+
+Every relationship includes Source Node, Target Node, Relationship Type, Created Time, Confidence, Evidence Reference and Version.
+
+## Time Awareness
+
+The graph supports current view, historical view and comparison view.
+
+## Requirements
+
+REQ-KNOWLEDGE-001: Every knowledge node shall reference an object.
+REQ-KNOWLEDGE-002: Every relationship shall reference supporting evidence where applicable.
+REQ-KNOWLEDGE-003: Knowledge shall preserve historical changes.
+REQ-KNOWLEDGE-004: Queries shall respect authorization boundaries.
+REQ-KNOWLEDGE-005: Confidence shall be calculated from evidence.
+REQ-KNOWLEDGE-006: The graph shall support historical and current views.
+REQ-KNOWLEDGE-007: The graph shall expose APIs for search and investigation.

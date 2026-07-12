@@ -1,0 +1,13 @@
+{
+  "brand": "AQELYN",
+  "finding": "Example finding",
+  "explanation": "Plain language first; expert details on demand",
+  "evidence": [
+    "evidence://example/1"
+  ],
+  "recommendations": [
+    "Fix now",
+    "Schedule fix",
+    "Create ticket"
+  ]
+}

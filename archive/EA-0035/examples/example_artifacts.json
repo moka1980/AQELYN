@@ -1,0 +1,14 @@
+{
+  "examples": [
+    "Credential Inventory Report",
+    "Certificate Expiration Report",
+    "Secret Exposure Finding",
+    "Rotation Recommendation",
+    "Weak Key Finding",
+    "Trust Anchor Governance Report",
+    "Credential Ownership Compliance Report",
+    "Remediation Workflow Request",
+    "Event Publication Sample",
+    "Evidence Reference Package"
+  ]
+}
