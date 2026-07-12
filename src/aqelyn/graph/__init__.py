@@ -1,6 +1,7 @@
 """Knowledge Graph (EA-0005)."""
 
 from aqelyn.graph.graph import (
+    DEFAULT_IMPACT_RELATION_TYPES,
     MAX_DEPTH,
     MAX_NODES,
     VALID_DIRECTIONS,
@@ -22,8 +23,10 @@ from aqelyn.graph.models import (
     Subgraph,
     TraversalLimits,
 )
+from aqelyn.graph.postgres import PostgresKnowledgeGraph
 
 __all__ = [
+    "DEFAULT_IMPACT_RELATION_TYPES",
     "MAX_DEPTH",
     "MAX_NODES",
     "VALID_DIRECTIONS",
@@ -35,6 +38,7 @@ __all__ = [
     "KnowledgeGraph",
     "NodeView",
     "Path",
+    "PostgresKnowledgeGraph",
     "Subgraph",
     "TraversalLimits",
     "normalize_limits",

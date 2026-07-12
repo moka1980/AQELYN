@@ -13,6 +13,7 @@ from aqelyn.objects.store import ObjectStore, validate_object_id
 MAX_DEPTH = 32
 MAX_NODES = 100_000
 VALID_DIRECTIONS: frozenset[str] = frozenset(("out", "in", "both"))
+DEFAULT_IMPACT_RELATION_TYPES: frozenset[str] = frozenset(("depends_on", "runs_on", "member_of"))
 
 
 @runtime_checkable
