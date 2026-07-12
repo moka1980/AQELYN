@@ -119,6 +119,11 @@ class TrustConfigInvalid(AQError):
     code = "TrustConfigInvalid"
 
 
+# --- EA-0007 ---
+class MissionConfigInvalid(AQError):
+    code = "MissionConfigInvalid"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

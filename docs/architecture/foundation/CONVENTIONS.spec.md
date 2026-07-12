@@ -137,6 +137,7 @@ Every created/changed record and every event carries the responsible actor.
 | `EvidenceRequired` | Finding | no |
 | `GraphQueryInvalid` | EA-0005 | no |
 | `TrustConfigInvalid` | EA-0006 | no |
+| `MissionConfigInvalid` | EA-0007 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
