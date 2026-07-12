@@ -1,5 +1,6 @@
 """Trust Engine (EA-0006)."""
 
+from aqelyn.trust.engine import TrustEngine
 from aqelyn.trust.models import (
     Decision,
     EvidenceContribution,
@@ -19,6 +20,7 @@ __all__ = [
     "SourceReliabilityRegistry",
     "TrustAssessment",
     "TrustConfig",
+    "TrustEngine",
     "TrustLevel",
     "TrustThresholds",
 ]
