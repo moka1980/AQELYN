@@ -1,13 +1,18 @@
-"""In-memory Knowledge Graph over the EA-0002 ObjectStore (EA-0005 G2)."""
+"""In-memory Knowledge Graph over the EA-0002 ObjectStore (EA-0005 G2/G3)."""
 
 from __future__ import annotations
 
 from collections import deque
 from collections.abc import Iterable, Sequence
 
-from aqelyn.conventions.errors import ObjectNotFound
-from aqelyn.graph.graph import normalize_limits, require_node, validate_direction
-from aqelyn.graph.models import Direction, EdgeView, NodeView, Subgraph
+from aqelyn.conventions.errors import GraphQueryInvalid, ObjectNotFound
+from aqelyn.graph.graph import (
+    normalize_limits,
+    require_node,
+    validate_direction,
+    validate_max_paths,
+)
+from aqelyn.graph.models import Direction, EdgeView, NodeView, Path, Subgraph
 from aqelyn.objects.models import AQObject, AQRelationship
 from aqelyn.objects.store import ObjectStore
 
@@ -93,6 +98,123 @@ class InMemoryKnowledgeGraph:
             truncated=truncated,
         )
 
+    async def shortest_path(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        direction: str = "both",
+        relation_types: Sequence[str] | None = None,
+        max_depth: int = 6,
+    ) -> Path | None:
+        start = await self._visible_start(from_id)
+        target = await self._visible_node(to_id, tenant_id=start.tenant_id)
+        if target is None:
+            return None
+        normalized_direction = validate_direction(direction)
+        rel_types = frozenset(relation_types) if relation_types is not None else None
+        depth_limit = normalize_limits(max_depth=max_depth).max_depth
+        if start.id == target.id:
+            return Path(node_ids=[start.id], edges=[], length=0)
+
+        queue: deque[tuple[str, list[str], list[EdgeView]]] = deque([(start.id, [start.id], [])])
+        visited: set[str] = {start.id}
+        while queue:
+            current_id, node_ids, edges = queue.popleft()
+            if len(edges) >= depth_limit:
+                continue
+            for adjacent_id, rel in await self._walk_edges(
+                current_id,
+                tenant_id=start.tenant_id,
+                direction=normalized_direction,
+                relation_types=rel_types,
+            ):
+                if adjacent_id in visited:
+                    continue
+                adjacent_node_ids = [*node_ids, adjacent_id]
+                adjacent_edges = [*edges, _edge_view(rel)]
+                if adjacent_id == target.id:
+                    return Path(
+                        node_ids=adjacent_node_ids,
+                        edges=adjacent_edges,
+                        length=len(adjacent_edges),
+                    )
+                visited.add(adjacent_id)
+                queue.append((adjacent_id, adjacent_node_ids, adjacent_edges))
+        return None
+
+    async def paths(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        direction: str = "both",
+        relation_types: Sequence[str] | None = None,
+        max_depth: int = 6,
+        max_paths: int = 10,
+    ) -> list[Path]:
+        start = await self._visible_start(from_id)
+        target = await self._visible_node(to_id, tenant_id=start.tenant_id)
+        if target is None:
+            return []
+        normalized_direction = validate_direction(direction)
+        rel_types = frozenset(relation_types) if relation_types is not None else None
+        depth_limit = normalize_limits(max_depth=max_depth).max_depth
+        path_limit = validate_max_paths(max_paths)
+        if start.id == target.id:
+            return [Path(node_ids=[start.id], edges=[], length=0)]
+
+        found: list[Path] = []
+        queue: deque[tuple[str, list[str], list[EdgeView]]] = deque([(start.id, [start.id], [])])
+        while queue and len(found) < path_limit:
+            current_id, node_ids, edges = queue.popleft()
+            if len(edges) >= depth_limit:
+                continue
+            for adjacent_id, rel in await self._walk_edges(
+                current_id,
+                tenant_id=start.tenant_id,
+                direction=normalized_direction,
+                relation_types=rel_types,
+            ):
+                if adjacent_id in node_ids:
+                    continue
+                adjacent_node_ids = [*node_ids, adjacent_id]
+                adjacent_edges = [*edges, _edge_view(rel)]
+                if adjacent_id == target.id:
+                    found.append(
+                        Path(
+                            node_ids=adjacent_node_ids,
+                            edges=adjacent_edges,
+                            length=len(adjacent_edges),
+                        )
+                    )
+                    if len(found) >= path_limit:
+                        break
+                    continue
+                queue.append((adjacent_id, adjacent_node_ids, adjacent_edges))
+        return found
+
+    async def explain_path(self, path: Path) -> list[dict[str, object]]:
+        if path.length != len(path.edges) or len(path.node_ids) != len(path.edges) + 1:
+            raise GraphQueryInvalid("path node/edge counts are inconsistent")
+        explanation: list[dict[str, object]] = []
+        for index, edge in enumerate(path.edges):
+            explanation.append(
+                {
+                    "from": path.node_ids[index],
+                    "to": path.node_ids[index + 1],
+                    "relation_type": edge.relation_type,
+                    "evidence_ids": [
+                        source.evidence_id
+                        for source in edge.sources
+                        if source.evidence_id is not None
+                    ],
+                    "source_ids": [source.source_id for source in edge.sources],
+                    "source_methods": [source.method for source in edge.sources],
+                }
+            )
+        return explanation
+
     async def _visible_start(self, node_id: str) -> AQObject:
         node = await require_node(self._objects, node_id)
         if node.lifecycle_state not in VISIBLE_NODE_STATES:
@@ -147,6 +269,26 @@ class InMemoryKnowledgeGraph:
                 if adjacent_id not in visited:
                     return True
         return False
+
+    async def _walk_edges(
+        self,
+        current_id: str,
+        *,
+        tenant_id: str | None,
+        direction: Direction,
+        relation_types: frozenset[str] | None,
+    ) -> list[tuple[str, AQRelationship]]:
+        edges = await self._visible_edges(
+            current_id,
+            tenant_id=tenant_id,
+            direction=direction,
+            relation_types=relation_types,
+        )
+        result: list[tuple[str, AQRelationship]] = []
+        for rel in sorted(edges.values(), key=lambda edge: edge.id):
+            for adjacent_id in _adjacent_ids(current_id, rel, direction):
+                result.append((adjacent_id, rel))
+        return result
 
 
 def _node_view(obj: AQObject) -> NodeView:
