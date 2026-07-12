@@ -1,0 +1,13 @@
+rule_pack_id: ISPM-DEFAULT-001
+version: 1.0.0
+rules:
+  - rule_id: ISPM-AUTH-001
+    title: Privileged identity without MFA
+    severity: critical
+    condition: privilege_level in [privileged, break_glass] and mfa_status != enabled
+    recommendation: Enable phishing-resistant MFA and review emergency access controls.
+  - rule_id: ISPM-LIFE-001
+    title: Dormant identity with active privileges
+    severity: high
+    condition: lifecycle_state == inactive and privilege_level != none
+    recommendation: Disable or revalidate the identity owner and remove unused privilege.

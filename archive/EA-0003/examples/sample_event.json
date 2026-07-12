@@ -1,0 +1,7 @@
+{
+  "archive": "EA-0003",
+  "brand": "AQELYN",
+  "module": "AQELYN Event Bus",
+  "event_type": "AQELYNEventBusAssessmentCompleted",
+  "evidence_required": true
+}

@@ -1,0 +1,293 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Volume 035 - AQELYN Query and Discovery Language</title>
+<style>body{font-family:Arial,sans-serif;line-height:1.55;margin:40px;max-width:1100px}pre{white-space:pre-wrap;background:#f7f7f7;padding:14px}</style></head>
+<body><h1>AQELYN Blueprint - Volume 035</h1><h2>AQELYN Query and Discovery Language</h2><p>Source pages: 590-599</p><pre>--- Page 590 ---
+
+Volume 35
+AQELYN Query &amp; Discovery Language (SQDL)
+Status: Core Architecture
+Priority: Critical
+Vision
+AQELYN should have its own security language.
+Not SQL.
+Not Elasticsearch syntax.
+Not SIEM query languages.
+A language designed specifically for cybersecurity.
+Users should be able to ask questions naturally.
+Examples:
+Show Finance laptops
+or
+Find websites
+or
+Show all mobile devices
+The platform translates this into object queries.
+Why SQDL?
+Current security platforms require users to learn:
+•  SQL
+•  KQL
+•  SPL
+•  Lucene
+•  Elasticsearch
+•  Vendor-specific languages
+Instead, AQELYN provides one consistent language across every module.
+Universal Query Model
+Everything is queried through objects.
+
+
+--- Page 591 ---
+
+Objects
+No matter whether the object is a:
+•  laptop,
+•  website,
+•  cloud account,
+•  API,
+•  employee,
+•  mobile device,
+the syntax remains the same.
+Query Object
+Every query is stored.
+Query ID
+Queries themselves become reusable objects.
+Saved Queries
+Organizations create reusable searches.
+Examples:
+•  Devices needing updates.
+•  Unsupported software.
+•  Expiring certificates.
+•  Unverified cloud resources.
+•  Open investigations.
+One click.
+Always available.
+
+
+--- Page 592 ---
+
+Relationship Queries
+Because we have the Knowledge Graph.
+Users can ask:
+Show
+The platform traverses relationships automatically.
+Timeline Queries
+Example
+Show
+or
+Show
+Everything is time-aware.
+Trust Queries
+Example
+Find
+Results are ranked by business importance.
+Evidence Queries
+Example
+Show
+Evidence freshness becomes searchable.
+
+
+--- Page 593 ---
+
+Mission Queries
+Example
+Show
+Everything is connected.
+Visual Query Builder
+Many users will never type queries.
+Instead:
+Asset Type
+Everything can be built visually.
+Query Explanation
+One of our biggest innovations.
+Every query explains itself.
+Example:
+This query searches for laptops assigned to the Finance department whose latest verified
+Trust Score is below 95% and which have not been reassessed within the last 30 days.
+This improves usability and transparency.
+Query Optimization
+The engine analyzes:
+•  Frequently used queries.
+•  Slow queries.
+•  Duplicate queries.
+•  Similar queries.
+It recommends improvements.
+
+
+--- Page 594 ---
+
+Query Permissions
+Not everyone can query everything.
+Permissions apply to:
+•  Departments.
+•  Tenants.
+•  Regions.
+•  Classified assets.
+•  Personal information.
+•  Incident data.
+Security applies to queries as well as objects.
+NEW CORE ENGINE
+Semantic Query Engine
+Instead of requiring exact syntax.
+The engine understands intent.
+Example:
+Computers
+These  can  be  treated  as  related  concepts  where  appropriate,  while  preserving  precise
+filtering when needed.
+NEW CORE ENGINE
+Query Recommendation Engine
+The platform observes common usage patterns.
+Example:
+Users who review endpoint health every Monday may receive a suggestion to save that
+search as a reusable dashboard widget or scheduled report.
+Recommendations remain optional and configurable.
+NEW CORE ENGINE
+Query Federation Engine
+Organizations often operate across multiple environments.
+The Federation Engine allows authorized queries across:
+•  Headquarters.
+•  Regional offices.
+
+
+--- Page 595 ---
+
+•  Cloud environments.
+•  Subsidiaries.
+•  Managed tenants.
+Results are merged into a single evidence-backed view.
+NEW IDEA
+Cyber Search
+A universal search bar.
+Instead of navigating menus.
+Users type:
+Finance VPN
+or
+Laptop John Smith
+or
+MFA rollout
+or
+Expired certificates
+The platform searches:
+•  Objects.
+•  Missions.
+•  Evidence.
+•  Policies.
+•  Reports.
+•  Incidents.
+•  Knowledge Graph.
+One search.
+Everything.
+NEW IDEA
+Guided Search
+Home users don&#x27;t need a query language.
+Instead, the platform asks:
+What are you looking for?
+•  My computer
+•  My phone
+•  My Wi-Fi
+•  My website
+•  My accounts
+Each answer launches an appropriate guided search.
+
+
+--- Page 596 ---
+
+NEW IDEA
+Search as Navigation
+Instead of menu-driven software.
+Search becomes navigation.
+This reduces the learning curve dramatically.
+PS-ADR-0030
+Search-First Platform
+Status: Accepted
+Decision
+Project  AQELYN  shall  adopt  a  search-first  navigation  model  where  users  can  locate
+objects, missions, evidence, policies, and reports through a unified discovery interface.
+Rationale
+Large  cybersecurity  platforms  become  difficult  to  navigate  as  they  grow.  A  search-first
+model improves usability, reduces training requirements, and supports both novice and
+expert users.
+NEW LONG-TERM VISION
+Cyber Knowledge Explorer
+I think we should go even further.
+Imagine a visual explorer.
+Organization
+Users simply click relationships to move through the cyber environment.
+No menus.
+
+
+--- Page 597 ---
+
+No deep navigation trees.
+Just exploration.
+NEW  IDEA  —  One  I  believe  could  become  a  defining
+feature
+AQELYN Workspace
+Instead of separate pages, users work in Workspaces.
+Examples:
+•  Executive Workspace.
+•  SOC Workspace.
+•  Incident Workspace.
+•  Bug Bounty Workspace (authorized targets only).
+•  Endpoint Workspace.
+•  Mobile Workspace.
+•  Cloud Workspace.
+•  Compliance Workspace.
+•  Home Workspace.
+Each workspace combines:
+•  Search.
+•  Dashboards.
+•  Objects.
+•  Missions.
+•  Queries.
+•  Evidence.
+•  Reports.
+This means every role sees exactly what they need without being overwhelmed by the
+rest of the platform.
+One  of  the  most  important  engineering  principles  so
+far
+I  want  to  formally  add  another  design  rule  that  reflects  everything  you&#x27;ve  emphasized
+since the first day:
+The platform must scale in complexity without scaling in user effort.
+That means:
+•  A home user protecting one laptop should need only a few clicks to understand their
+security status.
+•   A  small  business  should  be  able  to  manage  dozens  of  devices  without  becoming
+overwhelmed.
+•   A  global  bank  or  government  agency  should  be  able  to  navigate  hundreds  of
+thousands  of  assets  using  the  same  consistent  concepts:  Objects,  Missions,
+Evidence, Knowledge, Trust, and Workspaces.
+
+
+--- Page 598 ---
+
+If  we  preserve  that  principle  throughout  implementation,  I  believe  Project  AQELYN  will
+stand  out  not  because  it  has  the  most  features,  but  because  it  makes  advanced
+cybersecurity understandable at every scale.
+Looking Ahead
+The next foundational volume will define the AQELYN AI Orchestration Framework.
+Unlike  many  products  that  simply  &quot;add  AI,&quot;  we  will  design  a  framework  where  AI  is
+modular,  explainable,  replaceable,  privacy-aware,  and  always  constrained  by  the
+evidence model and human oversight. That will allow organizations to use local models,
+cloud models, or future AI technologies without redesigning the rest of AQELYN.
+=====[ USER ]=====
+Good and continue
+=====[ ASSISTANT ]=====
+Excellent.  I  think  we  are  now  designing  one  of  the  modules  that  can  make  Project
+AQELYN a platform that remains relevant for the next 20–30 years.
+Notice something important about our architecture:
+We are not building around AI.
+We are building around:
+•  Objects
+•  Evidence
+•  Knowledge
+•  Trust
+•  Workflows
+•  Policies
+AI is only another engine.
+That is exactly how it should be.
+If tomorrow a better AI appears, we simply replace that engine.
+The platform itself survives.
+That avoids one of the biggest mistakes many software projects make today.
+AQELYN BLUEPRINT
+
+
+--- Page 599 ---
+
+Volume 36</pre></body></html>

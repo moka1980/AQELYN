@@ -1,0 +1,17 @@
+{
+  "identity_id": "00000000-0000-4000-8000-000000000033",
+  "identity_type": "human",
+  "provider": "entra_id",
+  "mfa_status": "disabled",
+  "privilege_level": "privileged",
+  "posture_score": 32,
+  "risk_rating": "critical",
+  "findings": [
+    "privileged_without_mfa",
+    "excessive_permissions"
+  ],
+  "recommendations": [
+    "enable_phishing_resistant_mfa",
+    "review_privileged_roles"
+  ]
+}

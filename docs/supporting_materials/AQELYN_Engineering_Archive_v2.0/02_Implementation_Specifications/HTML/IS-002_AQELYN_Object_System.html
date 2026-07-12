@@ -1,0 +1,30 @@
+<!doctype html><html><head><meta charset='utf-8'><title>IS-002 AQELYN Object System</title><style>body{font-family:Arial;margin:40px;line-height:1.55;max-width:1000px}pre{white-space:pre-wrap;background:#f7f7f7;padding:14px}</style></head><body><pre># Implementation Specification IS-002 - AQELYN Object System
+
+Status: Approved for Design
+Priority: Critical
+Package ID: PKG-002
+Depends on: IS-001 AQELYN Kernel
+Referenced Blueprint Volumes: 3, 16, 34, 56
+
+## Vision
+
+Everything in AQELYN is an Object. Devices, users, identities, certificates, applications, missions, findings, evidence, policies, alerts, plugins, workflows and reports use the same universal object model.
+
+## Universal Object Structure
+
+Object ID, Object Type, Version, Status, Owner, Organization, Workspace, Labels, Metadata, Created, Updated, Relationships, Evidence, Trust, Permissions, History.
+
+## Lifecycle
+
+Created -&gt; Validated -&gt; Active -&gt; Updated -&gt; Archived -&gt; Deleted (logical) -&gt; Purged (policy controlled)
+
+## Requirements
+
+REQ-OBJECT-001: Every entity shall inherit from the universal object model.
+REQ-OBJECT-002: Every object shall have a globally unique identifier.
+REQ-OBJECT-003: Every object shall maintain a complete change history.
+REQ-OBJECT-004: Every object shall support relationships.
+REQ-OBJECT-005: Every object shall support governance labels.
+REQ-OBJECT-006: Every object shall expose lifecycle state.
+REQ-OBJECT-007: Every object shall publish lifecycle events.
+</pre></body></html>

@@ -1,0 +1,11 @@
+@startuml
+actor Developer
+rectangle "AQELYN Engineering Portal" {
+  [Mission Control]
+  [EA Browser]
+  [AI Agent Workbench]
+}
+Developer --> [Mission Control]
+[AI Agent Workbench] --> [Codex Task Bundle]
+[AI Agent Workbench] --> [Claude Code Task Bundle]
+@enduml

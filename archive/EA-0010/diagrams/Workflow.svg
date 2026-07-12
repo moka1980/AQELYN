@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="870" viewBox="0 0 1100 870">
+<style>text{font-family:Arial,sans-serif}.title{font-size:28px;font-weight:bold}.node{fill:#f4f7fb;stroke:#1d3557;stroke-width:2}.edge{stroke:#555;stroke-width:2;marker-end:url(#arrow)}</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#555"/></marker></defs>
+<text x="40" y="45" class="title">Control Governance Workflow</text>
+<rect x="60" y="85" width="430" height="52" rx="8" class="node"/>
+<text x="78" y="118" font-size="18">Draft</text>
+<rect x="580" y="85" width="430" height="52" rx="8" class="node"/>
+<text x="598" y="118" font-size="18">Registered</text>
+<rect x="60" y="175" width="430" height="52" rx="8" class="node"/>
+<text x="78" y="208" font-size="18">Assigned</text>
+<rect x="580" y="175" width="430" height="52" rx="8" class="node"/>
+<text x="598" y="208" font-size="18">Implemented</text>
+<rect x="60" y="265" width="430" height="52" rx="8" class="node"/>
+<text x="78" y="298" font-size="18">Evidence Collection</text>
+<rect x="580" y="265" width="430" height="52" rx="8" class="node"/>
+<text x="598" y="298" font-size="18">Evaluation</text>
+<rect x="60" y="355" width="430" height="52" rx="8" class="node"/>
+<text x="78" y="388" font-size="18">Approved</text>
+<rect x="580" y="355" width="430" height="52" rx="8" class="node"/>
+<text x="598" y="388" font-size="18">Monitoring</text>
+<rect x="60" y="445" width="430" height="52" rx="8" class="node"/>
+<text x="78" y="478" font-size="18">Review</text>
+<rect x="580" y="445" width="430" height="52" rx="8" class="node"/>
+<text x="598" y="478" font-size="18">Retired</text>
+<line x1="490" y1="111" x2="580" y2="111" class="edge"/>
+<line x1="1010" y1="111" x2="60" y2="201" class="edge"/>
+<line x1="490" y1="201" x2="580" y2="201" class="edge"/>
+<line x1="1010" y1="201" x2="60" y2="291" class="edge"/>
+<line x1="490" y1="291" x2="580" y2="291" class="edge"/>
+<line x1="1010" y1="291" x2="60" y2="381" class="edge"/>
+<line x1="490" y1="381" x2="580" y2="381" class="edge"/>
+<line x1="1010" y1="381" x2="60" y2="471" class="edge"/>
+<line x1="490" y1="471" x2="580" y2="471" class="edge"/>
+</svg>

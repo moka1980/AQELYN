@@ -1,0 +1,4 @@
+@startuml
+title EA-0059 AQELYN Design System
+[AQELYN] --> [AQELYN Design System]
+@enduml

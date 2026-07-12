@@ -1,0 +1,77 @@
+{
+  "archive": "EA-0008",
+  "brand": "AQELYN",
+  "generated_at": "2026-07-09T21:39:11.276377Z",
+  "files": [
+    {
+      "path": "EA-0008_Master.md",
+      "sha256": "8074e120ea910164c98dba1181ac552e7255a091de552978b5ca78a5646ce6a9",
+      "bytes": 92147
+    },
+    {
+      "path": "README.md",
+      "sha256": "ee22f2dc7a0a62c5d02e93cfaf5116ee8ba2c8714cc424cff3ff2818e37ed2bd",
+      "bytes": 78
+    },
+    {
+      "path": "diagrams/Architecture.svg",
+      "sha256": "984f611d98bfce4310cd1f12e4041b1e1ed0e1ff3e8cf6519dfda142a5186d6a",
+      "bytes": 1370
+    },
+    {
+      "path": "diagrams/Component.svg",
+      "sha256": "03fbf4fa2a3b19836c10bdb2129c99287db650f796072cdb05cc7c90d5036add",
+      "bytes": 1367
+    },
+    {
+      "path": "diagrams/EventFlow.svg",
+      "sha256": "d288df632d73b376776dfee17eaabcbcf3402c9864a8a71721d7c1f5c5734f42",
+      "bytes": 1367
+    },
+    {
+      "path": "diagrams/Integration.svg",
+      "sha256": "fe160842db30825e2116a1979c202a50146a553f5eda9a65ba6ee2b855857bc0",
+      "bytes": 1369
+    },
+    {
+      "path": "diagrams/Workflow.svg",
+      "sha256": "b99d528c1187242d1b0860357ff1e44e9d455e96cb0489e8b0db629e12069492",
+      "bytes": 1366
+    },
+    {
+      "path": "examples/sample_event.json",
+      "sha256": "302f2abd6bf6874ef871c9e3e0d6afb7ca987bf2f719ff9772558594711cab7e",
+      "bytes": 173
+    },
+    {
+      "path": "html/EA-0008.html",
+      "sha256": "4d0e5dec3c2bac128d09061f2f2ba61e1123d11821ea3af65d8ca1ac14451437",
+      "bytes": 95288
+    },
+    {
+      "path": "index/EA-0008_Index.md",
+      "sha256": "d562a1b84555b34370cccdeb4c0c83a9844af3d6f97604bf44ef57a5e63d4269",
+      "bytes": 136
+    },
+    {
+      "path": "journal/Engineering_Journal.md",
+      "sha256": "cb62402833dcf6f7eeb0cb7cdb180fdda1d4b12d92fc82a502d1ac006929fc5d",
+      "bytes": 92
+    },
+    {
+      "path": "pdf/EA-0008.pdf",
+      "sha256": "2f57932f1c9b1a71e1001670d3dbfb1e523ab19e23e12f598bf044b08eb28064",
+      "bytes": 62067
+    },
+    {
+      "path": "requirements/Requirements_Matrix.md",
+      "sha256": "a6cd6e654a1efb9d0d179a84e76d0dbcc6f5d3db8a404ed08ae448c87c303d30",
+      "bytes": 822
+    },
+    {
+      "path": "requirements/Traceability_Matrix.md",
+      "sha256": "d0f7f1d9014676ed7cdf6b45353ae68845bb939a97034fc20420f43e221ac064",
+      "bytes": 784
+    }
+  ]
+}

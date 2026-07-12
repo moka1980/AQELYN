@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520">
+<defs><linearGradient id="bg" x1="0" x2="1"><stop offset="0" stop-color="#07111f"/><stop offset="1" stop-color="#0a3761"/></linearGradient></defs>
+<rect width="1200" height="520" fill="url(#bg)"/>
+<defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#7BDFF2" /></marker></defs>
+<text x="60" y="70" fill="#ffffff" font-size="34" font-family="Arial" font-weight="700">EA-0059 — AQELYN Design System</text>
+<text x="60" y="105" fill="#7BDFF2" font-size="20" font-family="Arial">EventFlow diagram • AQELYN Platform</text>
+<rect x="60" y="210" rx="18" ry="18" width="150" height="70" fill="#0A3761" stroke="#dff7ff" stroke-width="2"/>
+<text x="135.0" y="252" fill="#fff" text-anchor="middle" font-size="18" font-family="Arial" font-weight="700">Input</text>
+<path d="M216 245.0 L240 245.0" stroke="#7BDFF2" stroke-width="5" marker-end="url(#arrow)"/>
+<rect x="248" y="210" rx="18" ry="18" width="150" height="70" fill="#0A5796" stroke="#dff7ff" stroke-width="2"/>
+<text x="323.0" y="252" fill="#fff" text-anchor="middle" font-size="18" font-family="Arial" font-weight="700">Normalize</text>
+<path d="M404 245.0 L428 245.0" stroke="#7BDFF2" stroke-width="5" marker-end="url(#arrow)"/>
+<rect x="436" y="210" rx="18" ry="18" width="150" height="70" fill="#0088CC" stroke="#dff7ff" stroke-width="2"/>
+<text x="511.0" y="252" fill="#fff" text-anchor="middle" font-size="18" font-family="Arial" font-weight="700">Assess</text>
+<path d="M592 245.0 L616 245.0" stroke="#7BDFF2" stroke-width="5" marker-end="url(#arrow)"/>
+<rect x="624" y="210" rx="18" ry="18" width="150" height="70" fill="#00A8A8" stroke="#dff7ff" stroke-width="2"/>
+<text x="699.0" y="252" fill="#fff" text-anchor="middle" font-size="18" font-family="Arial" font-weight="700">Decide</text>
+<path d="M780 245.0 L804 245.0" stroke="#7BDFF2" stroke-width="5" marker-end="url(#arrow)"/>
+<rect x="812" y="210" rx="18" ry="18" width="150" height="70" fill="#38B000" stroke="#dff7ff" stroke-width="2"/>
+<text x="887.0" y="252" fill="#fff" text-anchor="middle" font-size="18" font-family="Arial" font-weight="700">Record</text>
+<path d="M968 245.0 L992 245.0" stroke="#7BDFF2" stroke-width="5" marker-end="url(#arrow)"/>
+<rect x="1000" y="210" rx="18" ry="18" width="150" height="70" fill="#7BDFF2" stroke="#dff7ff" stroke-width="2"/>
+<text x="1075.0" y="252" fill="#fff" text-anchor="middle" font-size="18" font-family="Arial" font-weight="700">Publish</text>
+<text x="60" y="430" fill="#dff7ff" font-size="18" font-family="Arial">Evidence-driven • Human-centered • Secure-by-design • Traceable</text>
+</svg>

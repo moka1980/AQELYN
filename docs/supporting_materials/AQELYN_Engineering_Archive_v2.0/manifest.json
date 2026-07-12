@@ -1,0 +1,15 @@
+{
+  "name": "AQELYN Engineering Archive",
+  "version": "2.0",
+  "generated": "2026-07-07T14:44:31.370373+00:00",
+  "master_source": "AQELYN_COMPLETE.pdf",
+  "master_source_pages": 822,
+  "blueprint_volumes": 56,
+  "implementation_specifications": 5,
+  "formats": [
+    "pdf",
+    "html",
+    "md"
+  ],
+  "status": "Professional archive generated from master source and current IS specifications"
+}

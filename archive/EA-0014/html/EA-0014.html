@@ -1,0 +1,848 @@
+<!doctype html><html><head><meta charset="utf-8"><title>EA-0014 - AQELYN Engineering Archive</title><style>
+body{font-family:Inter,Arial,sans-serif;margin:0;background:#f7fbfe;color:#102030;line-height:1.55}main{max-width:980px;margin:0 auto;background:white;padding:48px;box-shadow:0 8px 40px #d8e6f2}h1{color:#0B3D63;border-bottom:3px solid #0784C3;padding-bottom:8px}h2{color:#0E5A83}pre{background:#eef7fb;padding:16px;border-left:5px solid #0784C3;overflow:auto}p,li{font-size:15px}.top{background:#072B4F;color:white;padding:24px 48px;margin:-48px -48px 30px -48px}</style></head><body><main><div class="top"><h1>EA-0014 - AQELYN Engineering Archive</h1><p>AQELYN Platform - FULL_COMPLETE Engineering Archive</p></div><h1>AQELYN - EA-0014 Engineering Archive</h1><h2>IS-014 - AQELYN Threat Intelligence Fusion Engine</h2><p>**Archive ID:** EA-0014  </p><p>**Implementation Specification:** IS-014  </p><p>**Component:** AQELYN Threat Intelligence Fusion Engine  </p><p>**Project:** AQELYN  </p><p>**System Type:** Cyber Security Operating Environment  </p><p>**Status:** COMPLETE  </p><p>**Repository Impact:** No top-level repository structure changes  </p><p>**Breaking Changes:** None  </p><p>**Engineering Phase:** Phase 3  </p><p>**Predecessor Archives:** EA-0001 through EA-0013  </p><p>**Next Specification:** IS-015  </p><p>---</p><h1>Document Control</h1><p>| Field | Value |</p><p>|---|---|</p><p>| Document | Engineering Archive EA-0014 |</p><p>| Specification | IS-014 - AQELYN Threat Intelligence Fusion Engine |</p><p>| Publication Format | Markdown, PDF, HTML, ZIP |</p><p>| Source of Truth | MD/EA-0014.md |</p><p>| Archive Rule | Implementation Specification -&gt; Engineering Archive -&gt; Continue |</p><p>| Repository Rule | Fixed repository structure; no redesign |</p><p>| Completion State | IS-014 complete; EA-0014 generated |</p><p>---</p><h1>1. Engineering Context</h1><p>AQELYN is being built as a modular Cyber Security Operating Environment.</p><p>Completed engineering archive chain:</p><p>| Engineering Archive | Implementation Specification | Component |</p><p>|---|---|---|</p><p>| EA-0001 | IS-001 | AQELYN Kernel |</p><p>| EA-0002 | IS-002 | Universal Object Model |</p><p>| EA-0003 | IS-003 | AQELYN Event Bus |</p><p>| EA-0004 | IS-004 | AQELYN Evidence Engine |</p><p>| EA-0005 | IS-005 | AQELYN Knowledge Graph |</p><p>| EA-0006 | IS-006 | AQELYN Trust Engine |</p><p>| EA-0007 | IS-007 | AQELYN Mission Engine |</p><p>| EA-0008 | IS-008 | AQELYN Workflow Engine |</p><p>| EA-0009 | IS-009 | AQELYN Policy Engine |</p><p>| EA-0010 | IS-010 | AQELYN Compliance &amp; Governance Engine |</p><p>| EA-0011 | IS-011 | AQELYN Identity &amp; Access Governance Engine |</p><p>| EA-0012 | IS-012 | AQELYN Asset &amp; Configuration Governance Engine |</p><p>| EA-0013 | IS-013 | AQELYN Risk Intelligence Engine |</p><p>| EA-0014 | IS-014 | AQELYN Threat Intelligence Fusion Engine |</p><p>The fixed repository structure remains:</p><pre><code>AQELYN/
+├── archive/
+├── blueprint/
+├── docs/
+├── src/
+├── tests/
+├── tools/
+├── build/
+├── releases/
+├── scripts/
+├── assets/
+├── examples/
+├── plugins/
+├── sdk/
+├── api/
+└── README.md</code></pre><p>The engineering rule remains:</p><pre><code>Finish Implementation Specification
+        ↓
+Generate Engineering Archive
+        ↓
+Continue</code></pre><p>No Engineering Archive may be skipped.</p><p>---</p><h1>2. IS-014 Specification Identity</h1><pre><code>Specification ID: IS-014
+Name: AQELYN Threat Intelligence Fusion Engine
+Engineering Archive Target: EA-0014
+Project: AQELYN
+System Type: Cyber Security Operating Environment
+Status: Complete
+Predecessor: IS-013 - AQELYN Risk Intelligence Engine</code></pre><p>---</p><h1>3. Purpose</h1><p>The AQELYN Threat Intelligence Fusion Engine ingests, normalizes, correlates, scores, and operationalizes threat intelligence from internal and external sources.</p><p>It transforms disconnected threat feeds into actionable intelligence for risk, mission, asset, identity, policy, and workflow decisions.</p><p>It answers:</p><pre><code>What threats are relevant to us?
+Which indicators are trustworthy?
+Which adversaries target our assets or missions?
+Which risks are increasing because of threat activity?
+Which evidence supports the intelligence?
+Which workflows should be triggered?</code></pre><p>---</p><h1>4. Mission</h1><p>The engine shall provide:</p><pre><code>Threat intelligence ingestion
+Indicator normalization
+Threat source trust scoring
+Threat correlation
+Adversary profiling
+Campaign tracking
+TTP mapping
+Indicator lifecycle management
+Threat-to-risk mapping
+Threat-to-asset mapping
+Threat-to-mission mapping
+Evidence-backed intelligence
+Operational threat reporting</code></pre><p>---</p><h1>5. Scope</h1><h2>5.1 In Scope</h2><pre><code>Threat feed ingestion
+Indicator catalog
+Threat actor catalog
+Campaign catalog
+TTP mapping
+Source confidence scoring
+Indicator confidence scoring
+Threat correlation
+Threat enrichment
+Risk intelligence integration
+Mission impact integration
+Evidence binding
+Threat event publishing</code></pre><h2>5.2 Out of Scope</h2><pre><code>Full malware sandbox implementation
+Endpoint detection engine
+Network packet inspection engine
+Dark web marketplace monitoring
+Human intelligence operations
+Law enforcement case management
+Offensive cyber operations</code></pre><p>---</p><h1>6. Dependencies</h1><p>IS-014 depends on:</p><pre><code>IS-001 AQELYN Kernel
+IS-002 Universal Object Model
+IS-003 AQELYN Event Bus
+IS-004 AQELYN Evidence Engine
+IS-005 AQELYN Knowledge Graph
+IS-006 AQELYN Trust Engine
+IS-007 AQELYN Mission Engine
+IS-008 AQELYN Workflow Engine
+IS-009 AQELYN Policy Engine
+IS-010 AQELYN Compliance &amp; Governance Engine
+IS-011 AQELYN Identity &amp; Access Governance Engine
+IS-012 AQELYN Asset &amp; Configuration Governance Engine
+IS-013 AQELYN Risk Intelligence Engine</code></pre><p>---</p><h1>7. High-Level Architecture</h1><pre><code>AQELYN Threat Intelligence Fusion Engine
+│
+├── Threat Source Registry
+├── Threat Feed Ingestion Service
+├── Indicator Normalization Service
+├── Indicator Catalog
+├── Threat Actor Catalog
+├── Campaign Tracker
+├── TTP Mapping Service
+├── Threat Correlation Engine
+├── Threat Confidence Scoring Engine
+├── Threat Evidence Binder
+├── Risk Intelligence Connector
+├── Mission Impact Connector
+├── Threat Reporting Service
+└── Threat Event Publisher</code></pre><p>---</p><h1>8. Functional Requirements</h1><h2>FR-014-001 - Threat Source Registry</h2><p>The system shall maintain a registry of threat intelligence sources.</p><p>Each source shall include:</p><pre><code>source_id
+name
+source_type
+authority
+trust_score
+confidence_model
+update_frequency
+license_scope
+status</code></pre><h2>FR-014-002 - Threat Feed Ingestion</h2><p>The system shall ingest threat intelligence from:</p><pre><code>Commercial feeds
+Open-source feeds
+Government advisories
+Internal detections
+Incident reports
+Security vendor reports
+ISAC/ISAO feeds
+Manual analyst submissions</code></pre><h2>FR-014-003 - Indicator Catalog</h2><p>The system shall maintain normalized indicators, including:</p><pre><code>IP addresses
+Domains
+URLs
+File hashes
+Email addresses
+Certificates
+Registry keys
+User agents
+Malware names
+Infrastructure identifiers</code></pre><h2>FR-014-004 - Threat Actor Catalog</h2><p>The system shall maintain profiles for threat actors and adversary groups.</p><h2>FR-014-005 - Campaign Tracking</h2><p>The system shall track threat campaigns and associate them with:</p><pre><code>Actors
+Indicators
+TTPs
+Targets
+Affected sectors
+Observed timeframes
+Evidence</code></pre><h2>FR-014-006 - TTP Mapping</h2><p>The system shall map observed tactics, techniques, and procedures to normalized technique references.</p><h2>FR-014-007 - Confidence Scoring</h2><p>The system shall calculate confidence for:</p><pre><code>Threat source
+Indicator
+Actor attribution
+Campaign association
+TTP mapping
+Threat relevance</code></pre><h2>FR-014-008 - Threat Correlation</h2><p>The system shall correlate threat intelligence with:</p><pre><code>Assets
+Configurations
+Identities
+Missions
+Policies
+Compliance findings
+Risks
+Evidence</code></pre><h2>FR-014-009 - Risk Integration</h2><p>The engine shall provide threat context to IS-013 Risk Intelligence.</p><h2>FR-014-010 - Threat Reporting</h2><p>The engine shall produce threat intelligence reports for:</p><pre><code>Executives
+Security analysts
+Risk owners
+Mission owners
+Compliance stakeholders
+Engineering teams</code></pre><p>---</p><h1>9. Non-Functional Requirements</h1><p>The engine shall satisfy:</p><pre><code>Traceability
+Source confidence
+Evidence-backed intelligence
+Auditability
+Timeliness
+De-duplication
+Explainability
+Scalability
+Event-driven synchronization
+Repository stability
+Backward compatibility</code></pre><p>---</p><h1>10. Core Threat Intelligence Flow</h1><pre><code>Threat source registered
+        ↓
+Feed ingested
+        ↓
+Indicators normalized
+        ↓
+Source confidence applied
+        ↓
+Threat correlated
+        ↓
+Evidence linked
+        ↓
+Risk and mission relevance calculated
+        ↓
+Threat report generated
+        ↓
+Threat event published</code></pre><p>---</p><h1>11. Internal Component Architecture</h1><p>The AQELYN Threat Intelligence Fusion Engine is implemented as a modular, event-driven subsystem integrated with the AQELYN Event Bus.</p><pre><code>AQELYN Threat Intelligence Fusion Engine
+│
+├── Threat Source Registry
+├── Feed Ingestion Service
+├── Feed Normalization Service
+├── Indicator Catalog
+├── Threat Actor Registry
+├── Campaign Manager
+├── TTP Mapping Service
+├── Threat Correlation Engine
+├── Confidence Scoring Engine
+├── Evidence Binding Service
+├── Threat Analytics Engine
+├── Threat Reporting Service
+├── Risk Intelligence Connector
+├── Mission Intelligence Connector
+└── Threat Event Publisher</code></pre><p>Each service shall operate independently while sharing the Universal Object Model and Evidence Engine.</p><p>---</p><h1>12. Component Specifications</h1><h2>12.1 Threat Source Registry</h2><p>Maintains metadata for every intelligence provider.</p><p>Responsibilities:</p><pre><code>Source registration
+Source classification
+Trust scoring
+Licensing metadata
+Feed health monitoring
+Update scheduling
+Source lifecycle</code></pre><h2>12.2 Feed Ingestion Service</h2><p>Responsible for importing intelligence.</p><p>Supported formats:</p><pre><code>STIX
+TAXII
+JSON
+XML
+CSV
+REST APIs
+Streaming feeds
+Manual analyst uploads</code></pre><p>The ingestion layer shall support incremental synchronization and deduplication.</p><h2>12.3 Feed Normalization Service</h2><p>Converts heterogeneous threat intelligence into the AQELYN Universal Object Model.</p><p>Normalization includes:</p><pre><code>Indicator normalization
+Timestamp normalization
+Identity normalization
+Threat actor normalization
+Campaign normalization
+TTP normalization
+Confidence normalization</code></pre><h2>12.4 Indicator Catalog</h2><p>Stores normalized Indicators of Compromise.</p><p>Supported indicator classes:</p><pre><code>IPv4
+IPv6
+Domain
+FQDN
+URL
+URI
+Email
+SHA256
+SHA1
+MD5
+X509 Certificate
+Mutex
+Registry Key
+User Agent
+File Name
+ASN</code></pre><h2>12.5 Threat Actor Registry</h2><p>Maintains profiles for adversaries.</p><p>Attributes include:</p><pre><code>Actor ID
+Aliases
+Country
+Motivation
+Capabilities
+Known campaigns
+Known TTPs
+Known infrastructure
+Associated evidence
+Confidence</code></pre><h2>12.6 Campaign Manager</h2><p>Maintains campaign intelligence.</p><p>Each campaign contains:</p><pre><code>Campaign ID
+Name
+Actors
+Objectives
+Timeframe
+Affected sectors
+Indicators
+Evidence
+Status</code></pre><h2>12.7 TTP Mapping Service</h2><p>Maps observed behavior to standardized tactics and techniques.</p><p>Supported mappings include:</p><pre><code>Tactics
+Techniques
+Sub-techniques
+Detection guidance
+Mitigation guidance
+Evidence references</code></pre><h2>12.8 Threat Correlation Engine</h2><p>Correlates intelligence across AQELYN.</p><p>Correlation targets:</p><pre><code>Assets
+Configurations
+Identities
+Missions
+Policies
+Compliance findings
+Risk records
+Knowledge Graph
+Evidence</code></pre><h2>12.9 Confidence Scoring Engine</h2><p>Calculates confidence for:</p><pre><code>Threat source
+Indicator validity
+Threat actor attribution
+Campaign attribution
+TTP mapping
+Correlation quality
+Overall intelligence quality</code></pre><p>Confidence shall be recalculated whenever new evidence becomes available.</p><h2>12.10 Evidence Binding Service</h2><p>Every intelligence object shall reference immutable evidence.</p><p>Evidence sources include:</p><pre><code>Threat feeds
+Internal detections
+Incident investigations
+SOC observations
+Analyst submissions
+External advisories</code></pre><h2>12.11 Threat Analytics Engine</h2><p>Provides analytical capabilities including:</p><pre><code>Trend analysis
+Campaign evolution
+Indicator reuse
+Threat actor activity
+Sector targeting
+Infrastructure reuse
+Emerging threat detection</code></pre><h2>12.12 Threat Reporting Service</h2><p>Produces operational and executive reports.</p><p>Reports include:</p><pre><code>Threat landscape
+Top campaigns
+Top actors
+Emerging threats
+Threat trends
+Indicator statistics
+Threat confidence
+Risk impact
+Mission impact</code></pre><p>---</p><h1>13. Universal Object Model Extensions</h1><h2>13.1 ThreatSource</h2><pre><code>ThreatSource:
+    source_id
+    name
+    type
+    trust_score
+    confidence
+    update_frequency</code></pre><h2>13.2 ThreatIndicator</h2><pre><code>ThreatIndicator:
+    indicator_id
+    indicator_type
+    value
+    confidence
+    first_seen
+    last_seen
+    source</code></pre><h2>13.3 ThreatActor</h2><pre><code>ThreatActor:
+    actor_id
+    aliases
+    motivation
+    capabilities
+    confidence</code></pre><h2>13.4 ThreatCampaign</h2><pre><code>ThreatCampaign:
+    campaign_id
+    actors
+    indicators
+    ttps
+    timeframe</code></pre><h2>13.5 ThreatAssessment</h2><pre><code>ThreatAssessment:
+    assessment_id
+    object_id
+    confidence
+    evidence</code></pre><p>---</p><h1>14. Knowledge Graph Integration</h1><p>Relationships include:</p><pre><code>Threat Actor
+      ↓
+conducts
+      ↓
+Campaign
+
+Campaign
+      ↓
+uses
+      ↓
+Indicators
+
+Indicators
+      ↓
+target
+      ↓
+Assets
+
+Indicators
+      ↓
+target
+      ↓
+Identities
+
+Threat
+      ↓
+increases
+      ↓
+Risk
+
+Threat
+      ↓
+affects
+      ↓
+Mission
+
+Threat
+      ↓
+supported_by
+      ↓
+Evidence</code></pre><p>---</p><h1>15. Event Bus Integration</h1><p>The engine publishes standardized events.</p><h2>15.1 Threat Events</h2><pre><code>threat.source.created
+threat.source.updated
+indicator.created
+indicator.updated
+campaign.created
+campaign.updated
+actor.created
+actor.updated</code></pre><h2>15.2 Correlation Events</h2><pre><code>threat.correlated
+indicator.matched
+campaign.detected
+actor.correlated</code></pre><h2>15.3 Intelligence Events</h2><pre><code>threat.confidence.changed
+threat.assessed
+threat.enriched
+threat.archived</code></pre><h2>15.4 Risk Events</h2><pre><code>risk.threat.updated
+mission.threat.updated</code></pre><p>---</p><h1>16. Evidence Engine Integration</h1><p>The Threat Intelligence Fusion Engine consumes immutable evidence from:</p><pre><code>External threat feeds
+Internal detections
+SOC investigations
+Compliance findings
+Asset observations
+Identity observations
+Incident response</code></pre><p>Evidence references shall remain immutable after publication.</p><p>---</p><h1>17. Policy Engine Integration</h1><p>Policies determine:</p><pre><code>Accepted threat sources
+Confidence thresholds
+Indicator retention
+Threat retention
+Campaign retention
+Alert thresholds
+Publishing rules</code></pre><p>---</p><h1>18. Risk Intelligence Integration</h1><p>IS-013 consumes threat context from this engine.</p><p>Shared information includes:</p><pre><code>Threat confidence
+Campaign relevance
+Actor attribution
+Threat indicators
+Risk impact
+Evidence confidence</code></pre><p>---</p><h1>19. Mission Engine Integration</h1><p>Mission Engine consumes:</p><pre><code>Mission targeting
+Mission disruption probability
+Threat priority
+Operational relevance</code></pre><p>Mission priorities influence threat prioritization.</p><p>---</p><h1>20. Asset Governance Integration</h1><p>Threat intelligence correlates with:</p><pre><code>Critical assets
+Configuration drift
+Asset exposure
+Asset ownership</code></pre><p>---</p><h1>21. Identity Governance Integration</h1><p>Threat intelligence correlates with:</p><pre><code>Privileged identities
+Compromised identities
+Credential exposure
+Identity anomalies</code></pre><p>---</p><h1>22. Compliance Integration</h1><p>Threat intelligence provides context for:</p><pre><code>Control effectiveness
+Regulatory exposure
+Security posture
+Compliance exceptions</code></pre><p>---</p><h1>23. Public APIs</h1><h2>23.1 Threat Source API</h2><pre><code>GET /threat-sources
+POST /threat-sources
+GET /threat-sources/{id}</code></pre><h2>23.2 Indicator API</h2><pre><code>GET /indicators
+POST /indicators
+GET /indicators/{id}
+PUT /indicators/{id}</code></pre><h2>23.3 Threat Actor API</h2><pre><code>GET /actors
+POST /actors
+GET /actors/{id}</code></pre><h2>23.4 Campaign API</h2><pre><code>GET /campaigns
+POST /campaigns
+GET /campaigns/{id}</code></pre><h2>23.5 Analytics API</h2><pre><code>GET /threat-analytics
+GET /threat-trends
+GET /threat-dashboard</code></pre><h2>23.6 Correlation API</h2><pre><code>POST /threat/correlate
+POST /indicator/match
+POST /campaign/analyze</code></pre><p>---</p><h1>24. Repository Impact</h1><p>Implementation shall follow the approved AQELYN repository without modification.</p><pre><code>AQELYN/
+├── src/
+│   └── threat_intelligence/
+├── tests/
+│   └── threat_intelligence/
+├── docs/
+│   └── threat_intelligence/
+├── api/
+│   └── threat_intelligence/
+└── archive/</code></pre><p>No top-level repository changes are permitted.</p><p>---</p><h1>25. Security Architecture</h1><p>The AQELYN Threat Intelligence Fusion Engine is a Tier-1 intelligence subsystem responsible for ingesting and operationalizing external and internal threat data.</p><p>Every threat intelligence decision shall be:</p><pre><code>Evidence-backed
+Source-attributed
+Confidence-scored
+Policy-governed
+Auditable
+Traceable
+Explainable
+Continuously re-evaluated</code></pre><p>No threat intelligence object shall be operationalized without a source, confidence state, and evidence reference.</p><h2>25.1 Security Principles</h2><p>The engine shall implement:</p><pre><code>Zero Trust
+Source Verification
+Evidence Integrity
+Least Privilege
+Defense in Depth
+De-duplication Integrity
+Immutable Intelligence History
+Explainable Correlation
+Separation of Duties
+Security by Design</code></pre><h2>25.2 Threat Intelligence Authorization Model</h2><p>Only authorized roles may register sources, approve intelligence sources, change confidence rules, or operationalize high-impact intelligence.</p><p>Supported roles:</p><p>| Role | Responsibility |</p><p>|---|---|</p><p>| Threat Intelligence Administrator | Source and feed lifecycle management |</p><p>| Threat Analyst | Indicator, campaign, actor, and TTP assessment |</p><p>| SOC Analyst | Operational intelligence review |</p><p>| Security Officer | High-impact intelligence approval |</p><p>| Mission Owner | Mission relevance validation |</p><p>| Risk Owner | Risk impact review |</p><p>| Automation Service | Approved ingestion, scoring, and correlation |</p><p>Authorization decisions shall be enforced through the AQELYN Policy Engine.</p><h2>25.3 Source Integrity</h2><p>Threat sources shall maintain:</p><pre><code>Source Identifier
+Authority
+Trust Score
+License Scope
+Update Frequency
+Health State
+Observed Reliability
+Evidence References
+Review History</code></pre><p>Source trust scores shall be recalculated when quality, reliability, or attribution changes.</p><h2>25.4 Indicator Integrity</h2><p>Threat indicators shall maintain:</p><pre><code>Indicator Identifier
+Indicator Type
+Normalized Value
+Original Value
+Source
+Confidence
+First Seen
+Last Seen
+Evidence References
+Lifecycle State</code></pre><p>Indicators shall not be modified destructively. Corrections and updates shall be recorded as new versions.</p><h2>25.5 Intelligence Evidence Protection</h2><p>Threat intelligence evidence shall support:</p><pre><code>Immutable evidence references
+Evidence lineage
+Source attribution
+Version tracking
+Integrity verification
+Trust scoring
+Audit history</code></pre><p>The engine shall not overwrite source evidence.</p><p>---</p><h1>26. Threat Intelligence Lifecycle</h1><p>Every governed threat intelligence object follows a controlled lifecycle.</p><pre><code>Received
+      ↓
+Normalized
+      ↓
+Validated
+      ↓
+Scored
+      ↓
+Correlated
+      ↓
+Operationalized
+      ↓
+Monitored
+      ↓
+Expired
+      ↓
+Archived</code></pre><h2>26.1 Indicator Lifecycle</h2><pre><code>Observed
+      ↓
+Normalized
+      ↓
+Deduplicated
+      ↓
+Confidence Scored
+      ↓
+Correlated
+      ↓
+Published
+      ↓
+Expired
+      ↓
+Archived</code></pre><h2>26.2 Threat Actor Lifecycle</h2><pre><code>Identified
+      ↓
+Profiled
+      ↓
+Attributed
+      ↓
+Correlated
+      ↓
+Reviewed
+      ↓
+Updated
+      ↓
+Archived</code></pre><h2>26.3 Campaign Lifecycle</h2><pre><code>Detected
+      ↓
+Scoped
+      ↓
+Associated
+      ↓
+Tracked
+      ↓
+Assessed
+      ↓
+Closed
+      ↓
+Archived</code></pre><h2>26.4 Source Lifecycle</h2><pre><code>Proposed
+      ↓
+Approved
+      ↓
+Active
+      ↓
+Monitored
+      ↓
+Suspended
+      ↓
+Retired</code></pre><p>---</p><h1>27. Threat Evaluation Model</h1><p>Threat intelligence evaluation shall consider:</p><pre><code>Source Trust
+Indicator Confidence
+Actor Attribution Confidence
+Campaign Confidence
+TTP Mapping Confidence
+Evidence Quality
+Internal Correlation
+External Corroboration
+Operational Relevance
+Mission Relevance
+Risk Impact</code></pre><h2>27.1 Threat Confidence Levels</h2><pre><code>Unknown
+Low
+Moderate
+High
+Confirmed</code></pre><h2>27.2 Threat Relevance Levels</h2><pre><code>Not Relevant
+Contextual
+Relevant
+High Priority
+Mission Critical</code></pre><p>Mission-critical threat intelligence shall trigger immediate governance workflows where configured.</p><p>---</p><h1>28. Continuous Threat Intelligence Fusion</h1><p>The engine shall continuously monitor:</p><pre><code>New indicators
+Updated indicators
+Actor attribution changes
+Campaign evolution
+Source reliability changes
+Threat feed health
+Asset exposure matches
+Identity exposure matches
+Risk score changes
+Mission relevance changes
+Compliance implications
+Evidence updates</code></pre><p>Every significant intelligence change shall trigger reassessment and appropriate events.</p><p>---</p><h1>29. Audit &amp; Reporting</h1><h2>29.1 Executive Reports</h2><pre><code>Threat Landscape Overview
+Top Threats
+Mission-Relevant Threats
+Threat-Driven Risk Summary
+Threat Trends</code></pre><h2>29.2 Operational Reports</h2><pre><code>Active Indicators
+Campaign Watchlist
+Threat Actor Activity
+Indicator Match Results
+Source Health</code></pre><h2>29.3 Risk Reports</h2><pre><code>Threat-to-Risk Mapping
+Risk Impact of Campaigns
+Threat-Increased Risk
+Threat Confidence Summary</code></pre><h2>29.4 Engineering Reports</h2><pre><code>Feed Processing Statistics
+Correlation Statistics
+Indicator Deduplication Metrics
+Evidence Coverage
+Confidence Model Metrics</code></pre><p>---</p><h1>30. Failure Handling</h1><h2>30.1 Source Unavailable</h2><pre><code>Status:
+Feed Degraded
+
+Action:
+Continue using cached intelligence and mark source health degraded</code></pre><h2>30.2 Malformed Feed Data</h2><pre><code>Status:
+Ingestion Failed
+
+Action:
+Reject malformed objects and record ingestion error evidence</code></pre><h2>30.3 Missing Evidence</h2><pre><code>Status:
+Intelligence Incomplete
+
+Action:
+Prevent operationalization until evidence is linked</code></pre><h2>30.4 Confidence Calculation Failure</h2><pre><code>Status:
+Assessment Pending
+
+Action:
+Queue for recalculation and analyst review</code></pre><h2>30.5 Correlation Failure</h2><pre><code>Status:
+Correlation Pending
+
+Action:
+Retry according to correlation policy</code></pre><h2>30.6 Event Bus Interruption</h2><p>Threat intelligence events shall be queued until successful delivery.</p><p>---</p><h1>31. Performance Requirements</h1><p>The engine shall support:</p><pre><code>High-volume feed ingestion
+Incremental feed synchronization
+Indicator deduplication at scale
+Parallel correlation
+Asynchronous enrichment
+Low-latency event publishing
+Dashboard generation</code></pre><p>Threat ingestion shall not block operational AQELYN services.</p><p>---</p><h1>32. Scalability Requirements</h1><p>The architecture shall support:</p><pre><code>Millions of indicators
+Hundreds of threat feeds
+Large campaign histories
+Large actor catalogs
+Multi-tenant deployments
+Hybrid environments
+Distributed processing
+High-volume correlation workloads</code></pre><p>---</p><h1>33. Testing Strategy</h1><h2>33.1 Unit Testing</h2><p>Validate:</p><pre><code>Threat Source Registry
+Feed Ingestion Service
+Feed Normalization Service
+Indicator Catalog
+Threat Actor Registry
+Campaign Manager
+TTP Mapping Service
+Confidence Scoring Engine
+Threat Correlation Engine
+Evidence Binding Service</code></pre><h2>33.2 Integration Testing</h2><p>Verify interaction with:</p><pre><code>AQELYN Kernel
+Universal Object Model
+Event Bus
+Evidence Engine
+Knowledge Graph
+Trust Engine
+Mission Engine
+Workflow Engine
+Policy Engine
+Compliance Engine
+Identity Governance Engine
+Asset Governance Engine
+Risk Intelligence Engine</code></pre><h2>33.3 System Testing</h2><p>Validate end-to-end scenarios including:</p><pre><code>Threat source registration
+Feed ingestion
+Indicator normalization
+Indicator deduplication
+Confidence scoring
+Threat correlation
+Risk update
+Mission threat update
+Threat report generation</code></pre><h2>33.4 Security Testing</h2><p>Verify:</p><pre><code>Authorization
+Source integrity
+Indicator integrity
+Evidence protection
+Audit trail completeness
+Policy enforcement
+Workflow security</code></pre><h2>33.5 Regression Testing</h2><p>Ensure IS-001 through IS-013 continue operating without behavioral changes introduced by IS-014.</p><p>---</p><h1>34. Acceptance Criteria</h1><p>IS-014 shall be considered complete when:</p><pre><code>Threat Source Registry is defined.
+Feed Ingestion Service is documented.
+Indicator Catalog is defined.
+Threat Actor Registry is defined.
+Campaign Manager is documented.
+TTP Mapping Service is defined.
+Confidence Scoring Engine is documented.
+Threat Correlation Engine is defined.
+Evidence Binding Service is documented.
+Integration with IS-001 through IS-013 is complete.
+Repository structure remains unchanged.
+Testing strategy is documented.</code></pre><p>---</p><h1>35. Repository Validation</h1><p>Implementation shall follow the approved repository structure.</p><pre><code>AQELYN/
+├── src/threat_intelligence/
+├── tests/threat_intelligence/
+├── docs/threat_intelligence/
+├── api/threat_intelligence/
+└── archive/</code></pre><p>No repository redesign is introduced.</p><p>---</p><h1>36. Engineering Summary</h1><p>The AQELYN Threat Intelligence Fusion Engine provides the intelligence layer that transforms external and internal threat data into evidence-backed operational threat context.</p><p>It introduces:</p><pre><code>Threat Source Registry
+Feed Ingestion
+Feed Normalization
+Indicator Catalog
+Threat Actor Registry
+Campaign Management
+TTP Mapping
+Confidence Scoring
+Threat Correlation
+Evidence Binding
+Threat Analytics
+Threat Reporting
+Risk and Mission Integration</code></pre><p>The engine integrates with all previous AQELYN components while preserving modularity and backward compatibility.</p><p>---</p><h1>37. Specification Status</h1><pre><code>Specification ID : IS-014
+Title            : AQELYN Threat Intelligence Fusion Engine
+Status           : COMPLETE
+Engineering Archive : READY FOR GENERATION
+Next Artifact    : EA-0014</code></pre><p>Engineering workflow status:</p><pre><code>EA-0001 COMPLETE
+EA-0002 COMPLETE
+EA-0003 COMPLETE
+EA-0004 COMPLETE
+EA-0005 COMPLETE
+EA-0006 COMPLETE
+EA-0007 COMPLETE
+EA-0008 COMPLETE
+EA-0009 COMPLETE
+EA-0010 COMPLETE
+EA-0011 COMPLETE
+EA-0012 COMPLETE
+EA-0013 COMPLETE
+IS-014 COMPLETE
+EA-0014 READY FOR GENERATION</code></pre><p>---</p><h1>38. EA-0014 Engineering Objective</h1><p>The objective of IS-014 was to introduce a dedicated Threat Intelligence Fusion Engine that enables AQELYN to ingest, normalize, correlate, score, and operationalize threat intelligence from trusted internal and external sources.</p><p>The engine extends AQELYN governance and risk intelligence with actionable threat context for mission, asset, identity, policy, compliance, workflow, and executive decisions.</p><p>---</p><h1>39. EA-0014 Engineering Summary</h1><p>The implementation specification defines a modular subsystem responsible for:</p><pre><code>Threat source registration
+Threat feed ingestion
+Feed normalization
+Indicator cataloging
+Threat actor registry
+Campaign tracking
+TTP mapping
+Threat correlation
+Confidence scoring
+Evidence binding
+Threat analytics
+Threat reporting
+Risk intelligence integration
+Mission intelligence integration
+Threat event publishing</code></pre><p>The engine integrates with all previously completed AQELYN engines while preserving architectural modularity.</p><p>---</p><h1>40. Major Engineering Decisions</h1><h2>40.1 Decision 1 - Dedicated Threat Intelligence Fusion Engine</h2><p>Threat intelligence responsibilities are implemented as a standalone engine rather than embedded in Risk Intelligence, Asset Governance, or Mission.</p><p>Rationale:</p><pre><code>Clear separation of intelligence ingestion from risk analytics.
+Independent lifecycle and scaling.
+Better support for threat feed normalization and deduplication.
+Improved traceability of source confidence and indicator lifecycle.</code></pre><h2>40.2 Decision 2 - Source-Attributed Intelligence</h2><p>Every intelligence object must maintain a source and evidence reference.</p><p>Benefits:</p><pre><code>Threat intelligence becomes auditable.
+Indicator confidence is explainable.
+Operational decisions can be traced to source material.
+Risk and mission decisions can consume trusted threat context.</code></pre><h2>40.3 Decision 3 - Confidence-Driven Operationalization</h2><p>Threat intelligence shall be operationalized based on confidence, source trust, evidence quality, and policy thresholds.</p><p>Benefits:</p><pre><code>Low-quality intelligence does not automatically trigger action.
+Analyst review can be required for ambiguous intelligence.
+Policy controls can govern retention, publishing, and escalation.</code></pre><h2>40.4 Decision 4 - Event-Driven Threat Fusion</h2><p>Threat, indicator, actor, campaign, correlation, confidence, risk, and mission updates are published through the AQELYN Event Bus.</p><p>Examples include:</p><pre><code>threat.source.created
+indicator.created
+campaign.updated
+actor.updated
+threat.correlated
+indicator.matched
+threat.confidence.changed
+risk.threat.updated
+mission.threat.updated</code></pre><p>This maintains loose coupling between AQELYN engines.</p><h2>40.5 Decision 5 - Universal Object Model Extension</h2><p>New domain objects introduced include:</p><pre><code>ThreatSource
+ThreatIndicator
+ThreatActor
+ThreatCampaign
+ThreatAssessment</code></pre><p>These extend the Universal Object Model without modifying existing object definitions.</p><p>---</p><h1>41. Architectural Integration Summary</h1><p>| Engine | Integration |</p><p>|---|---|</p><p>| IS-001 Kernel | Runtime lifecycle and service registration |</p><p>| IS-002 Universal Object Model | Threat source, indicator, actor, campaign, assessment objects |</p><p>| IS-003 Event Bus | Threat, indicator, correlation, confidence, risk, mission events |</p><p>| IS-004 Evidence Engine | Immutable feed, advisory, analyst, investigation, and detection evidence |</p><p>| IS-005 Knowledge Graph | Actor, campaign, indicator, asset, identity, risk, mission relationships |</p><p>| IS-006 Trust Engine | Source trust, indicator confidence, evidence confidence |</p><p>| IS-007 Mission Engine | Mission targeting and mission threat relevance |</p><p>| IS-008 Workflow Engine | Analyst review, escalation, enrichment, operationalization workflows |</p><p>| IS-009 Policy Engine | Source acceptance, confidence thresholds, retention and publishing rules |</p><p>| IS-010 Compliance Engine | Control effectiveness, regulatory exposure, compliance exceptions |</p><p>| IS-011 Identity Governance Engine | Compromised identities, credential exposure, privileged identity context |</p><p>| IS-012 Asset Governance Engine | Critical assets, configuration drift, exposure, ownership |</p><p>| IS-013 Risk Intelligence Engine | Threat-driven risk scoring and risk updates |</p><p>No existing engine required redesign.</p><p>---</p><h1>42. Repository Impact Summary</h1><p>Repository structure remains unchanged.</p><p>Implementation is expected within existing project directories, including:</p><pre><code>AQELYN/
+├── src/threat_intelligence/
+├── tests/threat_intelligence/
+├── api/threat_intelligence/
+├── docs/threat_intelligence/
+└── archive/</code></pre><p>No top-level directories were added, removed, or renamed.</p><p>---</p><h1>43. Security Impact Summary</h1><p>The specification introduces threat-intelligence-specific security controls:</p><pre><code>Policy-driven threat source authorization
+Source integrity
+Indicator integrity
+Evidence-backed intelligence records
+Immutable intelligence history
+Confidence-based operationalization
+Separation of duties for high-impact intelligence
+Traceable analyst and automation decisions</code></pre><p>No reduction in the security posture of existing components was identified.</p><p>---</p><h1>44. Capabilities Added</h1><p>The engine enables AQELYN to support:</p><pre><code>Threat source registry
+Threat feed ingestion
+Feed normalization
+Indicator catalog
+Threat actor registry
+Campaign tracking
+TTP mapping
+Confidence scoring
+Threat correlation
+Threat analytics
+Threat reporting
+Risk intelligence integration
+Mission threat integration
+Asset threat context
+Identity threat context
+Compliance threat context
+Evidence-backed intelligence</code></pre><p>---</p><h1>45. Risks Identified</h1><p>| Risk | Mitigation |</p><p>|---|---|</p><p>| Low-quality threat feeds | Source trust scoring and policy thresholds |</p><p>| Malformed feed data | Ingestion validation and rejection with evidence |</p><p>| False positive indicators | Confidence scoring, deduplication, and correlation rules |</p><p>| Over-attribution of threat actors | Attribution confidence and analyst review |</p><p>| Excessive feed volume | Incremental ingestion, deduplication, and parallel processing |</p><p>| License misuse | Source license metadata and policy enforcement |</p><p>| Stale indicators | Indicator lifecycle and expiration |</p><p>| Missing evidence | Prevent operationalization until evidence is linked |</p><p>No critical architectural risks were identified that require redesign.</p><p>---</p><h1>46. Verification Summary</h1><p>The specification defines verification for:</p><pre><code>Unit testing
+Integration testing
+System testing
+Security testing
+Regression testing</code></pre><p>Acceptance criteria cover source registry, feed ingestion, indicator catalog, actor registry, campaign management, TTP mapping, confidence scoring, threat correlation, evidence binding, integration with IS-001 through IS-013, repository validation, and testing documentation.</p><p>---</p><h1>47. Engineering Principles Confirmed</h1><p>The implementation complies with established AQELYN principles:</p><pre><code>Modular architecture
+Event-driven communication
+Immutable evidence references
+Traceability
+Explainability
+Security by design
+Repository stability
+Backward compatibility
+Governance-before-archive discipline</code></pre><p>---</p><h1>48. Dependencies</h1><p>Required:</p><pre><code>EA-0001 through EA-0013
+IS-001 through IS-013</code></pre><p>Enables:</p><pre><code>IS-015 and subsequent threat-dependent components</code></pre><p>---</p><h1>49. Completion Record</h1><pre><code>Engineering Archive : EA-0014
+Implementation Specification : IS-014
+Title : AQELYN Threat Intelligence Fusion Engine
+Engineering Status : COMPLETE
+Repository Status : UNCHANGED
+Architecture Status : EXTENDED
+Backward Compatibility : MAINTAINED
+Engineering Rule :
+    IS Completed
+        ↓
+    EA Generated
+        ↓
+    Continue</code></pre><p>---</p><h1>50. Archive Index Update</h1><pre><code>EA-0001  IS-001  AQELYN Kernel
+EA-0002  IS-002  Universal Object Model
+EA-0003  IS-003  AQELYN Event Bus
+EA-0004  IS-004  AQELYN Evidence Engine
+EA-0005  IS-005  AQELYN Knowledge Graph
+EA-0006  IS-006  AQELYN Trust Engine
+EA-0007  IS-007  AQELYN Mission Engine
+EA-0008  IS-008  AQELYN Workflow Engine
+EA-0009  IS-009  AQELYN Policy Engine
+EA-0010  IS-010  AQELYN Compliance &amp; Governance Engine
+EA-0011  IS-011  AQELYN Identity &amp; Access Governance Engine
+EA-0012  IS-012  AQELYN Asset &amp; Configuration Governance Engine
+EA-0013  IS-013  AQELYN Risk Intelligence Engine
+EA-0014  IS-014  AQELYN Threat Intelligence Fusion Engine</code></pre><p>---</p><h1>51. Engineering Phase Status</h1><pre><code>Completed Engineering Archives : EA-0001 through EA-0014
+
+Current Status:
+EA-0014 COMPLETE
+
+Next Implementation Specification:
+IS-015</code></pre><p>EA-0014 is completed and archived. The engineering workflow is consistent with the project rule:</p><pre><code>Implementation Specification -&gt; Engineering Archive -&gt; Continue</code></pre><p>From this point onward, the next engineering artifact is IS-015.</p><p>---</p><h1>52. Engineering Archive Publication Standard</h1><p>EA-0014 follows the AQELYN Engineering Archive Publication Standard.</p><p>Required package structure:</p><pre><code>EA-xxxx/
+│
+├── diagrams/
+│   ├── Architecture.svg
+│   ├── Component.svg
+│   ├── Workflow.svg
+│   ├── EventFlow.svg
+│   └── Integration.svg
+│
+├── examples/
+│   └── example_*.md
+│
+├── HTML/
+│   ├── index.html
+│   ├── styles.css
+│   └── assets/
+│
+├── images/
+│
+├── journal/
+│   └── Engineering_Journal.md
+│
+├── manifest/
+│   └── manifest.json
+│
+├── MD/
+│   └── EA-xxxx.md
+│
+├── PDF/
+│   └── EA-xxxx.pdf
+│
+├── requirements/
+│   └── Requirements_Matrix.md
+│
+├── traceability/
+│   └── Traceability_Matrix.md
+│
+└── README.md</code></pre><p>The master Markdown is the source of truth. The PDF and HTML are generated from the same master Markdown and must not omit sections.</p><p>---</p><h1>53. Requirements Matrix</h1><p>| Requirement ID | Requirement | Evidence in Archive | Status |</p><p>|---|---|---|---|</p><p>| FR-014-001 | Maintain threat source registry | Sections 8, 12 | Complete |</p><p>| FR-014-002 | Ingest threat feeds | Sections 8, 12 | Complete |</p><p>| FR-014-003 | Maintain indicator catalog | Sections 8, 12, 13 | Complete |</p><p>| FR-014-004 | Maintain threat actor catalog | Sections 8, 12, 13 | Complete |</p><p>| FR-014-005 | Track campaigns | Sections 8, 12, 13 | Complete |</p><p>| FR-014-006 | Map TTPs | Sections 8, 12 | Complete |</p><p>| FR-014-007 | Calculate confidence | Sections 8, 12, 27 | Complete |</p><p>| FR-014-008 | Correlate threat intelligence | Sections 8, 12, 14 | Complete |</p><p>| FR-014-009 | Integrate with Risk Intelligence | Sections 8, 18 | Complete |</p><p>| FR-014-010 | Produce threat reports | Sections 8, 12, 29 | Complete |</p><p>| NFR-014-001 | Traceability | Sections 9, 14, 16, 49 | Complete |</p><p>| NFR-014-002 | Source confidence | Sections 9, 25, 27 | Complete |</p><p>| NFR-014-003 | Evidence-backed intelligence | Sections 9, 16, 40 | Complete |</p><p>| NFR-014-004 | Auditability | Sections 9, 25, 30 | Complete |</p><p>| NFR-014-005 | Timeliness and scalability | Sections 9, 31, 32 | Complete |</p><p>| NFR-014-006 | Repository stability | Sections 24, 35, 42 | Complete |</p><p>---</p><h1>54. Traceability Matrix</h1><p>| Source | Target | Relationship |</p><p>|---|---|---|</p><p>| IS-014 Purpose | EA-0014 Objective | Defines why the engine exists |</p><p>| Threat Source Registry | FR-014-001 | Implements source lifecycle |</p><p>| Feed Ingestion Service | FR-014-002 | Implements feed import |</p><p>| Indicator Catalog | FR-014-003 | Implements normalized indicators |</p><p>| Threat Actor Registry | FR-014-004 | Implements adversary profiles |</p><p>| Campaign Manager | FR-014-005 | Implements campaign tracking |</p><p>| TTP Mapping Service | FR-014-006 | Implements TTP mapping |</p><p>| Confidence Scoring Engine | FR-014-007 | Implements confidence model |</p><p>| Threat Correlation Engine | FR-014-008 | Correlates threat context |</p><p>| Risk Intelligence Connector | FR-014-009 | Supplies IS-013 threat context |</p><p>| Threat Reporting Service | FR-014-010 | Produces threat reports |</p><p>| Evidence Engine Integration | Evidence-backed intelligence | References immutable evidence |</p><p>| Policy Engine Integration | Publishing and confidence rules | Determines source acceptance and thresholds |</p><p>| Mission Engine Integration | Mission threat relevance | Supplies mission impact context |</p><p>| Asset Governance Integration | Asset threat context | Supplies asset exposure and criticality |</p><p>| Identity Governance Integration | Identity threat context | Supplies privileged and compromised identity context |</p><p>| Event Bus Integration | NFR-014 event-driven sync | Publishes threat events |</p><p>| Repository Validation | Repository Standard | Confirms no top-level redesign |</p><p>---</p><h1>55. Engineering Journal</h1><h2>Journal Entry - EA-0014</h2><p>EA-0014 was created to archive completion of IS-014 - AQELYN Threat Intelligence Fusion Engine.</p><p>The archive records the expansion of AQELYN into threat intelligence fusion. IS-014 defines the structure needed to register sources, ingest feeds, normalize indicators, maintain actor and campaign intelligence, map TTPs, score confidence, correlate intelligence, bind evidence, update risk, update mission threat context, and generate threat reports.</p><p>The engineering design preserves the fixed AQELYN repository structure and maintains backward compatibility with previously completed engines.</p><h2>Lessons Learned</h2><p>Threat intelligence must be modeled separately from risk intelligence. Risk intelligence consumes threat context, but the Threat Intelligence Fusion Engine owns feed ingestion, source confidence, indicator lifecycle, actor attribution, campaign tracking, and threat correlation.</p><h2>Governance Note</h2><p>EA-0014 follows the master-document publication workflow. The Markdown file is the authoritative source, and PDF/HTML representations are generated from the same content.</p><p>---</p><h1>56. Examples</h1><h2>56.1 Example Threat Source</h2><pre><code>source_id: THSRC-0001
+name: Internal SOC Detections
+type: internal
+trust_score: 0.94
+confidence: high
+update_frequency: continuous
+status: active</code></pre><h2>56.2 Example Threat Indicator</h2><pre><code>indicator_id: IOC-1001
+indicator_type: domain
+value: malicious-example.test
+confidence: high
+first_seen: 2026-07-07T12:00:00Z
+last_seen: 2026-07-07T12:30:00Z
+source: THSRC-0001</code></pre><h2>56.3 Example Threat Campaign</h2><pre><code>campaign_id: CAMP-2001
+actors:
+  - ACTOR-3001
+indicators:
+  - IOC-1001
+ttps:
+  - TTP-PHISHING
+timeframe:
+  first_seen: 2026-07-01
+  last_seen: 2026-07-07
+status: active</code></pre><h2>56.4 Example Threat Event</h2><pre><code>{
+  &quot;event_type&quot;: &quot;risk.threat.updated&quot;,
+  &quot;risk_id&quot;: &quot;RISK-0001&quot;,
+  &quot;indicator_id&quot;: &quot;IOC-1001&quot;,
+  &quot;confidence&quot;: &quot;high&quot;,
+  &quot;reason&quot;: &quot;Indicator matched mission-critical asset exposure&quot;,
+  &quot;source_engine&quot;: &quot;aqelyn_threat_intelligence_fusion_engine&quot;
+}</code></pre><p>---</p><h1>57. Manifest Summary</h1><p>Archive contents include:</p><pre><code>README.md
+MD/EA-0014.md
+PDF/EA-0014.pdf
+HTML/index.html
+HTML/styles.css
+manifest/manifest.json
+requirements/Requirements_Matrix.md
+traceability/Traceability_Matrix.md
+journal/Engineering_Journal.md
+diagrams/Architecture.svg
+diagrams/Component.svg
+diagrams/Workflow.svg
+diagrams/EventFlow.svg
+diagrams/Integration.svg
+examples/example_threat_intelligence.md</code></pre><p>---</p><h1>58. Final Archive Statement</h1><p>EA-0014 is the Engineering Archive for IS-014 - AQELYN Threat Intelligence Fusion Engine.</p><p>It records the completed specification, the architectural decisions, the integration model, the repository impact, the risk posture, verification requirements, acceptance criteria, archive index update, and the engineering publication standard.</p><pre><code>EA-0014 COMPLETE
+IS-014 COMPLETE
+NEXT: IS-015</code></pre></main></body></html>

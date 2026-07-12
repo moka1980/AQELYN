@@ -1,0 +1,6 @@
+id,title,pdf,md,html,status
+IS-001,IS-001 AQELYN Kernel,02_Implementation_Specifications/PDF/IS-001_AQELYN_Kernel.pdf,02_Implementation_Specifications/MD/IS-001_AQELYN_Kernel.md,02_Implementation_Specifications/HTML/IS-001_AQELYN_Kernel.html,Created
+IS-002,IS-002 AQELYN Object System,02_Implementation_Specifications/PDF/IS-002_AQELYN_Object_System.pdf,02_Implementation_Specifications/MD/IS-002_AQELYN_Object_System.md,02_Implementation_Specifications/HTML/IS-002_AQELYN_Object_System.html,Created
+IS-003,IS-003 AQELYN Event Bus,02_Implementation_Specifications/PDF/IS-003_AQELYN_Event_Bus.pdf,02_Implementation_Specifications/MD/IS-003_AQELYN_Event_Bus.md,02_Implementation_Specifications/HTML/IS-003_AQELYN_Event_Bus.html,Created
+IS-004,IS-004 AQELYN Evidence Engine,02_Implementation_Specifications/PDF/IS-004_AQELYN_Evidence_Engine.pdf,02_Implementation_Specifications/MD/IS-004_AQELYN_Evidence_Engine.md,02_Implementation_Specifications/HTML/IS-004_AQELYN_Evidence_Engine.html,Created
+IS-005,IS-005 AQELYN Knowledge Graph,02_Implementation_Specifications/PDF/IS-005_AQELYN_Knowledge_Graph.pdf,02_Implementation_Specifications/MD/IS-005_AQELYN_Knowledge_Graph.md,02_Implementation_Specifications/HTML/IS-005_AQELYN_Knowledge_Graph.html,Created

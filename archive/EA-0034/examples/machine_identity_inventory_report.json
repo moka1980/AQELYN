@@ -1,0 +1,13 @@
+{
+  "reportType": "MachineIdentityInventory",
+  "generated": "2026-07-08T20:11:07Z",
+  "identities": [
+    {
+      "globalIdentityId": "mi-001",
+      "identityType": "KubernetesServiceAccount",
+      "owner": "platform-team",
+      "lifecycleState": "Active",
+      "governanceScore": 88
+    }
+  ]
+}

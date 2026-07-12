@@ -1,0 +1,157 @@
+{
+  "archive": "EA-0061",
+  "brand": "AQELYN",
+  "generated_at": "2026-07-09T21:39:11.416880Z",
+  "files": [
+    {
+      "path": "EA-0061_Master.md",
+      "sha256": "663bbfbdf638c6d244aa44893d288edfe3703e794ece8515c373205a1f0ee96a",
+      "bytes": 50475
+    },
+    {
+      "path": "INDEX.md",
+      "sha256": "79c473e72438260cbd1468d6d838503e6aaea5df40dc59a6919ba80f27ea153f",
+      "bytes": 179
+    },
+    {
+      "path": "INDEX.pdf",
+      "sha256": "402364feae4ae4d39e59950b5965cd906cf79819946ec051f73ed77813786046",
+      "bytes": 2022
+    },
+    {
+      "path": "README.md",
+      "sha256": "e5a03cc7b92bcd1333f0fb42d3ec81a497955502bed4b2c2dad03536ef961da5",
+      "bytes": 148
+    },
+    {
+      "path": "checklists/implementation_checklist.md",
+      "sha256": "63e8a813865c78914ce3feb1bfda761c01d6e5513112f24482405b2e11cdc1b9",
+      "bytes": 146
+    },
+    {
+      "path": "checklists/release_checklist.md",
+      "sha256": "d35927bb77db9e3073130ecd351ad6ffa823ed59edfa29f987bc51e9c5d3ff4e",
+      "bytes": 124
+    },
+    {
+      "path": "diagrams/Architecture.png",
+      "sha256": "57a386d73b0b9b27947289537958181d5c8a08b1735e95515703ce6bc0254436",
+      "bytes": 31205
+    },
+    {
+      "path": "diagrams/Architecture.svg",
+      "sha256": "e4ae3335eedad09de7c99c2002ceb2897e530bdd2c19c52acd1beae07d1ad7c5",
+      "bytes": 2779
+    },
+    {
+      "path": "diagrams/Component.png",
+      "sha256": "905520928293f7450892d6717ba859b9238b1ecbf4996ed3d457f3e59835bc15",
+      "bytes": 32813
+    },
+    {
+      "path": "diagrams/Component.svg",
+      "sha256": "57d4114092ec8a2d91cfe6fe7a03d1b4f13a9ee32f70206de6b12dd7dc0ab6e4",
+      "bytes": 2776
+    },
+    {
+      "path": "diagrams/EventFlow.png",
+      "sha256": "4337d28207ae34c4dca5632b56826d290c84589bef2876fc68fd54f8243d81f2",
+      "bytes": 32043
+    },
+    {
+      "path": "diagrams/EventFlow.svg",
+      "sha256": "a1a9e0d03618f524a45fee7df9322b54f2ccb609079eaf9a31a332fca3314c1f",
+      "bytes": 2776
+    },
+    {
+      "path": "diagrams/Integration.png",
+      "sha256": "a0d45118dc235d3fcabad9a6d2df33d3288ce7920fec1a6d9519f55349c23bd0",
+      "bytes": 32713
+    },
+    {
+      "path": "diagrams/Integration.svg",
+      "sha256": "d237fef6fdb1e4e4ec569aac3533399452635eacd5de7017537483d2c7c48719",
+      "bytes": 2778
+    },
+    {
+      "path": "diagrams/Workflow.png",
+      "sha256": "4a7b5477139f86dfd0c5ebbe8e7d1ed4db722336ec6162e8d5c12c434152799c",
+      "bytes": 32394
+    },
+    {
+      "path": "diagrams/Workflow.svg",
+      "sha256": "6e8c4b89f1272b4566dbdbb447c28ee528b7cf74ead035dc6d8e3a0525069bfa",
+      "bytes": 2775
+    },
+    {
+      "path": "examples/example_output_card.json",
+      "sha256": "e4adaad101be377841d4746b8357a2621ca25c197ced8c4d6a9984caa0b2ef8b",
+      "bytes": 253
+    },
+    {
+      "path": "html/EA-0061.html",
+      "sha256": "1d44361d543b23b30b84dcac814ee60b6e499391f72d32e32f4f21f3cd3ffc4a",
+      "bytes": 53758
+    },
+    {
+      "path": "markdown/EA-0061_Master.md",
+      "sha256": "663bbfbdf638c6d244aa44893d288edfe3703e794ece8515c373205a1f0ee96a",
+      "bytes": 50475
+    },
+    {
+      "path": "mermaid/architecture.mmd",
+      "sha256": "89756897b44916cef7cc963519314116c2f40abb3edef2b47fee10acaf585964",
+      "bytes": 128
+    },
+    {
+      "path": "pdf/EA-0061.pdf",
+      "sha256": "572473715a90f4c7897866a97202ed78f99a33a658aedb05b3b3667c05cd55aa",
+      "bytes": 35445
+    },
+    {
+      "path": "pdf/EA-0061_Developer_Handbook_Implementation_Guide.pdf",
+      "sha256": "691e4e74975dfb8ab108aa5be408ab8f77bb608b8e7e1caf1e29ab08ddba3c68",
+      "bytes": 32073
+    },
+    {
+      "path": "plantuml/architecture.puml",
+      "sha256": "65710370cdab49ce98fbd9d2b858ec7ea2c5ece8d9e62d0c0173e4e84ded88b2",
+      "bytes": 131
+    },
+    {
+      "path": "requirements/Requirements_Matrix.md",
+      "sha256": "0a469b00d63ecb684427258acb1420788d7a3e551e7300a75d4af868c57d8a54",
+      "bytes": 1403
+    },
+    {
+      "path": "requirements/Traceability_Matrix.md",
+      "sha256": "d41269cd6ab91f36749f89d954609a0e1070a7836bb07a9bb72c0b6358ea2391",
+      "bytes": 1582
+    },
+    {
+      "path": "review/Engineering_Review.md",
+      "sha256": "21baceafa4c27614f113f1b2000a973ecd827658222a2b43351e3c5e41659971",
+      "bytes": 228
+    },
+    {
+      "path": "templates/adr_template.md",
+      "sha256": "a8638892fb20b8d4c63aeb8e692b7b09d3dc0ba0b47528dec0a07e8edb3c5c4c",
+      "bytes": 73
+    },
+    {
+      "path": "templates/pull_request_template.md",
+      "sha256": "e979addad0b952fd739d0e4cfb981daa2b369b2e015b7b2326f5036ba903d5d9",
+      "bytes": 68
+    },
+    {
+      "path": "traceability/Requirements_Matrix.md",
+      "sha256": "0a469b00d63ecb684427258acb1420788d7a3e551e7300a75d4af868c57d8a54",
+      "bytes": 1403
+    },
+    {
+      "path": "traceability/Traceability_Matrix.md",
+      "sha256": "d41269cd6ab91f36749f89d954609a0e1070a7836bb07a9bb72c0b6358ea2391",
+      "bytes": 1582
+    }
+  ]
+}

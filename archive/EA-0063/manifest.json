@@ -1,0 +1,142 @@
+{
+  "archive": "EA-0063",
+  "brand": "AQELYN",
+  "generated_at": "2026-07-09T21:39:11.426732Z",
+  "files": [
+    {
+      "path": "EA-0063_Master.md",
+      "sha256": "37ebcf285a46e258e49c958ef065b6fff9b205a41ccd423fad6d535a1bbe9330",
+      "bytes": 27755
+    },
+    {
+      "path": "INDEX.md",
+      "sha256": "352fc5261179be85c0c6d36d95a8fa3ed588736ed9f319695c65b9d5095b2b65",
+      "bytes": 150
+    },
+    {
+      "path": "README.md",
+      "sha256": "e5c837685adb10a863153d42029dcde59774cb2a753813ec06b313eb7c6f9fc3",
+      "bytes": 110
+    },
+    {
+      "path": "checklists/Implementation_Readiness_Checklist.md",
+      "sha256": "745d06a5bb5b1075aa4ec309a0f73a11c500d5b8127af912181a56abdb6b5298",
+      "bytes": 367
+    },
+    {
+      "path": "diagrams/Architecture.svg",
+      "sha256": "6e3a1e476a10b4f5341fa02b4088dd0c5c4669b15f657566788ca129c9edf3fc",
+      "bytes": 1946
+    },
+    {
+      "path": "diagrams/Component.svg",
+      "sha256": "4062be5749a1d77d7fac8388d7a083a9fbbd567f7e9f7e7a9511fe00ffc07abe",
+      "bytes": 1943
+    },
+    {
+      "path": "diagrams/EventFlow.svg",
+      "sha256": "c342e5b00dc03c20c20828fa7a05ad84b3fb12e2050e46549ab594e3f1846989",
+      "bytes": 1943
+    },
+    {
+      "path": "diagrams/Integration.svg",
+      "sha256": "e2a898a4cacbc921acc6f827b7c53695c04d98abb8202a2308a954598bb3d290",
+      "bytes": 1945
+    },
+    {
+      "path": "diagrams/Workflow.svg",
+      "sha256": "2b84a08906c3ccfaf93b3852574ec0c6090a20a5407a346afff1924afbcce060",
+      "bytes": 1942
+    },
+    {
+      "path": "examples/EA-0063_sample_artifact.json",
+      "sha256": "de285b3a468f1f218f38f96006f009efbbc41edc9d7f56ece1a879d1c2271d67",
+      "bytes": 95
+    },
+    {
+      "path": "examples/implementation_authorization.json",
+      "sha256": "735b5a513e4f026d1b211fcdf8e1b6437c78738d73871a514a878d237e3aa181",
+      "bytes": 106
+    },
+    {
+      "path": "html/EA-0063.html",
+      "sha256": "bf22fb945cc1e2546ba104a2ebfb822e9b20a519c64a9c65795340adf9daa6cb",
+      "bytes": 30999
+    },
+    {
+      "path": "html/index.html",
+      "sha256": "f0d4cfc7c69f984e10de583538d9d1722322c65f989ed31d23e98f5805054ae0",
+      "bytes": 548
+    },
+    {
+      "path": "index/EA-0063_Index.md",
+      "sha256": "73934b5709ce53a8c3451f534e646fa8471d42be5a421b4d8855cab3e08457fd",
+      "bytes": 136
+    },
+    {
+      "path": "journal/Engineering_Journal.md",
+      "sha256": "670adbe40d1a1e82e593dd8a12e4f8fe0fd1b80a7a14377d820f3e0a86246498",
+      "bytes": 88
+    },
+    {
+      "path": "markdown/EA-0063_Master.md",
+      "sha256": "6cd67eda8ddf791b4959a0f8a5c58be15dc87bb8ce8b52fd5ab8d2948cb45e60",
+      "bytes": 7841
+    },
+    {
+      "path": "mermaid/architecture.mmd",
+      "sha256": "99900c438ec96abba7c839d3be4bddbdbaf343adb72a2ea22ec0e858468aa71e",
+      "bytes": 128
+    },
+    {
+      "path": "pdf/EA-0063.pdf",
+      "sha256": "0993bbb3cbf6e6be0cb8aedd377d7362a6ea61e6849570d5b0498569a08ecec2",
+      "bytes": 20041
+    },
+    {
+      "path": "pdf/EA-0063_AQELYN_Final_Readiness_Market_Leadership_Blueprint.pdf",
+      "sha256": "4273a143b3930bf22caf4501055655f7660854db48f2fe1149d4ef194b04c2aa",
+      "bytes": 8037
+    },
+    {
+      "path": "pdf/INDEX.pdf",
+      "sha256": "191a4b8df91dbe8dab72edcb5cb56fabd4da5febbd38b54aa7f9159c597e991a",
+      "bytes": 1788
+    },
+    {
+      "path": "plantuml/architecture.puml",
+      "sha256": "f286cb108bee6cc04a10084b44e9705a99b7e6434b4e034ddb7264b3c3eb0cb8",
+      "bytes": 112
+    },
+    {
+      "path": "requirements/Requirements_Matrix.md",
+      "sha256": "a61fc149f997fdd3965d0c7441906a21a620e60ee075c7ff7537f3e37eb3e0c4",
+      "bytes": 1250
+    },
+    {
+      "path": "requirements/Traceability_Matrix.md",
+      "sha256": "ccc3c3e4bbfd66ef4ed006ebed08dfd5db2fe0b9c9cd7d0fffc8217b73c69dee",
+      "bytes": 291
+    },
+    {
+      "path": "review/Engineering_Review.md",
+      "sha256": "88a970f441c7f9eff20e62545728a6800703800b8687f8f7343c71f5bd81a94b",
+      "bytes": 59
+    },
+    {
+      "path": "templates/Claude_Code_Start_Task.md",
+      "sha256": "554bd30ec777b89f61aae34153c3233fed9bad95b8e928e83ba3ee1e64574a02",
+      "bytes": 135
+    },
+    {
+      "path": "templates/Codex_Start_Task.md",
+      "sha256": "944fa5f37822f0c6a78c77bf78701332962c045466f692bf9a705bdb59f4d5c7",
+      "bytes": 129
+    },
+    {
+      "path": "traceability/Traceability_Matrix.md",
+      "sha256": "ccc3c3e4bbfd66ef4ed006ebed08dfd5db2fe0b9c9cd7d0fffc8217b73c69dee",
+      "bytes": 291
+    }
+  ]
+}

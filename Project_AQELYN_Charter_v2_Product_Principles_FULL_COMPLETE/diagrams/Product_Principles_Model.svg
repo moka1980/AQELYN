@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+<rect width="1400" height="800" fill="#f7fbff"/>
+<text x="700" y="70" font-size="38" text-anchor="middle" font-family="Arial" font-weight="bold" fill="#063b66">Project AQELYN Product Principles Model</text>
+<g font-family="Arial" font-size="22" text-anchor="middle">
+<rect x="500" y="130" width="400" height="80" rx="18" fill="#0b5fa5"/>
+<text x="700" y="180" fill="white" font-weight="bold">Understandable + Actionable</text>
+<g fill="#dff3ff" stroke="#0b5fa5" stroke-width="3">
+<rect x="80" y="290" width="230" height="90" rx="16"/><rect x="330" y="290" width="230" height="90" rx="16"/><rect x="580" y="290" width="230" height="90" rx="16"/><rect x="830" y="290" width="230" height="90" rx="16"/><rect x="1080" y="290" width="230" height="90" rx="16"/>
+</g>
+<text x="195" y="330" fill="#063b66" font-weight="bold">Explain</text><text x="195" y="358" fill="#063b66">Before Recommend</text>
+<text x="445" y="330" fill="#063b66" font-weight="bold">Simplicity</text><text x="445" y="358" fill="#063b66">First</text>
+<text x="695" y="330" fill="#063b66" font-weight="bold">Evidence</text><text x="695" y="358" fill="#063b66">Before Opinion</text>
+<text x="945" y="330" fill="#063b66" font-weight="bold">Human</text><text x="945" y="358" fill="#063b66">Centered</text>
+<text x="1195" y="330" fill="#063b66" font-weight="bold">Expert Depth</text><text x="1195" y="358" fill="#063b66">On Demand</text>
+<path d="M700 210 L700 275" stroke="#0b5fa5" stroke-width="4" marker-end="url(#arrow)"/>
+<defs><marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0,0 L12,6 L0,12 z" fill="#0b5fa5"/></marker></defs>
+<g fill="#e8f7ea" stroke="#20a65a" stroke-width="3">
+<rect x="160" y="500" width="260" height="90" rx="16"/><rect x="570" y="500" width="260" height="90" rx="16"/><rect x="980" y="500" width="260" height="90" rx="16"/>
+</g>
+<text x="290" y="538" fill="#065f2c" font-weight="bold">Plain Language</text><text x="290" y="566" fill="#065f2c">For Everyone</text>
+<text x="700" y="538" fill="#065f2c" font-weight="bold">Evidence Linked</text><text x="700" y="566" fill="#065f2c">For Trust</text>
+<text x="1110" y="538" fill="#065f2c" font-weight="bold">Technical Detail</text><text x="1110" y="566" fill="#065f2c">For Experts</text>
+<text x="700" y="700" font-size="26" fill="#063b66" font-weight="bold">Every finding: Problem -> Risk -> Evidence -> Fix -> Expert Details -> Audit Trail</text>
+</g>
+</svg>

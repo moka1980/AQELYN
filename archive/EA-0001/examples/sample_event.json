@@ -1,0 +1,7 @@
+{
+  "archive": "EA-0001",
+  "brand": "AQELYN",
+  "module": "AQELYN Kernel",
+  "event_type": "AQELYNKernelAssessmentCompleted",
+  "evidence_required": true
+}

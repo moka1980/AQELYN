@@ -1,0 +1,8 @@
+{
+  "evidenceSetId": "evset-001",
+  "references": [
+    "ev-001",
+    "ev-002"
+  ],
+  "integrityHash": "placeholder-hash"
+}

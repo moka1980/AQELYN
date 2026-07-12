@@ -1,0 +1,182 @@
+{
+  "archive": "EA-0062",
+  "brand": "AQELYN",
+  "generated_at": "2026-07-09T21:39:11.422345Z",
+  "files": [
+    {
+      "path": "EA-0062_Master.md",
+      "sha256": "21a43da0e67113e57a1187dd15921990f801bd013ca063cef90305b0d875c5f7",
+      "bytes": 18427
+    },
+    {
+      "path": "INDEX.md",
+      "sha256": "e6b1b7e619ceaffc199dd1046a8598522ea0a61486be5363fcea12eb108b0896",
+      "bytes": 749
+    },
+    {
+      "path": "README.md",
+      "sha256": "59cbff6fa9a660f44768ad3e37259834e0df78cc8f8298e9b5a21f3eb7129a17",
+      "bytes": 380
+    },
+    {
+      "path": "api/API_Specification.md",
+      "sha256": "0b826c7b627974687d3565d605ddd2f5107f3762153f396593f7e8ae094dfba2",
+      "bytes": 581
+    },
+    {
+      "path": "checklists/EA_Implementation_Checklist.md",
+      "sha256": "7823f34d956a66bdfef2c1cb8ceb1b2383bc0f7460cc926c72c919c01aa8f9e3",
+      "bytes": 267
+    },
+    {
+      "path": "database/Data_Model.md",
+      "sha256": "6a1bb6828f98011445c94b9633f38350e587e982d3e1ab430831d172fe654c6f",
+      "bytes": 366
+    },
+    {
+      "path": "diagrams/Architecture.svg",
+      "sha256": "218ca25568669bfc6a615e12ac6ae9483192c531f9da2394e592f258239c4942",
+      "bytes": 2007
+    },
+    {
+      "path": "diagrams/Component.svg",
+      "sha256": "b15afcda52b3e7062ae6cf0289e0c7a0e264cc0807618b82905a56adf2a9a1a0",
+      "bytes": 2010
+    },
+    {
+      "path": "diagrams/Deployment.svg",
+      "sha256": "cb551082492d7e303637ee060178d8d9fb42aedc682aa5885c6345f7fc2e0be6",
+      "bytes": 2011
+    },
+    {
+      "path": "diagrams/EventFlow.svg",
+      "sha256": "9469cf726796c5d247b32768d1e66e7b238ff34f3098b050a65510a990c7be45",
+      "bytes": 2017
+    },
+    {
+      "path": "diagrams/Integration.svg",
+      "sha256": "afb3e8b90cd7d1570026eb97686d223014c5bd753aa79c7ddc8212de27f198c5",
+      "bytes": 2012
+    },
+    {
+      "path": "diagrams/UINavigation.svg",
+      "sha256": "197232b8c9ef071db7f18561cac6e29e470653b6c9df2ce311d088c8a880b95c",
+      "bytes": 2008
+    },
+    {
+      "path": "diagrams/Workflow.svg",
+      "sha256": "e8433ec59e48a5d79712ec1f12da5cb0c7788b94219327e14bd58609ba7c8f0c",
+      "bytes": 2013
+    },
+    {
+      "path": "examples/agent_task_bundle.sample.json",
+      "sha256": "0fa538f5e975ad7676604f94bf8cfff291100e39cde7346a6d70f070760e3e39",
+      "bytes": 169
+    },
+    {
+      "path": "examples/implementation_status.sample.json",
+      "sha256": "5a9104fc019731c6fa924df850c92eb64eeab38886004f7c57f8abc7b7ab8401",
+      "bytes": 176
+    },
+    {
+      "path": "html/EA-0062.html",
+      "sha256": "d81a17d547a54b125f1ac2053bd1890346f2acafe36c645ac6e4b9b6dcfb48a9",
+      "bytes": 21917
+    },
+    {
+      "path": "html/index.html",
+      "sha256": "ee8e79e3439a7c04f2c3da8e8a5b6104d004ce5be63e9874708e1bd6fbceeef0",
+      "bytes": 20792
+    },
+    {
+      "path": "integrations/Claude_Code_Integration.md",
+      "sha256": "6557addf5f3fcb66c62f62e2ab0e93b504ea626be196ba768c649ad2e29935ad",
+      "bytes": 870
+    },
+    {
+      "path": "integrations/Codex_Integration.md",
+      "sha256": "0773bc719a4aa09a95af2221316063a683e81902db8ba5363222e7b645328d23",
+      "bytes": 596
+    },
+    {
+      "path": "journal/Engineering_Journal.md",
+      "sha256": "d70703169b659439cb132c502572d76e9e5e942339f69add882f85546038cda1",
+      "bytes": 698
+    },
+    {
+      "path": "markdown/EA-0062_Master.md",
+      "sha256": "21a43da0e67113e57a1187dd15921990f801bd013ca063cef90305b0d875c5f7",
+      "bytes": 18427
+    },
+    {
+      "path": "mermaid/architecture.mmd",
+      "sha256": "93355fe7f3c186c066d69dd7cb04ef1b6e483a723fb1d76b7f4f9561efbf5cd7",
+      "bytes": 212
+    },
+    {
+      "path": "pdf/EA-0062.pdf",
+      "sha256": "d2e0affae871b32e427a7e4318d45cbbb42e760151f8af5ead2dbee8e645fc2f",
+      "bytes": 26769
+    },
+    {
+      "path": "pdf/EA-0062_AQELYN_Engineering_Portal_Mission_Control.pdf",
+      "sha256": "6ca1eaee91dd93bdb7fba9b55c25350c8274396520f5f11524a6d28db276e60a",
+      "bytes": 18938
+    },
+    {
+      "path": "pdf/INDEX.pdf",
+      "sha256": "497951d5317c61a2343fea494f79fd52f501e167c73306e2ab357fff0bacb3ae",
+      "bytes": 2278
+    },
+    {
+      "path": "plantuml/architecture.puml",
+      "sha256": "436da9722e473066fc1fe19b1feac3183e4da2f7e395d2026d23c8b691caccfa",
+      "bytes": 262
+    },
+    {
+      "path": "requirements/Requirements_Matrix.md",
+      "sha256": "c18e1476660a5f1ee88c604bdf1c30d2cc2daf35bc1fb76e00253e29ba4d3170",
+      "bytes": 787
+    },
+    {
+      "path": "requirements/Traceability_Matrix.md",
+      "sha256": "8c79caab58eb1c9b6b231b9a358677626b5593c5acf752948f7f2cb1fd395d2e",
+      "bytes": 990
+    },
+    {
+      "path": "review/Engineering_Review.md",
+      "sha256": "49f2ac4758c072519be816ad7870ba3759c2f1e4757459e9255b088c580809f9",
+      "bytes": 207
+    },
+    {
+      "path": "security/Security_Architecture.md",
+      "sha256": "d71e242b943694dc6a0ccfa1779204bb4ae7cb9ef6d3311c07bd50de0d2f9f52",
+      "bytes": 537
+    },
+    {
+      "path": "templates/Claude_Code_Task_Template.md",
+      "sha256": "105c2a3282d6422f0ffecbd5189f1ac19ef4751fb8aafbcb49833c99a69e722a",
+      "bytes": 202
+    },
+    {
+      "path": "templates/Codex_Task_Template.md",
+      "sha256": "244ec5c7df3bcac81003cc125ab0471592c6695a73807e1debcba612f0517da9",
+      "bytes": 287
+    },
+    {
+      "path": "testing/Testing_Strategy.md",
+      "sha256": "909607fb9a6cae5e9952a1a91adda37c0fdc5f7c1fc09bea7e32b348e40d50e4",
+      "bytes": 517
+    },
+    {
+      "path": "traceability/Traceability_Matrix.md",
+      "sha256": "8c79caab58eb1c9b6b231b9a358677626b5593c5acf752948f7f2cb1fd395d2e",
+      "bytes": 990
+    },
+    {
+      "path": "ui/UI_Specification.md",
+      "sha256": "c56159fad2a918f1c8f096a30d22879b8a784ad4077fc00b274ea96184071006",
+      "bytes": 435
+    }
+  ]
+}

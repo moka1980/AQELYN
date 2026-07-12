@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+<rect width="1200" height="700" fill="#0b1220"/>
+<text x="60" y="80" font-family="Arial" font-size="34" fill="#ffffff">EA-0051 - AQELYN Implementation Blueprint</text>
+<text x="60" y="130" font-family="Arial" font-size="24" fill="#93c5fd">Architecture Diagram</text>
+<rect x="90" y="210" width="240" height="90" rx="12" fill="#1e293b" stroke="#60a5fa"/>
+<text x="120" y="265" font-family="Arial" font-size="20" fill="#ffffff">Input Sources</text>
+<rect x="480" y="210" width="260" height="90" rx="12" fill="#1e293b" stroke="#34d399"/>
+<text x="510" y="265" font-family="Arial" font-size="20" fill="#ffffff">AQELYN Engine</text>
+<rect x="880" y="210" width="240" height="90" rx="12" fill="#1e293b" stroke="#fbbf24"/>
+<text x="910" y="265" font-family="Arial" font-size="20" fill="#ffffff">Events / Evidence</text>
+<line x1="330" y1="255" x2="480" y2="255" stroke="#e5e7eb" stroke-width="4" marker-end="url(#a)"/>
+<line x1="740" y1="255" x2="880" y2="255" stroke="#e5e7eb" stroke-width="4" marker-end="url(#a)"/>
+<defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#e5e7eb"/></marker></defs>
+</svg>

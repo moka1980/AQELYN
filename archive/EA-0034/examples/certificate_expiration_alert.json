@@ -1,0 +1,6 @@
+{
+  "eventType": "CertificateExpiring",
+  "identityId": "mi-cert-001",
+  "daysRemaining": 14,
+  "severity": "High"
+}

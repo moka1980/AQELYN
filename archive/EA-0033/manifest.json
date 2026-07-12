@@ -1,0 +1,87 @@
+{
+  "archive": "EA-0033",
+  "brand": "AQELYN",
+  "generated_at": "2026-07-09T21:39:11.336547Z",
+  "files": [
+    {
+      "path": "EA-0033_Master.md",
+      "sha256": "ddd76d30577be06789b7273a19cf91ec37833662e4713bbad0ac7612f0805cb4",
+      "bytes": 132635
+    },
+    {
+      "path": "README.md",
+      "sha256": "15eecce4329a06c800ca7d0ca14e6f8d2a93a1af7728992914b70105b58f4a88",
+      "bytes": 625
+    },
+    {
+      "path": "diagrams/Architecture.svg",
+      "sha256": "8720c3683bc0932a1c45bdb0db627d57ace5515c8983a1d116c73f2f13e8bd93",
+      "bytes": 1987
+    },
+    {
+      "path": "diagrams/Component.svg",
+      "sha256": "6b3245d5f1025ba7a29c404b8a185e34e0ac864bd2b68c2fd61e4a50c1286be4",
+      "bytes": 2097
+    },
+    {
+      "path": "diagrams/EventFlow.svg",
+      "sha256": "fc55adf47e36b6a668b4e2154485ad970f95706f52a58f28a26c10ad44147128",
+      "bytes": 1533
+    },
+    {
+      "path": "diagrams/Integration.svg",
+      "sha256": "8dafe46f7109f3eccf075fd7f5273388b795a9842af13d906b0618493322664e",
+      "bytes": 2211
+    },
+    {
+      "path": "diagrams/Workflow.svg",
+      "sha256": "4e3f13e8037e07316d4041db8fc4404b56c9b4854ac14675a89d8f9a1358c297",
+      "bytes": 1960
+    },
+    {
+      "path": "examples/event_identity_risk_calculated.json",
+      "sha256": "2f1ff27ab80faa606e8577a9391da15e3dcaa369e8a2d3765323d2512361e967",
+      "bytes": 235
+    },
+    {
+      "path": "examples/identity_assessment_example.json",
+      "sha256": "391ea6a8ede40a1faa3e02be776273eece1e7293baa606caff77ae8c1c0a604e",
+      "bytes": 402
+    },
+    {
+      "path": "examples/rule_pack_example.yaml",
+      "sha256": "644c411b509929cdee45c75390865f9c76533953c31ee4606933624420044d85",
+      "bytes": 578
+    },
+    {
+      "path": "html/EA-0033.html",
+      "sha256": "995f0fc565958aba919272436d01287dd0acd5e7d2fc4b17c1cd1d51ab9d7bba",
+      "bytes": 143471
+    },
+    {
+      "path": "index/EA-0033_Index.md",
+      "sha256": "579f99a89d374aabcc203fde6464328bf36a63ea0ec18a7c38515abe152b382f",
+      "bytes": 388
+    },
+    {
+      "path": "journal/Engineering_Journal.md",
+      "sha256": "b9a9574399d7b52bd2c904b5dc21be5ce63ae30f7feeeb85a829c4783326fb82",
+      "bytes": 541
+    },
+    {
+      "path": "pdf/EA-0033.pdf",
+      "sha256": "2bb001983827f2f1a3ba562bd8b98201fbdb1189c6e64dd905416c74e4a99c98",
+      "bytes": 147375
+    },
+    {
+      "path": "requirements/Requirements_Matrix.md",
+      "sha256": "f7f65bfb758c8f7c3e0c84b2d51c53f23fdd76c2f0f8506c475b67d15253913c",
+      "bytes": 2613
+    },
+    {
+      "path": "requirements/Traceability_Matrix.md",
+      "sha256": "4d9b2f3ab53784f9e5c872e50624dc9bec4b6caf3e9316715f9301c0cbad45ae",
+      "bytes": 2171
+    }
+  ]
+}
