@@ -16,6 +16,7 @@ from aqelyn.graph.graph import (
     normalize_limits,
     validate_direction,
     validate_max_paths,
+    validate_max_work,
     validate_within_hops,
 )
 from aqelyn.graph.models import (
@@ -220,6 +221,7 @@ class PostgresKnowledgeGraph:
         relation_types: Sequence[str] | None = None,
         max_depth: int = 6,
         max_paths: int = 10,
+        max_work: int = 50_000,
     ) -> list[Path]:
         start = await self._visible_start(from_id)
         target = await self._visible_node(to_id, tenant_id=start.tenant_id)
@@ -229,13 +231,16 @@ class PostgresKnowledgeGraph:
         rel_types = frozenset(relation_types) if relation_types is not None else None
         depth_limit = normalize_limits(max_depth=max_depth).max_depth
         path_limit = validate_max_paths(max_paths)
+        work_limit = validate_max_work(max_work)
         if start.id == target.id:
             return [Path(node_ids=[start.id], edges=[], length=0)]
 
         found: list[Path] = []
+        work_used = 0
         queue: deque[tuple[str, list[str], list[EdgeView]]] = deque([(start.id, [start.id], [])])
-        while queue and len(found) < path_limit:
+        while queue and len(found) < path_limit and work_used < work_limit:
             current_id, node_ids, edges = queue.popleft()
+            work_used += 1
             if len(edges) >= depth_limit:
                 continue
             for adjacent_id, edge in await self._walk_edges(

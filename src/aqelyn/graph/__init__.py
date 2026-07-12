@@ -4,12 +4,14 @@ from aqelyn.graph.graph import (
     DEFAULT_IMPACT_RELATION_TYPES,
     MAX_DEPTH,
     MAX_NODES,
+    MAX_WORK,
     VALID_DIRECTIONS,
     KnowledgeGraph,
     normalize_limits,
     require_node,
     validate_direction,
     validate_max_paths,
+    validate_max_work,
     validate_within_hops,
 )
 from aqelyn.graph.memory import InMemoryKnowledgeGraph
@@ -29,6 +31,7 @@ __all__ = [
     "DEFAULT_IMPACT_RELATION_TYPES",
     "MAX_DEPTH",
     "MAX_NODES",
+    "MAX_WORK",
     "VALID_DIRECTIONS",
     "Direction",
     "EdgeView",
@@ -45,5 +48,6 @@ __all__ = [
     "require_node",
     "validate_direction",
     "validate_max_paths",
+    "validate_max_work",
     "validate_within_hops",
 ]
