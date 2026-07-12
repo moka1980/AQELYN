@@ -114,6 +114,11 @@ class GraphQueryInvalid(AQError):
     code = "GraphQueryInvalid"
 
 
+# --- EA-0006 ---
+class TrustConfigInvalid(AQError):
+    code = "TrustConfigInvalid"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
