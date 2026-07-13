@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
+from datetime import datetime
 from typing import Any
 
 from aqelyn.assetconfig.classify import classify
 from aqelyn.assetconfig.comparators import MISSING, compare
 from aqelyn.assetconfig.models import ACGConfig, AssetDrift, Baseline, DriftItem, DriftSnapshot
+from aqelyn.assetconfig.store import (
+    BaselineStore,
+    DriftSnapshotStore,
+    new_drift_snapshot_id,
+)
 from aqelyn.conventions import utc_now
 from aqelyn.conventions.errors import ObjectNotFound
 from aqelyn.objects import AQObject, ObjectQuery, ObjectStore
@@ -21,10 +27,14 @@ class AssetConfigAnalyzer:
         object_store: ObjectStore,
         baselines: Sequence[Baseline],
         *,
+        baseline_store: BaselineStore | None = None,
+        snapshot_store: DriftSnapshotStore | None = None,
         config: ACGConfig | None = None,
     ) -> None:
         self.object_store = object_store
         self.baselines = tuple(sorted(baselines, key=lambda baseline: baseline.id))
+        self.baseline_store = baseline_store
+        self.snapshot_store = snapshot_store
         self.config = config or ACGConfig()
 
     async def classify(self, asset_id: str, *, tenant_id: str | None = None) -> str:
@@ -35,7 +45,7 @@ class AssetConfigAnalyzer:
         self, asset_id: str, *, tenant_id: str | None = None
     ) -> list[AssetDrift]:
         asset = await self._asset(asset_id, tenant_id=tenant_id)
-        return assess_asset(asset, self._matching_baselines(asset), self.config)
+        return assess_asset(asset, await self._matching_baselines(asset), self.config)
 
     async def assess(
         self,
@@ -52,12 +62,12 @@ class AssetConfigAnalyzer:
         ):
             for asset in sorted(page, key=lambda item: item.id):
                 asset_drifts.extend(
-                    assess_asset(asset, self._matching_baselines(asset), self.config)
+                    assess_asset(asset, await self._matching_baselines(asset), self.config)
                 )
         asset_drifts.sort(key=lambda item: (item.asset_id, item.baseline_id))
         baseline_ids = sorted({item.baseline_id for item in asset_drifts})
-        return DriftSnapshot(
-            id="drift-snapshot",
+        snapshot = DriftSnapshot(
+            id=new_drift_snapshot_id(),
             tenant_id=tenant_id,
             run_at=utc_now(),
             scope=_scope_dump(scope, tenant_id=tenant_id, batch_size=self.config.batch_size),
@@ -66,6 +76,15 @@ class AssetConfigAnalyzer:
             asset_drifts=asset_drifts,
             evidence_id=None,
         )
+        if self.snapshot_store is None:
+            return snapshot
+        return await self.snapshot_store.put(snapshot)
+
+    async def trend(self, *, tenant_id: str | None, since: datetime) -> list[dict[str, object]]:
+        if self.snapshot_store is None:
+            return []
+        snapshots = await self.snapshot_store.history(tenant_id=tenant_id, since=since)
+        return [_trend_point(snapshot) for snapshot in snapshots]
 
     def explain(self, item: DriftItem) -> dict[str, object]:
         return explain(item)
@@ -78,8 +97,12 @@ class AssetConfigAnalyzer:
             raise ObjectNotFound(asset_id)
         return asset
 
-    def _matching_baselines(self, asset: AQObject) -> list[Baseline]:
+    async def _matching_baselines(self, asset: AQObject) -> list[Baseline]:
         asset_class = classify_asset(asset, self.config)
+        if self.baseline_store is not None:
+            return await self.baseline_store.list(
+                tenant_id=asset.tenant_id, asset_class=asset_class
+            )
         return [
             baseline
             for baseline in self.baselines
@@ -254,3 +277,15 @@ def _mean(values: Sequence[float], *, default: float) -> float:
     if not values:
         return default
     return sum(values) / len(values)
+
+
+def _trend_point(snapshot: DriftSnapshot) -> dict[str, object]:
+    return {
+        "snapshot_id": snapshot.id,
+        "run_at": snapshot.run_at,
+        "overall_score": snapshot.overall_score,
+        "asset_scores": {
+            drift.asset_id: drift.score
+            for drift in sorted(snapshot.asset_drifts, key=lambda item: item.asset_id)
+        },
+    }
