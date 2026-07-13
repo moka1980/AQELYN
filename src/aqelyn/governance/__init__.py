@@ -1,5 +1,6 @@
 """Compliance & Governance Engine (EA-0010)."""
 
+from aqelyn.governance.engine import ComplianceEngine
 from aqelyn.governance.models import (
     ComplianceSnapshot,
     Control,
@@ -10,6 +11,7 @@ from aqelyn.governance.models import (
 )
 
 __all__ = [
+    "ComplianceEngine",
     "ComplianceSnapshot",
     "Control",
     "ControlResult",

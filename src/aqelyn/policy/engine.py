@@ -77,7 +77,11 @@ class PolicyEngine:
         )
 
     async def evaluate_compliance(
-        self, resource: dict[str, Any], *, tenant_id: str | None
+        self,
+        resource: dict[str, Any],
+        *,
+        tenant_id: str | None,
+        policy_ids: set[str] | None = None,
     ) -> ComplianceResult:
         resource_type = _resource_type(resource)
         subject_ref = str(resource.get("id") or resource_type or "resource")
@@ -85,6 +89,8 @@ class PolicyEngine:
         violations: list[ComplianceViolation] = []
         evaluated = 0
         for policy in self._applicable_policies(tenant_id):
+            if policy_ids is not None and policy.id not in policy_ids:
+                continue
             for rule in _sorted_rules(policy):
                 if rule.kind != "compliance":
                     continue
