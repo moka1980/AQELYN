@@ -158,6 +158,15 @@ class PolicyNotFound(AQError):
     code = "PolicyNotFound"
 
 
+# --- EA-0010 ---
+class GovernanceConfigInvalid(AQError):
+    code = "GovernanceConfigInvalid"
+
+
+class SnapshotNotFound(AQError):
+    code = "SnapshotNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
