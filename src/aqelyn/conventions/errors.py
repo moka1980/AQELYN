@@ -167,6 +167,19 @@ class SnapshotNotFound(AQError):
     code = "SnapshotNotFound"
 
 
+# --- EA-0011 ---
+class IAGConfigInvalid(AQError):
+    code = "IAGConfigInvalid"
+
+
+class CertificationNotFound(AQError):
+    code = "CertificationNotFound"
+
+
+class ReviewItemNotFound(AQError):
+    code = "ReviewItemNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
