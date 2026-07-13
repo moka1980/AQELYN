@@ -345,8 +345,8 @@ async def test_acg_snapshot_history() -> None:
         config=_config(),
     )
 
-    first = await analyzer.assess(tenant_id=None)
-    second = await analyzer.assess(tenant_id=None)
+    first = await analyzer.assess(tenant_id=None, record_evidence=False)
+    second = await analyzer.assess(tenant_id=None, record_evidence=False)
 
     history = await snapshot_store.history(tenant_id=None)
     assert [snapshot.id for snapshot in history] == [first.id, second.id]

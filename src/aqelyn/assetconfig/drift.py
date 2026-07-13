@@ -4,21 +4,59 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from aqelyn.assetconfig.classify import classify
 from aqelyn.assetconfig.comparators import MISSING, compare
-from aqelyn.assetconfig.models import ACGConfig, AssetDrift, Baseline, DriftItem, DriftSnapshot
+from aqelyn.assetconfig.models import (
+    ACGConfig,
+    AssetDrift,
+    Baseline,
+    Check,
+    DriftItem,
+    DriftSnapshot,
+)
 from aqelyn.assetconfig.store import (
     BaselineStore,
     DriftSnapshotStore,
     new_drift_snapshot_id,
 )
-from aqelyn.conventions import utc_now
-from aqelyn.conventions.errors import ObjectNotFound
+from aqelyn.conventions import ActorRef, new_id, utc_now
+from aqelyn.conventions.errors import EvidenceRequired, ObjectNotFound, StoreUnavailable
+from aqelyn.events import Subject
+from aqelyn.evidence import EvidenceRecord, EvidenceStore
+from aqelyn.findings import Automation, Finding, FindingStore, Remediation
 from aqelyn.objects import AQObject, ObjectQuery, ObjectStore
+from aqelyn.workflow import Playbook, Run, Step
 
 ASSET_OBJECT_TYPE = "asset"
+ACG_REMEDIATION_ACTION = "assetconfig.remediate"
+_ACG_ACTOR = ActorRef(actor_type="system", actor_id="acg_engine")
+_SEVERITY_SCORES: dict[str, float] = {
+    "info": 10.0,
+    "low": 25.0,
+    "medium": 50.0,
+    "high": 75.0,
+    "critical": 100.0,
+}
+
+
+class _PriorityItem(Protocol):
+    finding_id: str
+
+
+class MissionPrioritizer(Protocol):
+    async def prioritize(self, findings: Sequence[Finding]) -> Sequence[_PriorityItem]: ...
+
+
+class WorkflowProposer(Protocol):
+    async def propose(
+        self,
+        playbook: Playbook,
+        *,
+        by: ActorRef,
+        source_finding: Finding | None = None,
+    ) -> Run: ...
 
 
 class AssetConfigAnalyzer:
@@ -29,12 +67,24 @@ class AssetConfigAnalyzer:
         *,
         baseline_store: BaselineStore | None = None,
         snapshot_store: DriftSnapshotStore | None = None,
+        evidence_store: EvidenceStore | None = None,
+        finding_store: FindingStore | None = None,
+        workflow_engine: WorkflowProposer | None = None,
+        mission_engine: MissionPrioritizer | None = None,
+        actor: ActorRef | None = None,
+        source_id: str | None = None,
         config: ACGConfig | None = None,
     ) -> None:
         self.object_store = object_store
         self.baselines = tuple(sorted(baselines, key=lambda baseline: baseline.id))
         self.baseline_store = baseline_store
         self.snapshot_store = snapshot_store
+        self.evidence_store = evidence_store
+        self.finding_store = finding_store
+        self.workflow_engine = workflow_engine
+        self.mission_engine = mission_engine
+        self.actor = actor or _ACG_ACTOR
+        self.source_id = source_id or new_id("src")
         self.config = config or ACGConfig()
 
     async def classify(self, asset_id: str, *, tenant_id: str | None = None) -> str:
@@ -52,6 +102,7 @@ class AssetConfigAnalyzer:
         *,
         tenant_id: str | None,
         scope: ObjectQuery | None = None,
+        record_evidence: bool = True,
     ) -> DriftSnapshot:
         asset_drifts: list[AssetDrift] = []
         async for page in _asset_pages(
@@ -76,6 +127,9 @@ class AssetConfigAnalyzer:
             asset_drifts=asset_drifts,
             evidence_id=None,
         )
+        if record_evidence:
+            evidence = await self._record_snapshot_evidence(snapshot)
+            snapshot = snapshot.model_copy(update={"evidence_id": evidence.id}, deep=True)
         if self.snapshot_store is None:
             return snapshot
         return await self.snapshot_store.put(snapshot)
@@ -88,6 +142,51 @@ class AssetConfigAnalyzer:
 
     def explain(self, item: DriftItem) -> dict[str, object]:
         return explain(item)
+
+    async def drift_to_findings(
+        self,
+        snapshot: DriftSnapshot,
+        *,
+        by: ActorRef,
+        propose_remediation: bool = True,
+        prioritize: bool = True,
+    ) -> list[str]:
+        if self.finding_store is None:
+            raise StoreUnavailable("drift_to_findings requires a FindingStore")
+        if snapshot.evidence_id is None:
+            raise EvidenceRequired("snapshot evidence is required before raising findings")
+        if propose_remediation and self.workflow_engine is None:
+            raise StoreUnavailable("propose_remediation=True requires a WorkflowEngine")
+
+        findings: list[Finding] = []
+        for asset_drift in sorted(snapshot.asset_drifts, key=lambda item: item.asset_id):
+            for item in _failing_items(asset_drift, self.config):
+                check = await self._check_for(asset_drift.baseline_id, item.check_id)
+                raised = await self.finding_store.raise_finding(
+                    _finding_for_drift(
+                        asset_drift,
+                        item,
+                        snapshot=snapshot,
+                        evidence_id=snapshot.evidence_id,
+                        check=check,
+                        by=by,
+                    )
+                )
+                findings.append(raised)
+
+        if prioritize and self.mission_engine is not None and findings:
+            items = await self.mission_engine.prioritize(findings)
+            rank = {item.finding_id: index for index, item in enumerate(items)}
+            findings.sort(key=lambda finding: rank.get(finding.id, len(rank)))
+
+        if propose_remediation and self.workflow_engine is not None:
+            for finding in findings:
+                await self.workflow_engine.propose(
+                    _playbook_for_drift(finding, snapshot=snapshot),
+                    by=by,
+                    source_finding=finding,
+                )
+        return [finding.id for finding in findings]
 
     async def _asset(self, asset_id: str, *, tenant_id: str | None) -> AQObject:
         asset = await self.object_store.get(asset_id, resolve_merged=False)
@@ -108,6 +207,50 @@ class AssetConfigAnalyzer:
             for baseline in self.baselines
             if baseline.asset_class == asset_class and _tenant_visible(baseline, asset.tenant_id)
         ]
+
+    async def _check_for(self, baseline_id: str, check_id: str) -> Check | None:
+        baseline: Baseline | None = None
+        if self.baseline_store is not None:
+            baseline = await self.baseline_store.get(baseline_id)
+        if baseline is None:
+            baseline = next(
+                (candidate for candidate in self.baselines if candidate.id == baseline_id),
+                None,
+            )
+        if baseline is None:
+            return None
+        return next((check for check in baseline.checks if check.id == check_id), None)
+
+    async def _record_snapshot_evidence(self, snapshot: DriftSnapshot) -> EvidenceRecord:
+        if self.evidence_store is None:
+            raise StoreUnavailable("record_evidence=True requires an EvidenceStore")
+        record = EvidenceRecord(
+            id="",
+            tenant_id=snapshot.tenant_id,
+            evidence_type="asset_config.drift_snapshot",
+            schema_version=1,
+            subject=Subject(object_ids=_failing_subjects(snapshot, self.config)),
+            collected_at=snapshot.run_at,
+            recorded_at=utc_now(),
+            collector=self.actor,
+            source_id=self.source_id,
+            method="assetconfig.assess/v1",
+            content={
+                "snapshot_id": snapshot.id,
+                "tenant_id": snapshot.tenant_id,
+                "scope": snapshot.scope,
+                "baseline_ids": snapshot.baseline_ids,
+                "overall_score": snapshot.overall_score,
+                "asset_drifts": [drift.model_dump(mode="json") for drift in snapshot.asset_drifts],
+            },
+            content_hash="",
+            confidence=1.0,
+            labels={"module": "EA-0012", "kind": "drift_snapshot"},
+            seq=0,
+            prev_hash=None,
+            record_hash="",
+        )
+        return await self.evidence_store.add(record)
 
 
 def classify_asset(asset: AQObject, config: ACGConfig) -> str:
@@ -138,6 +281,24 @@ def explain(item: DriftItem) -> dict[str, object]:
         "severity": item.severity,
         "reason": item.reason,
     }
+
+
+def _failing_items(asset_drift: AssetDrift, config: ACGConfig) -> list[DriftItem]:
+    return [
+        item
+        for item in sorted(asset_drift.items, key=lambda drift_item: drift_item.check_id)
+        if item.status == "fail" or (item.status == "unknown" and config.unknown_is_fail)
+    ]
+
+
+def _failing_subjects(snapshot: DriftSnapshot, config: ACGConfig) -> list[str]:
+    return sorted(
+        {
+            asset_drift.asset_id
+            for asset_drift in snapshot.asset_drifts
+            if _failing_items(asset_drift, config)
+        }
+    )
 
 
 def _assess_baseline(asset: AQObject, baseline: Baseline, config: ACGConfig) -> AssetDrift:
@@ -289,3 +450,131 @@ def _trend_point(snapshot: DriftSnapshot) -> dict[str, object]:
             for drift in sorted(snapshot.asset_drifts, key=lambda item: item.asset_id)
         },
     }
+
+
+def _finding_for_drift(
+    asset_drift: AssetDrift,
+    item: DriftItem,
+    *,
+    snapshot: DriftSnapshot,
+    evidence_id: str,
+    check: Check | None,
+    by: ActorRef,
+) -> Finding:
+    remediation_summary = check.rationale if check is not None else item.reason
+    references = [] if check is None else _framework_refs(check)
+    observed = "missing" if item.status == "unknown" else repr(item.observed)
+    return Finding(
+        id="",
+        tenant_id=snapshot.tenant_id,
+        finding_type="asset_config.drift",
+        schema_version=1,
+        dedup_key=(
+            f"asset_config.drift:{asset_drift.asset_id}:{asset_drift.baseline_id}:{item.check_id}"
+        ),
+        title=f"Configuration drift on asset {asset_drift.asset_id}: {item.key}",
+        severity=item.severity,
+        severity_score=_SEVERITY_SCORES[item.severity],
+        status="open",
+        what_happened=(
+            f"Asset {asset_drift.asset_id} failed check {item.check_id} "
+            f"from baseline {asset_drift.baseline_id}."
+        ),
+        why_it_matters=remediation_summary,
+        how_determined=(
+            f"Drift snapshot {snapshot.id} compared observed value {observed} "
+            f"for {item.key!r} against expected value {item.expected!r}."
+        ),
+        risk_of_inaction=(
+            "Leaving configuration drift unresolved can keep the asset outside its "
+            "declared baseline and weaken governance posture."
+        ),
+        evidence_ids=[evidence_id],
+        affected_object_ids=[asset_drift.asset_id],
+        expert_details={
+            "snapshot_id": snapshot.id,
+            "baseline_id": asset_drift.baseline_id,
+            "check_id": item.check_id,
+            "key": item.key,
+            "expected": item.expected,
+            "observed": item.observed,
+            "status": item.status,
+            "reason": item.reason,
+            "asset_score": asset_drift.score,
+            "raised_by": by.model_dump(mode="json"),
+        },
+        remediation=Remediation(
+            summary=remediation_summary,
+            steps=[
+                (
+                    f"Review asset {asset_drift.asset_id} and confirm the observed value "
+                    f"for {item.key!r}."
+                ),
+                f"Align {item.key!r} with expected value {item.expected!r}.",
+                "Rerun asset configuration governance and confirm the check passes.",
+            ],
+            difficulty="medium",
+            estimated_effort=None,
+            expected_outcome="The affected asset satisfies its declared baseline.",
+            references=references,
+        ),
+        automation=Automation(
+            eligibility="assisted",
+            action_ref=ACG_REMEDIATION_ACTION,
+            requires_approval=True,
+            risk_note="Configuration remediation must be proposed through Workflow and approved.",
+        ),
+        confidence=1.0,
+        source_engine="acg_engine",
+        correlation_id=snapshot.id,
+        first_detected_at=snapshot.run_at,
+        last_detected_at=snapshot.run_at,
+    )
+
+
+def _playbook_for_drift(finding: Finding, *, snapshot: DriftSnapshot) -> Playbook:
+    details = finding.expert_details or {}
+    baseline_id = str(details.get("baseline_id", "unknown-baseline"))
+    check_id = str(details.get("check_id", "unknown-check"))
+    asset_id = finding.affected_object_ids[0]
+    step_id = f"remediate-{_slug(asset_id)}-{_slug(check_id)}"
+    return Playbook(
+        id=f"acg-remediate-{_slug(snapshot.id)}-{_slug(finding.id)}",
+        version=1,
+        name=f"Remediate asset configuration drift for {asset_id}",
+        description=("Proposed remediation for an Asset & Configuration Governance drift finding."),
+        tenant_id=finding.tenant_id,
+        steps=[
+            Step(
+                id=step_id,
+                action_type=ACG_REMEDIATION_ACTION,
+                inputs={
+                    "asset_id": asset_id,
+                    "finding_id": finding.id,
+                    "snapshot_id": snapshot.id,
+                    "baseline_id": baseline_id,
+                    "check_id": check_id,
+                    "key": details.get("key"),
+                    "expected": details.get("expected"),
+                    "observed": details.get("observed"),
+                    "evidence_ids": list(finding.evidence_ids),
+                    "remediation": finding.remediation.summary,
+                },
+                idempotency_key=(
+                    f"acg:{snapshot.id}:{finding.id}:{asset_id}:{baseline_id}:{check_id}"
+                ),
+                requires_approval=True,
+            )
+        ],
+    )
+
+
+def _framework_refs(check: Check) -> list[str]:
+    return [
+        f"{ref.framework}:{ref.requirement}"
+        for ref in sorted(check.framework_refs, key=lambda ref: (ref.framework, ref.requirement))
+    ]
+
+
+def _slug(value: str) -> str:
+    return "".join(char if char.isalnum() else "-" for char in value).strip("-") or "id"
