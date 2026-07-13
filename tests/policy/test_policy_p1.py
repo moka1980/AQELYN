@@ -109,6 +109,28 @@ def test_policy_no_code_eval() -> None:
         assert forbidden not in source
 
 
+def test_policy_lookup_dunder_path_no_match() -> None:
+    condition = _condition(
+        {
+            "op": "eq",
+            "attr": "resource.attributes.__class__",
+            "value": "secret",
+        }
+    )
+    data: dict[str, object] = {
+        "resource": {"attributes": {"__class__": "secret", "owner": "security"}}
+    }
+
+    assert condition_matches(condition, data) is False
+    assert (
+        condition_matches(
+            _condition({"op": "exists", "attr": "resource.attributes.__class__"}),
+            data,
+        )
+        is False
+    )
+
+
 @pytest.mark.parametrize(
     "payload",
     [

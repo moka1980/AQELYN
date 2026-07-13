@@ -1,5 +1,6 @@
 """Policy Engine (EA-0009)."""
 
+from aqelyn.policy.engine import PolicyEngine, more_restrictive_effect
 from aqelyn.policy.interpreter import DEFAULT_MAX_DEPTH, condition_matches
 from aqelyn.policy.models import (
     ComplianceResult,
@@ -31,10 +32,12 @@ __all__ = [
     "Obligation",
     "Op",
     "Policy",
+    "PolicyEngine",
     "Rule",
     "RuleEffect",
     "RuleKind",
     "Target",
     "condition_depth",
     "condition_matches",
+    "more_restrictive_effect",
 ]

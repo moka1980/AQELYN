@@ -70,12 +70,12 @@ def _leaf(op: str, attr: str, expected: object, data: dict[str, object]) -> bool
 def _lookup(data: dict[str, object], path: str) -> object:
     current: object = data
     for part in path.split("."):
-        if not part:
+        if not part or part.startswith("__"):
             return _MISSING
         if isinstance(current, dict):
             current = current.get(part, _MISSING)
         else:
-            current = getattr(current, part, _MISSING)
+            return _MISSING
         if current is _MISSING:
             return _MISSING
     return current

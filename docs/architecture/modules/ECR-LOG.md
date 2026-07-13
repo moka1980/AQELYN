@@ -6,6 +6,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR | Against | Status | Summary |
 |---|---|---|---|
 | ECR-0001 | EA-0005 Knowledge Graph | Accepted | Add a `max_work` enumeration budget to `paths()`. |
+| ECR-0002 | EA-0009 Policy Engine | Accepted | Harden condition attribute lookup against dunder traversal. |
 
 ---
 
@@ -31,3 +32,25 @@ number of nodes/partial-paths expanded during enumeration; on reaching it,
 **Impact.** Additive, backward-compatible (new keyword arg with a default).
 Implemented via C-002 follow-up ticket **G3a**. No change to other methods or to
 the contract of already-passing tests.
+
+---
+
+## ECR-0002 — Policy condition lookup dunder hardening
+
+**Raised by:** Claude Code (post-P1 review).
+**Severity:** defense-in-depth hardening.
+
+**Problem.** EA-0009 P1 correctly avoids arbitrary code execution: the condition
+interpreter is structured data and contains no `eval`/`exec`/dynamic import
+path. However, its dotted attribute lookup used `getattr(current, part)` after a
+non-dict hop. With untrusted policy attr-path segments, a path such as
+`resource.type.__class__` could traverse Python object internals. This is not a
+code-execution issue, but it is an avoidable information-leak surface.
+
+**Resolution.** Attribute lookup is restricted to data mapping traversal only.
+Any empty path segment or segment starting with `__` is treated as missing, and
+non-mapping values stop traversal rather than calling `getattr`.
+
+**Impact.** Backward-compatible for supported policy data because Decision
+requests and compliance resources are dictionaries. Adds an acceptance test that
+a dunder attr path yields no match.
