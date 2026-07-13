@@ -149,6 +149,15 @@ class RunNotFound(AQError):
     code = "RunNotFound"
 
 
+# --- EA-0009 ---
+class PolicyConfigInvalid(AQError):
+    code = "PolicyConfigInvalid"
+
+
+class PolicyNotFound(AQError):
+    code = "PolicyNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
