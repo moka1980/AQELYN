@@ -37,7 +37,8 @@ audited and defended.
   structured predicate model** (attribute/operator/value + `all`/`any`/`not`),
   evaluated by a fixed interpreter. The engine SHALL NOT `eval`/`exec` strings or
   load executable rule code. Untrusted policy text can configure *data*, never
-  *code*.
+  *code*. Per ECR-0002, dotted attribute lookup is mapping-only; empty or
+  `__`-prefixed path segments are treated as missing.
 - **S5 — Deterministic, pure, explainable.** Identical `(request, policies)` →
   identical decision. Evaluation has no side effects. Every decision carries the
   rule(s) that fired and a plain-language reason.
@@ -79,6 +80,7 @@ Condition = { op: Op, attr: str, value: Any }        # leaf: dotted path into re
           | { any: list[Condition] }                  # OR
           | { not: Condition }                        # NOT
 # The interpreter supports exactly these forms. Nothing else. (S4)
+# Attribute paths traverse mappings only; dunder segments are missing. (ECR-0002)
 
 Target = { actions: list[str] | null,                 # capabilities this rule applies to (null = any)
            resource_types: list[str] | null }         # object_types this rule applies to (null = any)
