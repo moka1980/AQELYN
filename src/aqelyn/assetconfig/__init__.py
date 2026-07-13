@@ -17,6 +17,7 @@ from aqelyn.assetconfig.drift import (
     classify_asset,
     explain,
 )
+from aqelyn.assetconfig.memory import InMemoryBaselineStore, InMemoryDriftSnapshotStore
 from aqelyn.assetconfig.models import (
     ACGConfig,
     AssetDrift,
@@ -26,6 +27,12 @@ from aqelyn.assetconfig.models import (
     DriftSnapshot,
     DriftStatus,
     FrameworkRef,
+)
+from aqelyn.assetconfig.postgres import PostgresBaselineStore, PostgresDriftSnapshotStore
+from aqelyn.assetconfig.store import (
+    BaselineStore,
+    DriftSnapshotStore,
+    new_drift_snapshot_id,
 )
 
 __all__ = [
@@ -38,16 +45,23 @@ __all__ = [
     "AssetConfigAnalyzer",
     "AssetDrift",
     "Baseline",
+    "BaselineStore",
     "Check",
     "Comparator",
     "DriftItem",
     "DriftSnapshot",
+    "DriftSnapshotStore",
     "DriftStatus",
     "FrameworkRef",
+    "InMemoryBaselineStore",
+    "InMemoryDriftSnapshotStore",
+    "PostgresBaselineStore",
+    "PostgresDriftSnapshotStore",
     "assess_asset",
     "classify_asset",
     "compare",
     "explain",
+    "new_drift_snapshot_id",
     "validate_comparator",
     "validate_regex_pattern",
 ]
