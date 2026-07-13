@@ -21,6 +21,12 @@ from aqelyn.governance import (
 from aqelyn.graph import InMemoryKnowledgeGraph, KnowledgeGraph
 from aqelyn.graph.postgres import PostgresKnowledgeGraph
 from aqelyn.graph.service import KnowledgeGraphService
+from aqelyn.iag import (
+    CertificationStore,
+    IdentityAccessGovernanceEngine,
+    InMemoryCertificationStore,
+    PostgresCertificationStore,
+)
 from aqelyn.kernel.config import AQELYNConfig
 from aqelyn.kernel.kernel import AQKernel
 from aqelyn.kernel.service import HealthStatus
@@ -48,6 +54,7 @@ from aqelyn.workflow.service import WorkflowEngineService
 
 if TYPE_CHECKING:
     from aqelyn.governance.service import ComplianceGovernanceService
+    from aqelyn.iag.service import IdentityAccessGovernanceService
 
 
 @dataclass
@@ -76,6 +83,9 @@ class Runtime:
     workflow_action_registry: InMemoryActionRegistry
     workflow_engine: WorkflowEngine
     workflow_engine_service: WorkflowEngineService
+    iag_certification_store: CertificationStore
+    iag_engine: IdentityAccessGovernanceEngine
+    iag_engine_service: IdentityAccessGovernanceService
 
 
 class _RuntimeService:
@@ -177,9 +187,12 @@ def _register_runtime_services(
     workflow_run_store: RunStore,
     workflow_action_registry: InMemoryActionRegistry,
     workflow_engine: WorkflowEngine,
+    iag_certification_store: CertificationStore,
+    iag_engine: IdentityAccessGovernanceEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
+    close_iag_certification_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -187,8 +200,10 @@ def _register_runtime_services(
     PolicyEngineService,
     ComplianceGovernanceService,
     WorkflowEngineService,
+    IdentityAccessGovernanceService,
 ]:
     from aqelyn.governance.service import ComplianceGovernanceService
+    from aqelyn.iag.service import IdentityAccessGovernanceService
 
     kernel.register(_RuntimeService("event_bus"))
     trust_service = TrustEngineService(trust_engine)
@@ -223,6 +238,12 @@ def _register_runtime_services(
         dependencies=("event_bus", "policy_engine"),
     )
     kernel.register(workflow_service)
+    iag_service = IdentityAccessGovernanceService(
+        iag_engine,
+        certification_store=iag_certification_store,
+        close_certification_store=close_iag_certification_store,
+    )
+    kernel.register(iag_service)
     return (
         graph_service,
         trust_service,
@@ -230,6 +251,7 @@ def _register_runtime_services(
         policy_engine_service,
         compliance_service,
         workflow_service,
+        iag_service,
     )
 
 
@@ -239,6 +261,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         StoreBackedCompliancePolicyEngine,
         register_compliance_events,
     )
+    from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
 
     cfg = config or AQELYNConfig(backend="memory")
     registry = EventTypeRegistry()
@@ -247,6 +270,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_policy_events(registry)
     register_workflow_events(registry)
     register_compliance_events(registry)
+    register_iag_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -282,6 +306,17 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         event_bus=bus,
         policy_authorizer=workflow_policy_adapter,
     )
+    iag_certification_store = InMemoryCertificationStore(mode=cfg.tenant_mode)
+    iag_engine = IdentityAccessGovernanceEngine(
+        object_store,
+        knowledge_graph,
+        StoreBackedIAGPolicyEvaluator(policy_store),
+        iag_certification_store,
+        evidence_store,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        mission_engine=mission_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -290,6 +325,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         policy_engine_service,
         compliance_engine_service,
         workflow_engine_service,
+        iag_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -304,6 +340,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_run_store=workflow_run_store,
         workflow_action_registry=workflow_action_registry,
         workflow_engine=workflow_engine,
+        iag_certification_store=iag_certification_store,
+        iag_engine=iag_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -328,6 +366,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_action_registry=workflow_action_registry,
         workflow_engine=workflow_engine,
         workflow_engine_service=workflow_engine_service,
+        iag_certification_store=iag_certification_store,
+        iag_engine=iag_engine,
+        iag_engine_service=iag_engine_service,
     )
 
 
@@ -337,6 +378,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         StoreBackedCompliancePolicyEngine,
         register_compliance_events,
     )
+    from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
 
     cfg = config or AQELYNConfig.load()
     if cfg.backend == "memory":
@@ -350,6 +392,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_policy_events(registry)
     register_workflow_events(registry)
     register_compliance_events(registry)
+    register_iag_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -393,6 +436,20 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         event_bus=bus,
         policy_authorizer=workflow_policy_adapter,
     )
+    iag_certification_store = await PostgresCertificationStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    iag_engine = IdentityAccessGovernanceEngine(
+        object_store,
+        knowledge_graph,
+        StoreBackedIAGPolicyEvaluator(policy_store),
+        iag_certification_store,
+        evidence_store,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        mission_engine=mission_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -401,6 +458,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         policy_engine_service,
         compliance_engine_service,
         workflow_engine_service,
+        iag_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -415,9 +473,12 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_run_store=workflow_run_store,
         workflow_action_registry=workflow_action_registry,
         workflow_engine=workflow_engine,
+        iag_certification_store=iag_certification_store,
+        iag_engine=iag_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
+        close_iag_certification_store=iag_certification_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -442,4 +503,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_action_registry=workflow_action_registry,
         workflow_engine=workflow_engine,
         workflow_engine_service=workflow_engine_service,
+        iag_certification_store=iag_certification_store,
+        iag_engine=iag_engine,
+        iag_engine_service=iag_engine_service,
     )
