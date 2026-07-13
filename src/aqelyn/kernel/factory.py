@@ -53,6 +53,9 @@ from aqelyn.workflow import (
 from aqelyn.workflow.service import WorkflowEngineService
 
 if TYPE_CHECKING:
+    from aqelyn.assetconfig.drift import AssetConfigAnalyzer
+    from aqelyn.assetconfig.service import AssetConfigGovernanceService
+    from aqelyn.assetconfig.store import BaselineStore, DriftSnapshotStore
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
 
@@ -86,6 +89,10 @@ class Runtime:
     iag_certification_store: CertificationStore
     iag_engine: IdentityAccessGovernanceEngine
     iag_engine_service: IdentityAccessGovernanceService
+    acg_baseline_store: BaselineStore
+    acg_snapshot_store: DriftSnapshotStore
+    acg_engine: AssetConfigAnalyzer
+    acg_engine_service: AssetConfigGovernanceService
 
 
 class _RuntimeService:
@@ -189,10 +196,15 @@ def _register_runtime_services(
     workflow_engine: WorkflowEngine,
     iag_certification_store: CertificationStore,
     iag_engine: IdentityAccessGovernanceEngine,
+    acg_baseline_store: BaselineStore,
+    acg_snapshot_store: DriftSnapshotStore,
+    acg_engine: AssetConfigAnalyzer,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
     close_iag_certification_store: Callable[[], Awaitable[None]] | None = None,
+    close_acg_baseline_store: Callable[[], Awaitable[None]] | None = None,
+    close_acg_snapshot_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -201,7 +213,9 @@ def _register_runtime_services(
     ComplianceGovernanceService,
     WorkflowEngineService,
     IdentityAccessGovernanceService,
+    AssetConfigGovernanceService,
 ]:
+    from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
 
@@ -244,6 +258,14 @@ def _register_runtime_services(
         close_certification_store=close_iag_certification_store,
     )
     kernel.register(iag_service)
+    acg_service = AssetConfigGovernanceService(
+        acg_engine,
+        baseline_store=acg_baseline_store,
+        snapshot_store=acg_snapshot_store,
+        close_baseline_store=close_acg_baseline_store,
+        close_snapshot_store=close_acg_snapshot_store,
+    )
+    kernel.register(acg_service)
     return (
         graph_service,
         trust_service,
@@ -252,11 +274,15 @@ def _register_runtime_services(
         compliance_service,
         workflow_service,
         iag_service,
+        acg_service,
     )
 
 
 def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     """Build a fully wired in-memory runtime (used by C-001 and unit tests)."""
+    from aqelyn.assetconfig.drift import AssetConfigAnalyzer
+    from aqelyn.assetconfig.memory import InMemoryBaselineStore, InMemoryDriftSnapshotStore
+    from aqelyn.assetconfig.service import register_acg_events
     from aqelyn.governance.service import (
         StoreBackedCompliancePolicyEngine,
         register_compliance_events,
@@ -271,6 +297,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_workflow_events(registry)
     register_compliance_events(registry)
     register_iag_events(registry)
+    register_acg_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -317,6 +344,18 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_engine=workflow_engine,
         mission_engine=mission_engine,
     )
+    acg_baseline_store = InMemoryBaselineStore()
+    acg_snapshot_store = InMemoryDriftSnapshotStore()
+    acg_engine = AssetConfigAnalyzer(
+        object_store,
+        [],
+        baseline_store=acg_baseline_store,
+        snapshot_store=acg_snapshot_store,
+        evidence_store=evidence_store,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        mission_engine=mission_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -326,6 +365,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         compliance_engine_service,
         workflow_engine_service,
         iag_engine_service,
+        acg_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -342,6 +382,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_engine=workflow_engine,
         iag_certification_store=iag_certification_store,
         iag_engine=iag_engine,
+        acg_baseline_store=acg_baseline_store,
+        acg_snapshot_store=acg_snapshot_store,
+        acg_engine=acg_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -369,11 +412,18 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         iag_certification_store=iag_certification_store,
         iag_engine=iag_engine,
         iag_engine_service=iag_engine_service,
+        acg_baseline_store=acg_baseline_store,
+        acg_snapshot_store=acg_snapshot_store,
+        acg_engine=acg_engine,
+        acg_engine_service=acg_engine_service,
     )
 
 
 async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     """Build the runtime selected by AQELYN_BACKEND."""
+    from aqelyn.assetconfig.drift import AssetConfigAnalyzer
+    from aqelyn.assetconfig.postgres import PostgresBaselineStore, PostgresDriftSnapshotStore
+    from aqelyn.assetconfig.service import register_acg_events
     from aqelyn.governance.service import (
         StoreBackedCompliancePolicyEngine,
         register_compliance_events,
@@ -393,6 +443,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_workflow_events(registry)
     register_compliance_events(registry)
     register_iag_events(registry)
+    register_acg_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -450,6 +501,18 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_engine=workflow_engine,
         mission_engine=mission_engine,
     )
+    acg_baseline_store = await PostgresBaselineStore.connect(cfg.database_url)
+    acg_snapshot_store = await PostgresDriftSnapshotStore.connect(cfg.database_url)
+    acg_engine = AssetConfigAnalyzer(
+        object_store,
+        [],
+        baseline_store=acg_baseline_store,
+        snapshot_store=acg_snapshot_store,
+        evidence_store=evidence_store,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        mission_engine=mission_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -459,6 +522,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         compliance_engine_service,
         workflow_engine_service,
         iag_engine_service,
+        acg_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -475,10 +539,15 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_engine=workflow_engine,
         iag_certification_store=iag_certification_store,
         iag_engine=iag_engine,
+        acg_baseline_store=acg_baseline_store,
+        acg_snapshot_store=acg_snapshot_store,
+        acg_engine=acg_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
         close_iag_certification_store=iag_certification_store.close,
+        close_acg_baseline_store=acg_baseline_store.close,
+        close_acg_snapshot_store=acg_snapshot_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -506,4 +575,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         iag_certification_store=iag_certification_store,
         iag_engine=iag_engine,
         iag_engine_service=iag_engine_service,
+        acg_baseline_store=acg_baseline_store,
+        acg_snapshot_store=acg_snapshot_store,
+        acg_engine=acg_engine,
+        acg_engine_service=acg_engine_service,
     )
