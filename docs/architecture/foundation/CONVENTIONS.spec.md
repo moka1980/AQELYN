@@ -28,6 +28,7 @@ relies on. Other specs reference this rather than restating it.
 | `pkg` | Evidence package | EA-0004 |
 | `fnd` | Finding | Finding model |
 | `run` | Workflow run | EA-0008 |
+| `snap` | Compliance snapshot | EA-0010 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -147,6 +148,8 @@ Every created/changed record and every event carries the responsible actor.
 | `RunNotFound` | EA-0008 | no |
 | `PolicyConfigInvalid` | EA-0009 | no |
 | `PolicyNotFound` | EA-0009 | no |
+| `GovernanceConfigInvalid` | EA-0010 | no |
+| `SnapshotNotFound` | EA-0010 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
