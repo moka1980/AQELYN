@@ -18,7 +18,8 @@ detailed, the spec governs implementation.
 
 Current mapping: EA-0005 → `src/aqelyn/graph/` + `tests/graph/`;
 EA-0006 → `src/aqelyn/trust/` + `tests/trust/`;
-EA-0007 → `src/aqelyn/mission/` + `tests/mission/`.
+EA-0007 → `src/aqelyn/mission/` + `tests/mission/`;
+EA-0008 → `src/aqelyn/workflow/` + `tests/workflow/`.
 
 ## Rules for AI agents and developers
 
@@ -38,12 +39,13 @@ EA-0007 → `src/aqelyn/mission/` + `tests/mission/`.
 | [EA-0005 Knowledge Graph](EA-0005-knowledge-graph.spec.md) | EA-0005 | EA-0002, EA-0001 | [C-002](C-002_Task_Bundle.md) | Accepted |
 | [EA-0006 Trust Engine](EA-0006-trust-engine.spec.md) | EA-0006 | EA-0004, EA-0001 | [C-003](C-003_Task_Bundle.md) | Accepted |
 | [EA-0007 Mission Engine](EA-0007-mission-engine.spec.md) | EA-0007 | EA-0005, EA-0006, EA-0002 | [C-004](C-004_Task_Bundle.md) | Accepted |
+| [EA-0008 Workflow Engine](EA-0008-workflow-engine.spec.md) | EA-0008 | EA-0004, Finding, EA-0001 | [C-005](C-005_Task_Bundle.md) | Accepted |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
 
 ## Next
 
-EA-0008 (Workflow Engine) onward: each gets a code-ready spec pass (owner +
+EA-0009 (Policy Engine) onward: each gets a code-ready spec pass (owner +
 planning) before Codex builds it, because the archive masters are still
 placeholders.
