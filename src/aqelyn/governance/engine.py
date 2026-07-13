@@ -21,7 +21,7 @@ from aqelyn.governance.models import (
 )
 from aqelyn.governance.store import SnapshotStore
 from aqelyn.objects import AQObject, ObjectQuery, ObjectStore
-from aqelyn.policy import PolicyEngine
+from aqelyn.policy.models import ComplianceResult
 
 _GOVERNANCE_ACTOR = ActorRef(actor_type="system", actor_id="compliance_engine")
 _SEVERITY_SCORES: dict[str, float] = {
@@ -41,13 +41,23 @@ class MissionPrioritizer(Protocol):
     async def prioritize(self, findings: Sequence[Finding]) -> Sequence[_PriorityItem]: ...
 
 
+class CompliancePolicyEvaluator(Protocol):
+    async def evaluate_compliance(
+        self,
+        resource: dict[str, Any],
+        *,
+        tenant_id: str | None,
+        policy_ids: set[str] | None = None,
+    ) -> ComplianceResult: ...
+
+
 class ComplianceEngine:
     """Runs configured governance controls across the object estate."""
 
     def __init__(
         self,
         object_store: ObjectStore,
-        policy_engine: PolicyEngine,
+        policy_engine: CompliancePolicyEvaluator,
         *,
         config: GovernanceConfig,
         snapshot_store: SnapshotStore | None = None,
@@ -67,6 +77,18 @@ class ComplianceEngine:
         self._mission_engine = mission_engine
         self._actor = actor or _GOVERNANCE_ACTOR
         self._source_id = source_id or new_id("src")
+
+    @property
+    def object_store(self) -> ObjectStore:
+        return self._object_store
+
+    @property
+    def policy_engine(self) -> CompliancePolicyEvaluator:
+        return self._policy_engine
+
+    @property
+    def config(self) -> GovernanceConfig:
+        return self._config
 
     async def assess(
         self,

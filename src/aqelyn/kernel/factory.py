@@ -4,12 +4,20 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from aqelyn.conventions import new_id
 from aqelyn.conventions.errors import ConfigError, StoreUnavailable
 from aqelyn.events import EventTypeRegistry, InMemoryEventBus
 from aqelyn.evidence import InMemoryBlobStore, InMemoryEvidenceStore, register_evidence_events
 from aqelyn.findings import InMemoryFindingStore, register_finding_events
+from aqelyn.governance import (
+    ComplianceEngine,
+    GovernanceConfig,
+    InMemorySnapshotStore,
+    PostgresSnapshotStore,
+    SnapshotStore,
+)
 from aqelyn.graph import InMemoryKnowledgeGraph, KnowledgeGraph
 from aqelyn.graph.postgres import PostgresKnowledgeGraph
 from aqelyn.graph.service import KnowledgeGraphService
@@ -38,6 +46,9 @@ from aqelyn.workflow import (
 )
 from aqelyn.workflow.service import WorkflowEngineService
 
+if TYPE_CHECKING:
+    from aqelyn.governance.service import ComplianceGovernanceService
+
 
 @dataclass
 class Runtime:
@@ -55,6 +66,9 @@ class Runtime:
     trust_engine_service: TrustEngineService
     mission_engine: MissionEngine
     mission_engine_service: MissionEngineService
+    compliance_snapshot_store: SnapshotStore
+    compliance_engine: ComplianceEngine
+    compliance_engine_service: ComplianceGovernanceService
     policy_store: PolicyStore
     policy_engine_service: PolicyEngineService
     workflow_policy_adapter: PolicyWorkflowAdapter
@@ -128,27 +142,54 @@ async def _check_object_store(object_store: ObjectStore) -> None:
     await object_store.get(new_id("obj"), resolve_merged=False)
 
 
+def _default_governance_config() -> GovernanceConfig:
+    return GovernanceConfig.model_validate(
+        {
+            "controls": [
+                {
+                    "id": "control-governance-default",
+                    "name": "Default governance readiness",
+                    "description": "Default control used to wire the governance service.",
+                    "policy_ids": ["policy-governance-default"],
+                    "framework_refs": [{"framework": "AQELYN", "requirement": "GOV-READY"}],
+                    "severity": "medium",
+                }
+            ],
+            "frameworks": {"AQELYN": ["GOV-READY"]},
+            "batch_size": 100,
+            "min_confidence": 0.0,
+        }
+    )
+
+
 def _register_runtime_services(
     kernel: AQKernel,
     *,
     object_store: ObjectStore,
     evidence_store: InMemoryEvidenceStore,
+    finding_store: InMemoryFindingStore,
     knowledge_graph: KnowledgeGraph,
     trust_engine: TrustEngine,
     mission_engine: MissionEngine,
     policy_engine_service: PolicyEngineService,
+    compliance_engine: ComplianceEngine,
+    compliance_snapshot_store: SnapshotStore,
     workflow_run_store: RunStore,
     workflow_action_registry: InMemoryActionRegistry,
     workflow_engine: WorkflowEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
+    close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
     MissionEngineService,
     PolicyEngineService,
+    ComplianceGovernanceService,
     WorkflowEngineService,
 ]:
+    from aqelyn.governance.service import ComplianceGovernanceService
+
     kernel.register(_RuntimeService("event_bus"))
     trust_service = TrustEngineService(trust_engine)
     kernel.register(trust_service)
@@ -165,6 +206,14 @@ def _register_runtime_services(
     mission_service = MissionEngineService(mission_engine)
     kernel.register(mission_service)
     kernel.register(policy_engine_service)
+    compliance_service = ComplianceGovernanceService(
+        compliance_engine,
+        snapshot_store=compliance_snapshot_store,
+        evidence_store=evidence_store,
+        finding_store=finding_store,
+        close_snapshot_store=close_compliance_snapshot_store,
+    )
+    kernel.register(compliance_service)
     workflow_service = WorkflowEngineService(
         workflow_engine,
         run_store=workflow_run_store,
@@ -174,17 +223,30 @@ def _register_runtime_services(
         dependencies=("event_bus", "policy_engine"),
     )
     kernel.register(workflow_service)
-    return graph_service, trust_service, mission_service, policy_engine_service, workflow_service
+    return (
+        graph_service,
+        trust_service,
+        mission_service,
+        policy_engine_service,
+        compliance_service,
+        workflow_service,
+    )
 
 
 def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     """Build a fully wired in-memory runtime (used by C-001 and unit tests)."""
+    from aqelyn.governance.service import (
+        StoreBackedCompliancePolicyEngine,
+        register_compliance_events,
+    )
+
     cfg = config or AQELYNConfig(backend="memory")
     registry = EventTypeRegistry()
     register_evidence_events(registry)
     register_finding_events(registry)
     register_policy_events(registry)
     register_workflow_events(registry)
+    register_compliance_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -200,6 +262,16 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     mission_engine = MissionEngine(object_store, knowledge_graph)
     policy_store = InMemoryPolicyStore()
     policy_engine_service = PolicyEngineService(policy_store)
+    compliance_snapshot_store = InMemorySnapshotStore()
+    compliance_engine = ComplianceEngine(
+        object_store,
+        StoreBackedCompliancePolicyEngine(policy_store),
+        config=_default_governance_config(),
+        snapshot_store=compliance_snapshot_store,
+        evidence_store=evidence_store,
+        finding_store=finding_store,
+        mission_engine=mission_engine,
+    )
     workflow_policy_adapter = PolicyWorkflowAdapter(policy_engine_service)
     workflow_run_store = InMemoryRunStore(mode=cfg.tenant_mode)
     workflow_action_registry = InMemoryActionRegistry()
@@ -216,15 +288,19 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service,
         mission_engine_service,
         policy_engine_service,
+        compliance_engine_service,
         workflow_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
         evidence_store=evidence_store,
+        finding_store=finding_store,
         knowledge_graph=knowledge_graph,
         trust_engine=trust_engine,
         mission_engine=mission_engine,
         policy_engine_service=policy_engine_service,
+        compliance_engine=compliance_engine,
+        compliance_snapshot_store=compliance_snapshot_store,
         workflow_run_store=workflow_run_store,
         workflow_action_registry=workflow_action_registry,
         workflow_engine=workflow_engine,
@@ -242,6 +318,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service=trust_engine_service,
         mission_engine=mission_engine,
         mission_engine_service=mission_engine_service,
+        compliance_snapshot_store=compliance_snapshot_store,
+        compliance_engine=compliance_engine,
+        compliance_engine_service=compliance_engine_service,
         policy_store=policy_store,
         policy_engine_service=policy_engine_service,
         workflow_policy_adapter=workflow_policy_adapter,
@@ -254,6 +333,11 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
 
 async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     """Build the runtime selected by AQELYN_BACKEND."""
+    from aqelyn.governance.service import (
+        StoreBackedCompliancePolicyEngine,
+        register_compliance_events,
+    )
+
     cfg = config or AQELYNConfig.load()
     if cfg.backend == "memory":
         return create_inmemory_runtime(cfg)
@@ -265,6 +349,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_finding_events(registry)
     register_policy_events(registry)
     register_workflow_events(registry)
+    register_compliance_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -285,6 +370,16 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         policy_store,
         close_store=policy_store.close,
     )
+    compliance_snapshot_store = await PostgresSnapshotStore.connect(cfg.database_url)
+    compliance_engine = ComplianceEngine(
+        object_store,
+        StoreBackedCompliancePolicyEngine(policy_store),
+        config=_default_governance_config(),
+        snapshot_store=compliance_snapshot_store,
+        evidence_store=evidence_store,
+        finding_store=finding_store,
+        mission_engine=mission_engine,
+    )
     workflow_policy_adapter = PolicyWorkflowAdapter(policy_engine_service)
     workflow_run_store = await PostgresRunStore.connect(
         cfg.database_url,
@@ -304,19 +399,24 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service,
         mission_engine_service,
         policy_engine_service,
+        compliance_engine_service,
         workflow_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
         evidence_store=evidence_store,
+        finding_store=finding_store,
         knowledge_graph=knowledge_graph,
         trust_engine=trust_engine,
         mission_engine=mission_engine,
         policy_engine_service=policy_engine_service,
+        compliance_engine=compliance_engine,
+        compliance_snapshot_store=compliance_snapshot_store,
         workflow_run_store=workflow_run_store,
         workflow_action_registry=workflow_action_registry,
         workflow_engine=workflow_engine,
         close_object_store=object_store.close,
+        close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
     )
     return Runtime(
@@ -332,6 +432,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service=trust_engine_service,
         mission_engine=mission_engine,
         mission_engine_service=mission_engine_service,
+        compliance_snapshot_store=compliance_snapshot_store,
+        compliance_engine=compliance_engine,
+        compliance_engine_service=compliance_engine_service,
         policy_store=policy_store,
         policy_engine_service=policy_engine_service,
         workflow_policy_adapter=workflow_policy_adapter,
