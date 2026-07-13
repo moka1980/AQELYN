@@ -7,6 +7,7 @@ from aqelyn.workflow.gating import (
     gate_playbook,
     gate_step,
 )
+from aqelyn.workflow.memory import InMemoryRunStore
 from aqelyn.workflow.models import (
     ActionEffect,
     ActionSpec,
@@ -19,12 +20,14 @@ from aqelyn.workflow.models import (
     Step,
     StepResult,
 )
+from aqelyn.workflow.postgres import PostgresRunStore
 from aqelyn.workflow.registry import (
     ActionHandler,
     ActionRegistry,
     InMemoryActionRegistry,
     ReadOnlyEchoHandler,
 )
+from aqelyn.workflow.store import RunStore, validate_run_id
 
 __all__ = [
     "VALID_AUTOMATION_ELIGIBILITY",
@@ -34,11 +37,14 @@ __all__ = [
     "ActionSpec",
     "Approval",
     "InMemoryActionRegistry",
+    "InMemoryRunStore",
     "PlannedAction",
     "Playbook",
+    "PostgresRunStore",
     "ReadOnlyEchoHandler",
     "Run",
     "RunStatus",
+    "RunStore",
     "SimulationResult",
     "Step",
     "StepResult",
@@ -46,4 +52,5 @@ __all__ = [
     "ensure_step_may_execute",
     "gate_playbook",
     "gate_step",
+    "validate_run_id",
 ]
