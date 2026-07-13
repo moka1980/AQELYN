@@ -14,6 +14,7 @@ from aqelyn.conventions import ActorRef
 from aqelyn.conventions.errors import ConfirmationRequired, SchemaValidationError
 from aqelyn.events import InMemoryEventBus
 from aqelyn.events.registry import EventTypeRegistry
+from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.workflow import (
     ActionEffect,
     ActionSpec,
@@ -143,7 +144,12 @@ async def _harness(kind: str) -> AsyncIterator[_Harness]:
             store=store,
             registry=registry,
             bus=bus,
-            engine=WorkflowEngine(store=store, registry=registry, event_bus=bus),
+            engine=WorkflowEngine(
+                store=store,
+                registry=registry,
+                evidence_store=InMemoryEvidenceStore(),
+                event_bus=bus,
+            ),
         )
     finally:
         if close_store and isinstance(store, PostgresRunStore):
