@@ -1,6 +1,12 @@
 """Workflow Engine (EA-0008)."""
 
-from aqelyn.workflow.engine import WORKFLOW_EVENTS, WorkflowEngine, register_workflow_events
+from aqelyn.workflow.engine import (
+    WORKFLOW_EVENTS,
+    StepAuthorization,
+    StepAuthorizer,
+    WorkflowEngine,
+    register_workflow_events,
+)
 from aqelyn.workflow.gating import (
     VALID_AUTOMATION_ELIGIBILITY,
     ensure_playbook_may_execute,
@@ -49,6 +55,8 @@ __all__ = [
     "RunStore",
     "SimulationResult",
     "Step",
+    "StepAuthorization",
+    "StepAuthorizer",
     "StepResult",
     "WorkflowEngine",
     "ensure_playbook_may_execute",

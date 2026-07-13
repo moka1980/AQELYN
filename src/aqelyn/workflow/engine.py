@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Set
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from aqelyn.conventions import ActorRef, new_id, utc_now
 from aqelyn.conventions.errors import (
+    ApprovalRequired,
     ConfirmationRequired,
     CrossTenantReference,
     RunNotFound,
@@ -19,6 +21,7 @@ from aqelyn.evidence import EvidenceRecord, EvidenceStore
 from aqelyn.findings import Finding
 from aqelyn.workflow.gating import ensure_step_may_execute, gate_playbook
 from aqelyn.workflow.models import (
+    ActionSpec,
     Approval,
     PlannedAction,
     Playbook,
@@ -44,6 +47,25 @@ WORKFLOW_EVENTS: dict[str, int] = {
 SYSTEM_ACTOR = ActorRef(actor_type="system", actor_id="workflow_engine")
 
 
+@dataclass(frozen=True)
+class StepAuthorization:
+    granted_capabilities: frozenset[str]
+    requires_approval: bool = False
+    reason: str | None = None
+
+
+class StepAuthorizer(Protocol):
+    async def authorize_step(
+        self,
+        *,
+        step: Step,
+        spec: ActionSpec,
+        run: Run,
+        actor: ActorRef,
+        source_finding: Finding | None = None,
+    ) -> StepAuthorization: ...
+
+
 def register_workflow_events(registry: EventTypeRegistry) -> None:
     for event_type, schema_version in WORKFLOW_EVENTS.items():
         registry.register(event_type, schema_version, None)
@@ -58,6 +80,7 @@ class WorkflowEngine:
         evidence_store: EvidenceStore,
         event_bus: EventBus | None = None,
         granted_capabilities: Set[str] = frozenset(),
+        policy_authorizer: StepAuthorizer | None = None,
         step_timeout_seconds: float = 30.0,
     ) -> None:
         if step_timeout_seconds <= 0:
@@ -67,6 +90,7 @@ class WorkflowEngine:
         self._evidence_store = evidence_store
         self._bus = event_bus
         self._granted_capabilities = frozenset(granted_capabilities)
+        self._policy_authorizer = policy_authorizer
         self._step_timeout_seconds = step_timeout_seconds
         self._playbooks: dict[str, Playbook] = {}
         self._source_findings: dict[str, Finding | None] = {}
@@ -197,14 +221,21 @@ class WorkflowEngine:
             if _step_succeeded(run, step.id):
                 continue
 
+            handler = self._registry.get(step.action_type)
+            granted_capabilities = await self._granted_capabilities_for_step(
+                step,
+                handler.spec,
+                run,
+                by=by,
+                source_finding=source_finding,
+            )
             ensure_step_may_execute(
                 step,
                 self._registry,
-                granted_capabilities=self._granted_capabilities,
+                granted_capabilities=granted_capabilities,
                 approvals=run.approvals,
                 source_finding=source_finding,
             )
-            handler = self._registry.get(step.action_type)
             try:
                 outcome = await asyncio.wait_for(
                     handler.execute(
@@ -410,6 +441,32 @@ class WorkflowEngine:
         if self._approvals_cover_required_steps(playbook, approvals):
             return "approved"
         return "awaiting_approval"
+
+    async def _granted_capabilities_for_step(
+        self,
+        step: Step,
+        spec: ActionSpec,
+        run: Run,
+        *,
+        by: ActorRef,
+        source_finding: Finding | None,
+    ) -> Set[str]:
+        if self._policy_authorizer is None:
+            return self._granted_capabilities
+
+        authorization = await self._policy_authorizer.authorize_step(
+            step=step,
+            spec=spec,
+            run=run,
+            actor=by,
+            source_finding=source_finding,
+        )
+        if authorization.requires_approval and not self._approved(step, run.approvals):
+            raise ApprovalRequired(
+                f"policy approval required for step: {step.id!r}; "
+                f"{authorization.reason or 'policy requires approval'}"
+            )
+        return authorization.granted_capabilities
 
     def _validate_approval_scope(self, playbook: Playbook, approval: Approval) -> None:
         steps_by_id = {step.id: step for step in playbook.steps}

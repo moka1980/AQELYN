@@ -57,7 +57,7 @@ async def test_wf_service_health(backend: str) -> None:
     runtime.workflow_action_registry.register(ReadOnlyEchoHandler(action_type="workflow.w5.echo"))
     service = runtime.kernel.get_service("workflow_engine")
     assert service.name == "workflow_engine"
-    assert tuple(service.dependencies) == ("event_bus",)
+    assert tuple(service.dependencies) == ("event_bus", "policy_engine")
     assert isinstance(runtime.workflow_engine, WorkflowEngine)
     assert isinstance(runtime.workflow_engine_service, WorkflowEngineService)
     assert runtime.workflow_engine_service.engine is runtime.workflow_engine

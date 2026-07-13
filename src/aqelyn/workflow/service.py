@@ -22,6 +22,7 @@ class WorkflowEngineService:
         registry: InMemoryActionRegistry,
         evidence_store: EvidenceStore,
         close_run_store: Callable[[], Awaitable[None]] | None = None,
+        dependencies: Sequence[str] = ("event_bus",),
         critical: bool = True,
     ) -> None:
         self.engine = engine
@@ -29,6 +30,7 @@ class WorkflowEngineService:
         self._registry = registry
         self._evidence_store = evidence_store
         self._close_run_store = close_run_store
+        self._dependencies = tuple(dependencies)
         self._critical = critical
         self._started = False
 
@@ -38,7 +40,7 @@ class WorkflowEngineService:
 
     @property
     def dependencies(self) -> Sequence[str]:
-        return ("event_bus",)
+        return self._dependencies
 
     @property
     def critical(self) -> bool:
