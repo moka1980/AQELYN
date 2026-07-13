@@ -21,6 +21,7 @@ PREFIXES: dict[str, str] = {
     "evd": "evidence",
     "pkg": "evidence_package",
     "fnd": "finding",
+    "run": "workflow_run",
     "svc": "service",
 }
 

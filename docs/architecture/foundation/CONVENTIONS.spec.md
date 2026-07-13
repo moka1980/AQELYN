@@ -27,6 +27,7 @@ relies on. Other specs reference this rather than restating it.
 | `evd` | Evidence | EA-0004 |
 | `pkg` | Evidence package | EA-0004 |
 | `fnd` | Finding | Finding model |
+| `run` | Workflow run | EA-0008 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -138,6 +139,12 @@ Every created/changed record and every event carries the responsible actor.
 | `GraphQueryInvalid` | EA-0005 | no |
 | `TrustConfigInvalid` | EA-0006 | no |
 | `MissionConfigInvalid` | EA-0007 | no |
+| `UnknownAction` | EA-0008 | no |
+| `UnauthorizedAction` | EA-0008 | no |
+| `ApprovalRequired` | EA-0008 | no |
+| `ConfirmationRequired` | EA-0008 | no |
+| `ActionFailed` | EA-0008 | no |
+| `RunNotFound` | EA-0008 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

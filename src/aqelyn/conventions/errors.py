@@ -124,6 +124,31 @@ class MissionConfigInvalid(AQError):
     code = "MissionConfigInvalid"
 
 
+# --- EA-0008 ---
+class UnknownAction(AQError):
+    code = "UnknownAction"
+
+
+class UnauthorizedAction(AQError):
+    code = "UnauthorizedAction"
+
+
+class ApprovalRequired(AQError):
+    code = "ApprovalRequired"
+
+
+class ConfirmationRequired(AQError):
+    code = "ConfirmationRequired"
+
+
+class ActionFailed(AQError):
+    code = "ActionFailed"
+
+
+class RunNotFound(AQError):
+    code = "RunNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
