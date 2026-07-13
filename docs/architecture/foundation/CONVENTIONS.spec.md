@@ -155,6 +155,9 @@ Every created/changed record and every event carries the responsible actor.
 | `IAGConfigInvalid` | EA-0011 | no |
 | `CertificationNotFound` | EA-0011 | no |
 | `ReviewItemNotFound` | EA-0011 | no |
+| `BaselineConfigInvalid` | EA-0012 | no |
+| `BaselineNotFound` | EA-0012 | no |
+| `DriftSnapshotNotFound` | EA-0012 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

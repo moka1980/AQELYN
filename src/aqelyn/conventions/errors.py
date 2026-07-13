@@ -180,6 +180,19 @@ class ReviewItemNotFound(AQError):
     code = "ReviewItemNotFound"
 
 
+# --- EA-0012 ---
+class BaselineConfigInvalid(AQError):
+    code = "BaselineConfigInvalid"
+
+
+class BaselineNotFound(AQError):
+    code = "BaselineNotFound"
+
+
+class DriftSnapshotNotFound(AQError):
+    code = "DriftSnapshotNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
