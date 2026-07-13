@@ -155,7 +155,7 @@ async def test_acg_assess_estate() -> None:
         config=_config(),
     )
 
-    snapshot = await analyzer.assess(tenant_id=None)
+    snapshot = await analyzer.assess(tenant_id=None, record_evidence=False)
 
     assert snapshot.evidence_id is None
     assert snapshot.baseline_ids == ["cis-linux"]
@@ -184,8 +184,8 @@ async def test_acg_deterministic() -> None:
         config=_config(),
     )
 
-    first = await analyzer.assess(tenant_id=None)
-    second = await analyzer.assess(tenant_id=None)
+    first = await analyzer.assess(tenant_id=None, record_evidence=False)
+    second = await analyzer.assess(tenant_id=None, record_evidence=False)
 
     assert first.model_dump(mode="json", exclude={"id", "run_at"}) == second.model_dump(
         mode="json",
@@ -300,7 +300,7 @@ async def test_acg_tenant_isolation() -> None:
         config=_config(),
     )
 
-    snapshot = await analyzer.assess(tenant_id=TENANT_A)
+    snapshot = await analyzer.assess(tenant_id=TENANT_A, record_evidence=False)
 
     assert {drift.asset_id for drift in snapshot.asset_drifts} == {asset_a.id}
     assert {drift.baseline_id for drift in snapshot.asset_drifts} == {
@@ -326,7 +326,7 @@ async def test_acg_bounded_batches() -> None:
         config=_config(batch_size=2),
     )
 
-    snapshot = await analyzer.assess(tenant_id=None)
+    snapshot = await analyzer.assess(tenant_id=None, record_evidence=False)
 
     assert len(snapshot.asset_drifts) == 5
     assert [call.limit for call in store.calls] == [2, 2, 2]

@@ -11,8 +11,11 @@ from aqelyn.assetconfig.comparators import (
     validate_regex_pattern,
 )
 from aqelyn.assetconfig.drift import (
+    ACG_REMEDIATION_ACTION,
     ASSET_OBJECT_TYPE,
     AssetConfigAnalyzer,
+    MissionPrioritizer,
+    WorkflowProposer,
     assess_asset,
     classify_asset,
     explain,
@@ -36,6 +39,7 @@ from aqelyn.assetconfig.store import (
 )
 
 __all__ = [
+    "ACG_REMEDIATION_ACTION",
     "ASSET_OBJECT_TYPE",
     "MAX_REGEX_GROUPS",
     "MAX_REGEX_PATTERN_LENGTH",
@@ -55,8 +59,10 @@ __all__ = [
     "FrameworkRef",
     "InMemoryBaselineStore",
     "InMemoryDriftSnapshotStore",
+    "MissionPrioritizer",
     "PostgresBaselineStore",
     "PostgresDriftSnapshotStore",
+    "WorkflowProposer",
     "assess_asset",
     "classify_asset",
     "compare",
