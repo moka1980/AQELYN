@@ -12,6 +12,8 @@ from aqelyn.iag.analysis import (
     ROLE_OBJECT_TYPE,
     IdentityAccessAnalyzer,
 )
+from aqelyn.iag.engine import IdentityAccessGovernanceEngine
+from aqelyn.iag.memory import InMemoryCertificationStore
 from aqelyn.iag.models import (
     AccessPath,
     AccessRisk,
@@ -22,6 +24,15 @@ from aqelyn.iag.models import (
     IAGConfig,
     ReviewDecision,
     ReviewItem,
+)
+from aqelyn.iag.postgres import PostgresCertificationStore
+from aqelyn.iag.store import (
+    CertificationStore,
+    normalize_status_filter,
+    validate_certification,
+    validate_certification_id,
+    validate_positive,
+    validate_review_item_id,
 )
 
 __all__ = [
@@ -40,8 +51,17 @@ __all__ = [
     "AccessRiskReport",
     "Certification",
     "CertificationStatus",
+    "CertificationStore",
     "IAGConfig",
     "IdentityAccessAnalyzer",
+    "IdentityAccessGovernanceEngine",
+    "InMemoryCertificationStore",
+    "PostgresCertificationStore",
     "ReviewDecision",
     "ReviewItem",
+    "normalize_status_filter",
+    "validate_certification",
+    "validate_certification_id",
+    "validate_positive",
+    "validate_review_item_id",
 ]
