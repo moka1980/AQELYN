@@ -1,6 +1,7 @@
 """Compliance & Governance Engine (EA-0010)."""
 
 from aqelyn.governance.engine import ComplianceEngine
+from aqelyn.governance.memory import InMemorySnapshotStore
 from aqelyn.governance.models import (
     ComplianceSnapshot,
     Control,
@@ -9,6 +10,8 @@ from aqelyn.governance.models import (
     FrameworkRef,
     GovernanceConfig,
 )
+from aqelyn.governance.postgres import PostgresSnapshotStore
+from aqelyn.governance.store import SnapshotStore
 
 __all__ = [
     "ComplianceEngine",
@@ -18,4 +21,7 @@ __all__ = [
     "FrameworkCoverage",
     "FrameworkRef",
     "GovernanceConfig",
+    "InMemorySnapshotStore",
+    "PostgresSnapshotStore",
+    "SnapshotStore",
 ]

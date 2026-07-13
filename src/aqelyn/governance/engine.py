@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
 from aqelyn.conventions import new_id, utc_now
 from aqelyn.conventions.errors import GovernanceConfigInvalid
+from aqelyn.governance.memory import InMemorySnapshotStore
 from aqelyn.governance.models import ComplianceSnapshot, Control, ControlResult, GovernanceConfig
+from aqelyn.governance.store import SnapshotStore
 from aqelyn.objects import AQObject, ObjectQuery, ObjectStore
 from aqelyn.policy import PolicyEngine
 
@@ -21,11 +24,13 @@ class ComplianceEngine:
         policy_engine: PolicyEngine,
         *,
         config: GovernanceConfig,
+        snapshot_store: SnapshotStore | None = None,
     ) -> None:
         self._object_store = object_store
         self._policy_engine = policy_engine
         self._config = config.model_copy(deep=True)
         self._controls = {control.id: control for control in self._config.controls}
+        self._snapshot_store = snapshot_store or InMemorySnapshotStore()
 
     async def assess(
         self,
@@ -50,7 +55,7 @@ class ComplianceEngine:
 
         control_results = [accumulator.result() for accumulator in accumulators]
         overall_score = _mean([result.score for result in control_results], default=1.0)
-        return ComplianceSnapshot(
+        snapshot = ComplianceSnapshot(
             id=new_id("snap"),
             tenant_id=tenant_id,
             run_at=utc_now(),
@@ -60,6 +65,7 @@ class ComplianceEngine:
             framework_scores={},
             evidence_id=None,
         )
+        return await self._snapshot_store.put(snapshot)
 
     async def control_result(self, control_id: str, *, tenant_id: str | None) -> ControlResult:
         if control_id not in self._controls:
@@ -80,6 +86,20 @@ class ComplianceEngine:
             "score": result.score,
             "reason": result.reason,
         }
+
+    async def trend(self, *, tenant_id: str | None, since: datetime) -> list[dict[str, object]]:
+        snapshots = await self._snapshot_store.history(tenant_id=tenant_id, since=since)
+        return [
+            {
+                "snapshot_id": snapshot.id,
+                "run_at": snapshot.run_at.isoformat(),
+                "overall_score": snapshot.overall_score,
+                "control_scores": {
+                    result.control_id: result.score for result in snapshot.control_results
+                },
+            }
+            for snapshot in snapshots
+        ]
 
     async def _pages(
         self, *, tenant_id: str | None, scope: ObjectQuery | None
