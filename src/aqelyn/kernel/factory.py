@@ -200,18 +200,16 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service,
         mission_engine_service,
         workflow_engine_service,
-    ) = (
-        _register_runtime_services(
-            kernel,
-            object_store=object_store,
-            evidence_store=evidence_store,
-            knowledge_graph=knowledge_graph,
-            trust_engine=trust_engine,
-            mission_engine=mission_engine,
-            workflow_run_store=workflow_run_store,
-            workflow_action_registry=workflow_action_registry,
-            workflow_engine=workflow_engine,
-        )
+    ) = _register_runtime_services(
+        kernel,
+        object_store=object_store,
+        evidence_store=evidence_store,
+        knowledge_graph=knowledge_graph,
+        trust_engine=trust_engine,
+        mission_engine=mission_engine,
+        workflow_run_store=workflow_run_store,
+        workflow_action_registry=workflow_action_registry,
+        workflow_engine=workflow_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -277,20 +275,18 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service,
         mission_engine_service,
         workflow_engine_service,
-    ) = (
-        _register_runtime_services(
-            kernel,
-            object_store=object_store,
-            evidence_store=evidence_store,
-            knowledge_graph=knowledge_graph,
-            trust_engine=trust_engine,
-            mission_engine=mission_engine,
-            workflow_run_store=workflow_run_store,
-            workflow_action_registry=workflow_action_registry,
-            workflow_engine=workflow_engine,
-            close_object_store=object_store.close,
-            close_workflow_run_store=workflow_run_store.close,
-        )
+    ) = _register_runtime_services(
+        kernel,
+        object_store=object_store,
+        evidence_store=evidence_store,
+        knowledge_graph=knowledge_graph,
+        trust_engine=trust_engine,
+        mission_engine=mission_engine,
+        workflow_run_store=workflow_run_store,
+        workflow_action_registry=workflow_action_registry,
+        workflow_engine=workflow_engine,
+        close_object_store=object_store.close,
+        close_workflow_run_store=workflow_run_store.close,
     )
     return Runtime(
         kernel=kernel,

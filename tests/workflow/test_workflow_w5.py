@@ -54,9 +54,7 @@ async def test_wf_service_health(backend: str) -> None:
         async with runtime.workflow_run_store._pool.acquire() as conn:
             await conn.execute("TRUNCATE aq_workflow_run RESTART IDENTITY")
 
-    runtime.workflow_action_registry.register(
-        ReadOnlyEchoHandler(action_type="workflow.w5.echo")
-    )
+    runtime.workflow_action_registry.register(ReadOnlyEchoHandler(action_type="workflow.w5.echo"))
     service = runtime.kernel.get_service("workflow_engine")
     assert service.name == "workflow_engine"
     assert tuple(service.dependencies) == ("event_bus",)
@@ -92,8 +90,7 @@ async def test_wf_service_health(backend: str) -> None:
         assert loaded is not None
         assert loaded.status == "simulated"
         assert any(
-            event.event_type == "aqelyn.workflow.run_simulated"
-            for event in runtime.event_bus.log
+            event.event_type == "aqelyn.workflow.run_simulated" for event in runtime.event_bus.log
         )
         evidence_events = [
             event
