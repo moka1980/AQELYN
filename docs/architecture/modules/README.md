@@ -21,7 +21,8 @@ EA-0006 → `src/aqelyn/trust/` + `tests/trust/`;
 EA-0007 → `src/aqelyn/mission/` + `tests/mission/`;
 EA-0008 → `src/aqelyn/workflow/` + `tests/workflow/`;
 EA-0009 → `src/aqelyn/policy/` + `tests/policy/`;
-EA-0010 → `src/aqelyn/governance/` + `tests/governance/`.
+EA-0010 → `src/aqelyn/governance/` + `tests/governance/`;
+EA-0011 → `src/aqelyn/iag/` + `tests/iag/`.
 
 ## Rules for AI agents and developers
 
@@ -44,6 +45,7 @@ EA-0010 → `src/aqelyn/governance/` + `tests/governance/`.
 | [EA-0008 Workflow Engine](EA-0008-workflow-engine.spec.md) | EA-0008 | EA-0004, Finding, EA-0001 | [C-005](C-005_Task_Bundle.md) | Accepted |
 | [EA-0009 Policy Engine](EA-0009-policy-engine.spec.md) | EA-0009 | EA-0002, EA-0008, EA-0001 | [C-006](C-006_Task_Bundle.md) | Accepted |
 | [EA-0010 Compliance & Governance](EA-0010-compliance-governance-engine.spec.md) | EA-0010 | EA-0009, EA-0007, EA-0002, EA-0004 | [C-007](C-007_Task_Bundle.md) | Accepted |
+| [EA-0011 Identity & Access Governance](EA-0011-identity-access-governance.spec.md) | EA-0011 | EA-0005, EA-0009, EA-0008, EA-0002 | [C-008](C-008_Task_Bundle.md) | Accepted |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
@@ -51,7 +53,7 @@ specs (currently ECR-0001 against EA-0005).
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0011 (Identity & Access Governance) onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0012 (Asset & Configuration Governance) onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).
