@@ -1,5 +1,17 @@
 """Identity & Access Governance Engine (EA-0011)."""
 
+from aqelyn.iag.analysis import (
+    ACCESS_RELATION_TYPES,
+    ACCOUNT_OBJECT_TYPE,
+    ENTITLEMENT_OBJECT_TYPE,
+    GRANTS_ENTITLEMENT,
+    HAS_ACCOUNT,
+    HAS_ROLE,
+    IDENTITY_OBJECT_TYPE,
+    MEMBER_OF,
+    ROLE_OBJECT_TYPE,
+    IdentityAccessAnalyzer,
+)
 from aqelyn.iag.models import (
     AccessPath,
     AccessRisk,
@@ -13,6 +25,15 @@ from aqelyn.iag.models import (
 )
 
 __all__ = [
+    "ACCESS_RELATION_TYPES",
+    "ACCOUNT_OBJECT_TYPE",
+    "ENTITLEMENT_OBJECT_TYPE",
+    "GRANTS_ENTITLEMENT",
+    "HAS_ACCOUNT",
+    "HAS_ROLE",
+    "IDENTITY_OBJECT_TYPE",
+    "MEMBER_OF",
+    "ROLE_OBJECT_TYPE",
     "AccessPath",
     "AccessRisk",
     "AccessRiskKind",
@@ -20,6 +41,7 @@ __all__ = [
     "Certification",
     "CertificationStatus",
     "IAGConfig",
+    "IdentityAccessAnalyzer",
     "ReviewDecision",
     "ReviewItem",
 ]
