@@ -29,6 +29,8 @@ relies on. Other specs reference this rather than restating it.
 | `fnd` | Finding | Finding model |
 | `run` | Workflow run | EA-0008 |
 | `snap` | Compliance snapshot | EA-0010 |
+| `cert` | IAG certification | EA-0011 |
+| `rvi` | IAG review item | EA-0011 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -150,6 +152,9 @@ Every created/changed record and every event carries the responsible actor.
 | `PolicyNotFound` | EA-0009 | no |
 | `GovernanceConfigInvalid` | EA-0010 | no |
 | `SnapshotNotFound` | EA-0010 | no |
+| `IAGConfigInvalid` | EA-0011 | no |
+| `CertificationNotFound` | EA-0011 | no |
+| `ReviewItemNotFound` | EA-0011 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

@@ -23,6 +23,8 @@ PREFIXES: dict[str, str] = {
     "fnd": "finding",
     "run": "workflow_run",
     "snap": "compliance_snapshot",
+    "cert": "iag_certification",
+    "rvi": "iag_review_item",
     "svc": "service",
 }
 
