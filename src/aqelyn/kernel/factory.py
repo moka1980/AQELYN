@@ -24,6 +24,15 @@ from aqelyn.objects.postgres import PostgresObjectStore
 from aqelyn.trust.engine import TrustEngine
 from aqelyn.trust.registry import InMemorySourceReliabilityRegistry
 from aqelyn.trust.service import TrustEngineService
+from aqelyn.workflow import (
+    InMemoryActionRegistry,
+    InMemoryRunStore,
+    PostgresRunStore,
+    RunStore,
+    WorkflowEngine,
+    register_workflow_events,
+)
+from aqelyn.workflow.service import WorkflowEngineService
 
 
 @dataclass
@@ -42,6 +51,10 @@ class Runtime:
     trust_engine_service: TrustEngineService
     mission_engine: MissionEngine
     mission_engine_service: MissionEngineService
+    workflow_run_store: RunStore
+    workflow_action_registry: InMemoryActionRegistry
+    workflow_engine: WorkflowEngine
+    workflow_engine_service: WorkflowEngineService
 
 
 class _RuntimeService:
@@ -112,11 +125,21 @@ def _register_runtime_services(
     kernel: AQKernel,
     *,
     object_store: ObjectStore,
+    evidence_store: InMemoryEvidenceStore,
     knowledge_graph: KnowledgeGraph,
     trust_engine: TrustEngine,
     mission_engine: MissionEngine,
+    workflow_run_store: RunStore,
+    workflow_action_registry: InMemoryActionRegistry,
+    workflow_engine: WorkflowEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
-) -> tuple[KnowledgeGraphService, TrustEngineService, MissionEngineService]:
+    close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
+) -> tuple[
+    KnowledgeGraphService,
+    TrustEngineService,
+    MissionEngineService,
+    WorkflowEngineService,
+]:
     kernel.register(_RuntimeService("event_bus"))
     trust_service = TrustEngineService(trust_engine)
     kernel.register(trust_service)
@@ -132,7 +155,15 @@ def _register_runtime_services(
     kernel.register(graph_service)
     mission_service = MissionEngineService(mission_engine)
     kernel.register(mission_service)
-    return graph_service, trust_service, mission_service
+    workflow_service = WorkflowEngineService(
+        workflow_engine,
+        run_store=workflow_run_store,
+        registry=workflow_action_registry,
+        evidence_store=evidence_store,
+        close_run_store=close_workflow_run_store,
+    )
+    kernel.register(workflow_service)
+    return graph_service, trust_service, mission_service, workflow_service
 
 
 def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
@@ -141,6 +172,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     registry = EventTypeRegistry()
     register_evidence_events(registry)
     register_finding_events(registry)
+    register_workflow_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -154,14 +186,31 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     knowledge_graph = InMemoryKnowledgeGraph(object_store)
     trust_engine = TrustEngine(registry=InMemorySourceReliabilityRegistry())
     mission_engine = MissionEngine(object_store, knowledge_graph)
+    workflow_run_store = InMemoryRunStore(mode=cfg.tenant_mode)
+    workflow_action_registry = InMemoryActionRegistry()
+    workflow_engine = WorkflowEngine(
+        store=workflow_run_store,
+        registry=workflow_action_registry,
+        evidence_store=evidence_store,
+        event_bus=bus,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
-    knowledge_graph_service, trust_engine_service, mission_engine_service = (
+    (
+        knowledge_graph_service,
+        trust_engine_service,
+        mission_engine_service,
+        workflow_engine_service,
+    ) = (
         _register_runtime_services(
             kernel,
             object_store=object_store,
+            evidence_store=evidence_store,
             knowledge_graph=knowledge_graph,
             trust_engine=trust_engine,
             mission_engine=mission_engine,
+            workflow_run_store=workflow_run_store,
+            workflow_action_registry=workflow_action_registry,
+            workflow_engine=workflow_engine,
         )
     )
     return Runtime(
@@ -177,6 +226,10 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service=trust_engine_service,
         mission_engine=mission_engine,
         mission_engine_service=mission_engine_service,
+        workflow_run_store=workflow_run_store,
+        workflow_action_registry=workflow_action_registry,
+        workflow_engine=workflow_engine,
+        workflow_engine_service=workflow_engine_service,
     )
 
 
@@ -191,6 +244,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     registry = EventTypeRegistry()
     register_evidence_events(registry)
     register_finding_events(registry)
+    register_workflow_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -206,15 +260,36 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     knowledge_graph = PostgresKnowledgeGraph(object_store._pool)
     trust_engine = TrustEngine(registry=InMemorySourceReliabilityRegistry())
     mission_engine = MissionEngine(object_store, knowledge_graph)
+    workflow_run_store = await PostgresRunStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    workflow_action_registry = InMemoryActionRegistry()
+    workflow_engine = WorkflowEngine(
+        store=workflow_run_store,
+        registry=workflow_action_registry,
+        evidence_store=evidence_store,
+        event_bus=bus,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
-    knowledge_graph_service, trust_engine_service, mission_engine_service = (
+    (
+        knowledge_graph_service,
+        trust_engine_service,
+        mission_engine_service,
+        workflow_engine_service,
+    ) = (
         _register_runtime_services(
             kernel,
             object_store=object_store,
+            evidence_store=evidence_store,
             knowledge_graph=knowledge_graph,
             trust_engine=trust_engine,
             mission_engine=mission_engine,
+            workflow_run_store=workflow_run_store,
+            workflow_action_registry=workflow_action_registry,
+            workflow_engine=workflow_engine,
             close_object_store=object_store.close,
+            close_workflow_run_store=workflow_run_store.close,
         )
     )
     return Runtime(
@@ -230,4 +305,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_engine_service=trust_engine_service,
         mission_engine=mission_engine,
         mission_engine_service=mission_engine_service,
+        workflow_run_store=workflow_run_store,
+        workflow_action_registry=workflow_action_registry,
+        workflow_engine=workflow_engine,
+        workflow_engine_service=workflow_engine_service,
     )
