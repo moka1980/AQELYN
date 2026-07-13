@@ -32,6 +32,11 @@ from aqelyn.assetconfig.models import (
     FrameworkRef,
 )
 from aqelyn.assetconfig.postgres import PostgresBaselineStore, PostgresDriftSnapshotStore
+from aqelyn.assetconfig.service import (
+    ACG_EVENTS,
+    AssetConfigGovernanceService,
+    register_acg_events,
+)
 from aqelyn.assetconfig.store import (
     BaselineStore,
     DriftSnapshotStore,
@@ -39,6 +44,7 @@ from aqelyn.assetconfig.store import (
 )
 
 __all__ = [
+    "ACG_EVENTS",
     "ACG_REMEDIATION_ACTION",
     "ASSET_OBJECT_TYPE",
     "MAX_REGEX_GROUPS",
@@ -47,6 +53,7 @@ __all__ = [
     "VALID_COMPARATORS",
     "ACGConfig",
     "AssetConfigAnalyzer",
+    "AssetConfigGovernanceService",
     "AssetDrift",
     "Baseline",
     "BaselineStore",
@@ -68,6 +75,7 @@ __all__ = [
     "compare",
     "explain",
     "new_drift_snapshot_id",
+    "register_acg_events",
     "validate_comparator",
     "validate_regex_pattern",
 ]
