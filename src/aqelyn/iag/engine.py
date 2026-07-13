@@ -81,6 +81,8 @@ class IdentityAccessGovernanceEngine:
         source_id: str | None = None,
     ) -> None:
         self._objects = object_store
+        self._knowledge_graph = knowledge_graph
+        self._policy_engine = policy_engine
         self._certifications = certification_store
         self._evidence = evidence_store
         self._findings = finding_store
@@ -101,8 +103,32 @@ class IdentityAccessGovernanceEngine:
         return self._config
 
     @property
+    def object_store(self) -> ObjectStore:
+        return self._objects
+
+    @property
+    def knowledge_graph(self) -> KnowledgeGraph:
+        return self._knowledge_graph
+
+    @property
+    def policy_engine(self) -> IAGPolicyEvaluator:
+        return self._policy_engine
+
+    @property
     def certification_store(self) -> CertificationStore:
         return self._certifications
+
+    @property
+    def evidence_store(self) -> EvidenceStore:
+        return self._evidence
+
+    @property
+    def finding_store(self) -> FindingStore | None:
+        return self._findings
+
+    @property
+    def workflow_engine(self) -> WorkflowProposer | None:
+        return self._workflow
 
     async def access_paths(
         self, identity_id: str, *, tenant_id: str | None = None
