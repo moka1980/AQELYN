@@ -145,6 +145,8 @@ Every created/changed record and every event carries the responsible actor.
 | `ConfirmationRequired` | EA-0008 | no |
 | `ActionFailed` | EA-0008 | no |
 | `RunNotFound` | EA-0008 | no |
+| `PolicyConfigInvalid` | EA-0009 | no |
+| `PolicyNotFound` | EA-0009 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
