@@ -206,6 +206,19 @@ class RiskSnapshotNotFound(AQError):
     code = "RiskSnapshotNotFound"
 
 
+# --- EA-0014 ---
+class ThreatConfigInvalid(AQError):
+    code = "ThreatConfigInvalid"
+
+
+class ThreatSourceNotFound(AQError):
+    code = "ThreatSourceNotFound"
+
+
+class MalformedFeedRecord(AQError):
+    code = "MalformedFeedRecord"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
