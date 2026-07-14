@@ -1,4 +1,4 @@
-"""Security Operations engine for correlation and case work (EA-0015 S3)."""
+"""Security Operations engine for case work and response coordination (EA-0015)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,21 @@ from aqelyn.conventions.errors import IncidentNotFound, SOCConfigInvalid, StoreU
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
 from aqelyn.graph import KnowledgeGraph, Subgraph
+from aqelyn.objects import ObjectQuery, ObjectStore
 from aqelyn.risk import Risk
 from aqelyn.soc.correlate import MissionImpactProvider, correlate_alerts
 from aqelyn.soc.correlate import explain as explain_incident
-from aqelyn.soc.models import Alert, Incident, IncidentStatus, SOCConfig, TimelineEntry
+from aqelyn.soc.models import (
+    Alert,
+    Hunt,
+    Incident,
+    IncidentStatus,
+    ResponseAction,
+    SOCConfig,
+    TimelineEntry,
+)
 from aqelyn.soc.store import VALID_INCIDENT_STATUSES, SOCStore, validate_positive
+from aqelyn.workflow import Playbook, Step, WorkflowEngine
 
 _ACTOR = ActorRef(actor_type="system", actor_id="soc_engine")
 
@@ -27,6 +37,8 @@ class SecurityOperationsEngine:
         *,
         graph: KnowledgeGraph | None = None,
         mission_engine: MissionImpactProvider | None = None,
+        workflow_engine: WorkflowEngine | None = None,
+        object_store: ObjectStore | None = None,
         config: SOCConfig | None = None,
         actor: ActorRef | None = None,
         source_id: str | None = None,
@@ -35,6 +47,8 @@ class SecurityOperationsEngine:
         self.evidence_store = evidence_store
         self.graph = graph
         self.mission_engine = mission_engine
+        self.workflow_engine = workflow_engine
+        self.object_store = object_store
         self.config = config or SOCConfig()
         self.actor = actor or _ACTOR
         self.source_id = source_id or new_id("src")
@@ -208,6 +222,105 @@ class SecurityOperationsEngine:
             update={"status": _investigating_status(incident.status)},
         )
 
+    async def propose_response(
+        self,
+        incident_id: str,
+        *,
+        actions: Sequence[ResponseAction],
+        by: ActorRef,
+        expected_version: int,
+    ) -> list[str]:
+        if self.workflow_engine is None:
+            raise StoreUnavailable("propose_response requires a WorkflowEngine")
+        if not actions:
+            raise SOCConfigInvalid("propose_response requires at least one action")
+
+        incident = await self._incident(incident_id, expected_version=expected_version)
+        current = incident
+        run_ids: list[str] = []
+        for index, action in enumerate(actions, start=1):
+            run = await self.workflow_engine.propose(
+                _response_playbook(current, action, index=index),
+                by=by,
+            )
+            tracked_action = action.model_copy(
+                update={"workflow_run_id": run.id, "status": run.status},
+                deep=True,
+            )
+            evidence = await self._record_evidence(
+                current,
+                kind="response_proposed",
+                by=by,
+                method="soc.propose_response/v1",
+                content={
+                    "incident_id": current.id,
+                    "action_index": index,
+                    "response_action": tracked_action.model_dump(mode="json"),
+                    "workflow_run_id": run.id,
+                    "workflow_status": run.status,
+                    "playbook_id": run.playbook_id,
+                    "expected_version": current.version,
+                },
+            )
+            current = await self._append_timeline(
+                current,
+                TimelineEntry(
+                    at=evidence.recorded_at,
+                    actor=by,
+                    kind="response_proposed",
+                    detail={
+                        "action_index": index,
+                        "response_action": tracked_action.model_dump(mode="json"),
+                        "workflow_run_id": run.id,
+                        "workflow_status": run.status,
+                    },
+                    evidence_id=evidence.id,
+                ),
+                update={},
+            )
+            run_ids.append(run.id)
+        return run_ids
+
+    async def hunt(self, hunt: Hunt) -> list[dict[str, object]]:
+        if self.object_store is None:
+            raise StoreUnavailable("hunt requires an ObjectStore")
+
+        query = hunt.query
+        limit = min(
+            _positive_int(query.get("limit"), default=self.config.batch_size, field="hunt.limit"),
+            self.config.batch_size,
+        )
+        object_type = _optional_string_value(query, "object_type")
+        labels = _optional_string_mapping(query.get("labels"), field="hunt.labels")
+        include_states = _include_states(query.get("include_states"))
+        attribute_equals = _optional_object_mapping(
+            query.get("attribute_equals"), field="hunt.attribute_equals"
+        )
+
+        objects, _ = await self.object_store.query(
+            ObjectQuery(
+                tenant_id=hunt.tenant_id,
+                object_type=object_type,
+                labels=labels,
+                include_states=include_states,
+                limit=limit,
+            )
+        )
+        matches: list[dict[str, object]] = [
+            {
+                "kind": "object",
+                "object_id": obj.id,
+                "object_type": obj.object_type,
+                "display_name": obj.display_name,
+                "labels": dict(obj.labels),
+                "attributes": dict(obj.attributes),
+                "reason": f"Matched bounded hunt query {hunt.id}",
+            }
+            for obj in objects
+            if _attributes_match(obj.attributes, attribute_equals)
+        ]
+        return matches[:limit]
+
     def explain(self, incident: Incident) -> dict[str, object]:
         return explain_incident(incident)
 
@@ -284,8 +397,8 @@ class SecurityOperationsEngine:
         start_id = _string_value(pivot, "start_id")
         direction = _optional_string_value(pivot, "direction") or "both"
         relation_types = _string_sequence(pivot.get("relation_types"))
-        max_depth = _positive_int(pivot.get("max_depth"), default=2, field="max_depth")
-        max_nodes = _positive_int(pivot.get("max_nodes"), default=100, field="max_nodes")
+        max_depth = _positive_int(pivot.get("max_depth"), default=2, field="pivot.max_depth")
+        max_nodes = _positive_int(pivot.get("max_nodes"), default=100, field="pivot.max_nodes")
         return await self.graph.subgraph(
             start_id,
             direction=direction,
@@ -305,6 +418,32 @@ def _incident_summary(incident: Incident) -> dict[str, object]:
         "alert_ids": list(incident.alert_ids),
         "affected_object_ids": list(incident.affected_object_ids),
     }
+
+
+def _response_playbook(incident: Incident, action: ResponseAction, *, index: int) -> Playbook:
+    action_slug = _slug(action.action_type)
+    return Playbook(
+        id=f"soc-response-{_slug(incident.id)}-{index}",
+        version=1,
+        name=f"SOC response proposal {index} for {incident.id}",
+        description="Proposed, gated SOC response action delegated to Workflow.",
+        tenant_id=incident.tenant_id,
+        steps=[
+            Step(
+                id=f"response-{index}-{action_slug}",
+                action_type=action.action_type,
+                inputs={
+                    **action.inputs,
+                    "soc_incident_id": incident.id,
+                    "soc_alert_ids": list(incident.alert_ids),
+                    "soc_affected_object_ids": list(incident.affected_object_ids),
+                    "soc_priority": incident.priority,
+                },
+                idempotency_key=f"soc:{incident.id}:{incident.version}:{index}:{action_slug}",
+                requires_approval=True,
+            )
+        ],
+    )
 
 
 def _subject_objects(incident: Incident, *, extra: Sequence[str] = ()) -> list[str]:
@@ -350,5 +489,56 @@ def _positive_int(value: object, *, default: int, field: str) -> int:
     if value is None:
         return default
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        raise SOCConfigInvalid(f"pivot.{field} must be >= 1")
+        raise SOCConfigInvalid(f"{field} must be >= 1")
     return value
+
+
+def _optional_string_mapping(value: object, *, field: str) -> dict[str, str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise SOCConfigInvalid(f"{field} must be a mapping")
+    out: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise SOCConfigInvalid(f"{field} keys must be non-empty strings")
+        if not isinstance(item, str) or not item.strip():
+            raise SOCConfigInvalid(f"{field} values must be non-empty strings")
+        out[key] = item
+    return out
+
+
+def _optional_object_mapping(value: object, *, field: str) -> dict[str, object]:
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise SOCConfigInvalid(f"{field} must be a mapping")
+    out: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise SOCConfigInvalid(f"{field} keys must be non-empty strings")
+        out[key] = item
+    return out
+
+
+def _include_states(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ("active", "archived")
+    if not isinstance(value, Sequence) or isinstance(value, str):
+        raise SOCConfigInvalid("hunt.include_states must be a sequence of strings")
+    states: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise SOCConfigInvalid("hunt.include_states must contain non-empty strings")
+        states.append(item)
+    if not states:
+        raise SOCConfigInvalid("hunt.include_states must not be empty")
+    return tuple(states)
+
+
+def _attributes_match(attributes: Mapping[str, object], expected: Mapping[str, object]) -> bool:
+    return all(attributes.get(key) == value for key, value in expected.items())
+
+
+def _slug(value: str) -> str:
+    return "".join(char if char.isalnum() else "-" for char in value).strip("-") or "value"
