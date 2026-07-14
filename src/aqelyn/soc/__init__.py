@@ -1,5 +1,7 @@
 """Security Operations (SOC) Engine (EA-0015)."""
 
+from aqelyn.soc.correlate import MissionImpactProvider, correlate_alerts
+from aqelyn.soc.engine import SecurityOperationsEngine
 from aqelyn.soc.intake import intake_alerts
 from aqelyn.soc.memory import InMemorySOCStore
 from aqelyn.soc.models import (
@@ -24,10 +26,13 @@ __all__ = [
     "InMemorySOCStore",
     "Incident",
     "IncidentStatus",
+    "MissionImpactProvider",
     "PostgresSOCStore",
     "ResponseAction",
     "SOCConfig",
     "SOCStore",
+    "SecurityOperationsEngine",
     "TimelineEntry",
+    "correlate_alerts",
     "intake_alerts",
 ]
