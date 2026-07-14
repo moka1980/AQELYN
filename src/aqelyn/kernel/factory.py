@@ -39,14 +39,6 @@ from aqelyn.policy.memory import InMemoryPolicyStore
 from aqelyn.policy.postgres import PostgresPolicyStore
 from aqelyn.policy.service import PolicyEngineService, PolicyWorkflowAdapter, register_policy_events
 from aqelyn.policy.store import PolicyStore
-from aqelyn.risk import (
-    InMemoryRiskSnapshotStore,
-    InMemoryRiskStore,
-    RiskIntelligenceEngine,
-    RiskSnapshotStore,
-    RiskStore,
-    register_risk_events,
-)
 from aqelyn.trust.engine import TrustEngine
 from aqelyn.trust.registry import InMemorySourceReliabilityRegistry
 from aqelyn.trust.service import TrustEngineService
@@ -66,7 +58,9 @@ if TYPE_CHECKING:
     from aqelyn.assetconfig.store import BaselineStore, DriftSnapshotStore
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
+    from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.service import RiskIntelligenceService
+    from aqelyn.risk.store import RiskSnapshotStore, RiskStore
 
 
 @dataclass
@@ -317,6 +311,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.risk.engine import RiskIntelligenceEngine
+    from aqelyn.risk.memory import InMemoryRiskSnapshotStore, InMemoryRiskStore
+    from aqelyn.risk.service import register_risk_events
 
     cfg = config or AQELYNConfig(backend="memory")
     registry = EventTypeRegistry()
@@ -477,7 +474,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.postgres import PostgresRiskSnapshotStore, PostgresRiskStore
+    from aqelyn.risk.service import register_risk_events
 
     cfg = config or AQELYNConfig.load()
     if cfg.backend == "memory":
