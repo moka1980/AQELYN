@@ -193,6 +193,19 @@ class DriftSnapshotNotFound(AQError):
     code = "DriftSnapshotNotFound"
 
 
+# --- EA-0013 ---
+class RiskConfigInvalid(AQError):
+    code = "RiskConfigInvalid"
+
+
+class RiskNotFound(AQError):
+    code = "RiskNotFound"
+
+
+class RiskSnapshotNotFound(AQError):
+    code = "RiskSnapshotNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

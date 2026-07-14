@@ -158,6 +158,9 @@ Every created/changed record and every event carries the responsible actor.
 | `BaselineConfigInvalid` | EA-0012 | no |
 | `BaselineNotFound` | EA-0012 | no |
 | `DriftSnapshotNotFound` | EA-0012 | no |
+| `RiskConfigInvalid` | EA-0013 | no |
+| `RiskNotFound` | EA-0013 | no |
+| `RiskSnapshotNotFound` | EA-0013 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
