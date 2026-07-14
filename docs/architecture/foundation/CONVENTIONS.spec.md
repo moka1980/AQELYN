@@ -161,6 +161,9 @@ Every created/changed record and every event carries the responsible actor.
 | `RiskConfigInvalid` | EA-0013 | no |
 | `RiskNotFound` | EA-0013 | no |
 | `RiskSnapshotNotFound` | EA-0013 | no |
+| `ThreatConfigInvalid` | EA-0014 | no |
+| `ThreatSourceNotFound` | EA-0014 | no |
+| `MalformedFeedRecord` | EA-0014 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
