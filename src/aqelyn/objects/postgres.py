@@ -279,6 +279,9 @@ class PostgresObjectStore:
         if q.object_type is not None:
             args.append(q.object_type)
             clauses.append(f"object_type = ${len(args)}")
+        if q.exclude_object_types:
+            args.append(list(q.exclude_object_types))
+            clauses.append(f"object_type <> ALL(${len(args)}::text[])")
         args.append(q.limit)
         sql = (
             f"SELECT {_COLS} FROM aq_object WHERE {' AND '.join(clauses)} "

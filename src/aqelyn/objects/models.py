@@ -110,6 +110,7 @@ class AQRelationship(BaseModel):
 class ObjectQuery(BaseModel):
     tenant_id: str | None = None
     object_type: str | None = None
+    exclude_object_types: tuple[str, ...] = ()
     labels: dict[str, str] | None = None
     natural_key: NaturalKey | None = None
     include_states: tuple[str, ...] = ("active", "archived")

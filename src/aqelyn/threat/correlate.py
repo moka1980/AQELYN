@@ -112,6 +112,10 @@ async def correlate(
             truncated = truncated or graph_context.truncated
 
     ordered = sorted(matches.values(), key=lambda item: (item.indicator_id, item.asset_id))
+    if len(ordered) > limits.limit:
+        # The match list itself is bounded; dropping matches must be reported as
+        # truncated so a partial result is never presented as complete (§11/FR-6).
+        truncated = True
     return MatchReport(
         matches=ordered[: limits.limit],
         evaluated=len(indicators),
@@ -186,10 +190,16 @@ async def _assets(
     scope: ObjectQuery | None,
     limit: int,
 ) -> list[AQObject]:
+    # Exclude the engine's own threat objects at the query level so the limit
+    # applies to estate assets, not to indicators competing for the budget
+    # (ECR-0004). A post-filter alone would let indicators starve the asset page.
+    scope_excludes = tuple(scope.exclude_object_types) if scope is not None else ()
+    excludes = tuple(dict.fromkeys((*scope_excludes, *THREAT_OBJECT_TYPES)))
     query = (scope or ObjectQuery()).model_copy(
         update={
             "tenant_id": tenant_id,
             "include_states": ("active", "archived"),
+            "exclude_object_types": excludes,
             "limit": min((scope.limit if scope is not None else limit), limit),
         }
     )

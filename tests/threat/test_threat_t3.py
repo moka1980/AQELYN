@@ -203,6 +203,56 @@ async def test_tif_expiry(threat_graph_harness: ThreatGraphHarness) -> None:
     assert expired_asset.id not in {match.asset_id for match in report.matches}
 
 
+async def test_tif_correlate_not_starved_by_indicators(
+    threat_graph_harness: ThreatGraphHarness,
+) -> None:
+    # The engine's own indicator objects must not consume the asset query budget
+    # (ECR-0004). With limit=1 the unfiltered asset query would return the
+    # (lower-id, ingested-first) indicator and strip it -> zero assets.
+    engine = _engine(threat_graph_harness, config=FusionConfig(correlation={"limit": 1}))
+    await engine.ingest(
+        [_record(raw={"type": "domain", "value": "evil.example"})],
+        tenant_id=TENANT_A,
+    )
+    asset = await _asset(
+        threat_graph_harness.object_store,
+        "web",
+        tenant_id=TENANT_A,
+        attributes={"domains": ["evil.example"]},
+    )
+
+    report = await engine.correlate(tenant_id=TENANT_A, now=NOW)
+
+    assert [match.asset_id for match in report.matches] == [asset.id]
+
+
+async def test_tif_match_limit_truncates(threat_graph_harness: ThreatGraphHarness) -> None:
+    # More matches than the configured limit must be reported as truncated,
+    # never silently dropped as a clean result (§11/FR-6). Two indicators each
+    # matching two assets yield four matches -> sliced to two with limit=2.
+    engine = _engine(threat_graph_harness, config=FusionConfig(correlation={"limit": 2}))
+    both = ["one.example", "two.example"]
+    await engine.ingest(
+        [
+            _record(raw={"type": "domain", "value": "one.example"}),
+            _record(raw={"type": "domain", "value": "two.example"}),
+        ],
+        tenant_id=TENANT_A,
+    )
+    for name in ("asset-one", "asset-two"):
+        await _asset(
+            threat_graph_harness.object_store,
+            name,
+            tenant_id=TENANT_A,
+            attributes={"domains": both},
+        )
+
+    report = await engine.correlate(tenant_id=TENANT_A, now=NOW)
+
+    assert len(report.matches) == 2
+    assert report.truncated is True
+
+
 def _engine(
     harness: ThreatGraphHarness,
     *,

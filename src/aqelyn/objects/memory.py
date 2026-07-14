@@ -171,6 +171,8 @@ class InMemoryObjectStore:
                 continue
             if q.object_type is not None and obj.object_type != q.object_type:
                 continue
+            if q.exclude_object_types and obj.object_type in q.exclude_object_types:
+                continue
             if q.labels and any(obj.labels.get(k) != v for k, v in q.labels.items()):
                 continue
             if q.natural_key is not None and not any(
