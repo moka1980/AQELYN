@@ -219,6 +219,19 @@ class MalformedFeedRecord(AQError):
     code = "MalformedFeedRecord"
 
 
+# --- EA-0015 ---
+class SOCConfigInvalid(AQError):
+    code = "SOCConfigInvalid"
+
+
+class IncidentNotFound(AQError):
+    code = "IncidentNotFound"
+
+
+class AlertNotFound(AQError):
+    code = "AlertNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

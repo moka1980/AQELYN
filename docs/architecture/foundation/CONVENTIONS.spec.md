@@ -31,6 +31,9 @@ relies on. Other specs reference this rather than restating it.
 | `snap` | Compliance snapshot | EA-0010 |
 | `cert` | IAG certification | EA-0011 |
 | `rvi` | IAG review item | EA-0011 |
+| `alt` | SOC alert | EA-0015 |
+| `inc` | SOC incident | EA-0015 |
+| `hnt` | SOC hunt | EA-0015 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -164,6 +167,9 @@ Every created/changed record and every event carries the responsible actor.
 | `ThreatConfigInvalid` | EA-0014 | no |
 | `ThreatSourceNotFound` | EA-0014 | no |
 | `MalformedFeedRecord` | EA-0014 | no |
+| `SOCConfigInvalid` | EA-0015 | no |
+| `IncidentNotFound` | EA-0015 | no |
+| `AlertNotFound` | EA-0015 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
