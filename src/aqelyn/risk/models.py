@@ -79,6 +79,72 @@ class SignalRef(BaseModel):
             return None
         return require_typed_id(value, "evd", field="evidence_id")
 
+    @model_validator(mode="after")
+    def _threat_intel_evidenced(self) -> SignalRef:
+        if self.kind == "threat_intel" and self.evidence_id is None:
+            raise RiskConfigInvalid("threat_intel signals require evidence_id")
+        return self
+
+
+class CorrelationSignal(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: SignalKind
+    ref_id: str
+    correlation_key: str
+    title: str
+    category: str
+    weight: float
+    impact: float
+    affected_object_ids: list[str] = Field(default_factory=list)
+    tenant_id: str | None = None
+    evidence_id: str | None = None
+    reason: str | None = None
+    observed_at: datetime | None = None
+
+    @field_validator("ref_id", "correlation_key", "title", "category")
+    @classmethod
+    def _nonempty(cls, value: str) -> str:
+        return _require_nonempty(value, field="correlation signal field")
+
+    @field_validator("weight", "impact")
+    @classmethod
+    def _unit_interval(cls, value: float) -> float:
+        return _require_unit_interval(value, field="correlation signal factor")
+
+    @field_validator("affected_object_ids")
+    @classmethod
+    def _affected_object_ids(cls, values: list[str]) -> list[str]:
+        out = [require_typed_id(value, "obj", field="affected_object_ids") for value in values]
+        if len(out) != len(set(out)):
+            raise RiskConfigInvalid("affected_object_ids must not contain duplicates")
+        return out
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "evd", field="evidence_id")
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise RiskConfigInvalid("reason must not be empty when present")
+        return value
+
+    @model_validator(mode="after")
+    def _threat_intel_evidenced(self) -> CorrelationSignal:
+        if self.kind == "threat_intel" and self.evidence_id is None:
+            raise RiskConfigInvalid("threat_intel signals require evidence_id")
+        return self
+
 
 class AppetiteConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
