@@ -160,7 +160,7 @@ def _risk_from_group(key: str, signals: Sequence[CorrelationSignal], *, now: dat
         f"Signal refs: {', '.join(signal.ref_id for signal in ordered)}."
     )
     return Risk(
-        id=f"risk:{key}",
+        id=_risk_id(tenant_id, key),
         tenant_id=tenant_id,
         correlation_key=key,
         title=title,
@@ -176,6 +176,19 @@ def _risk_from_group(key: str, signals: Sequence[CorrelationSignal], *, now: dat
         first_seen_at=now,
         last_scored_at=now,
     )
+
+
+def _risk_id(tenant_id: str | None, key: str) -> str:
+    """Tenant-qualified, deterministic risk id (ECR-0003).
+
+    The correlation key alone is caller-controllable and can be shared across
+    tenants (e.g. a governance signal or ``finding.correlation_id`` taxonomy).
+    Since ``id`` is the ``aq_risk`` primary key, the tenant segment keeps two
+    tenants that share a ``correlation_key`` from colliding on the PK. The
+    tenant id is a UUID (or the literal ``global``), so the ``:``-delimited
+    prefix is unambiguous.
+    """
+    return f"risk:{tenant_id or 'global'}:{key}"
 
 
 def _title_for(key: str, signals: Sequence[CorrelationSignal]) -> str:

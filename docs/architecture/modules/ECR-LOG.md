@@ -7,6 +7,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 |---|---|---|---|
 | ECR-0001 | EA-0005 Knowledge Graph | Accepted | Add a `max_work` enumeration budget to `paths()`. |
 | ECR-0002 | EA-0009 Policy Engine | Accepted | Harden condition attribute lookup against dunder traversal. |
+| ECR-0003 | EA-0013 Risk Intelligence | Accepted | Tenant-qualify the correlated `Risk.id` to prevent a cross-tenant PK collision. |
 
 ---
 
@@ -54,3 +55,33 @@ non-mapping values stop traversal rather than calling `getattr`.
 **Impact.** Backward-compatible for supported policy data because Decision
 requests and compliance resources are dictionaries. Adds an acceptance test that
 a dunder attr path yields no match.
+
+---
+
+## ECR-0003 — Tenant-qualify the correlated `Risk.id`
+
+**Raised by:** Claude Code (post-R3 review, PR #52).
+**Severity:** blocking correctness — tenant-isolation break.
+
+**Problem.** R2 derived the correlated risk id as `risk:{correlation_key}`, and
+`aq_risk.id` is the primary key. A `correlation_key` is caller-controllable and
+can be shared across tenants — via an explicit `finding.correlation_id` or an
+external `CorrelationSignal.correlation_key` taxonomy (e.g.
+`"risk:internet-exposure"`). Two tenants sharing such a key minted the **same
+PK**, so the second tenant's `upsert` matched the first tenant's row by id and
+raised `CrossTenantReference` — one tenant's risk permanently blocked another
+from registering its own. The `(tenant_id, correlation_key)` unique index was
+correct; only the PK id lacked a tenant segment. Reproduced empirically during
+review (identical id, `CrossTenantReference`). Finding-derived keys embed object
+UUIDs and were already collision-free; the defect surfaced only for shared
+explicit keys.
+
+**Resolution.** Derive the id as `risk:{tenant_id or 'global'}:{key}`
+(`_risk_id`). The tenant id is a UUID (or the literal `global`), so the
+`:`-delimited prefix is unambiguous and two tenants sharing a `correlation_key`
+now produce distinct ids. Dedupe/versioning semantics are unchanged (still keyed
+on `(tenant_id, correlation_key)`).
+
+**Impact.** Changes the format of correlated risk ids (no persisted risks exist
+yet — R3 is the first persistence). Adds `test_risk_cross_tenant_correlation_key`
+(both backends); updates the one R2 assertion that pinned the old id string.
