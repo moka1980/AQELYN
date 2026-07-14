@@ -1,6 +1,7 @@
 """Threat Intelligence Fusion Engine (EA-0014)."""
 
 from aqelyn.threat.confidence import score_confidence
+from aqelyn.threat.correlate import correlate
 from aqelyn.threat.engine import ThreatFusionEngine
 from aqelyn.threat.models import (
     FeedRecord,
@@ -34,6 +35,7 @@ __all__ = [
     "ThreatMatch",
     "ThreatSource",
     "ThreatSourceRegistry",
+    "correlate",
     "indicator_to_object",
     "normalize_record",
     "object_to_indicator",

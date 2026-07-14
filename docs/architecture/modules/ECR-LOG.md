@@ -8,6 +8,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0001 | EA-0005 Knowledge Graph | Accepted | Add a `max_work` enumeration budget to `paths()`. |
 | ECR-0002 | EA-0009 Policy Engine | Accepted | Harden condition attribute lookup against dunder traversal. |
 | ECR-0003 | EA-0013 Risk Intelligence | Accepted | Tenant-qualify the correlated `Risk.id` to prevent a cross-tenant PK collision. |
+| ECR-0004 | EA-0002 Universal Object Model | Accepted | Add `ObjectQuery.exclude_object_types` so a query can bound results to a subset of types. |
 
 ---
 
@@ -85,3 +86,33 @@ on `(tenant_id, correlation_key)`).
 **Impact.** Changes the format of correlated risk ids (no persisted risks exist
 yet — R3 is the first persistence). Adds `test_risk_cross_tenant_correlation_key`
 (both backends); updates the one R2 assertion that pinned the old id string.
+
+---
+
+## ECR-0004 — `ObjectQuery.exclude_object_types`
+
+**Raised by:** Claude Code (post-T3 review, PR #58).
+**Severity:** blocking correctness (enables the EA-0014 T3 fix).
+
+**Problem.** EA-0014 threat correlation enumerates estate **assets** via
+`ObjectStore.query`, then filters the engine's own threat objects
+(`threat_indicator`/`actor`/`campaign`) out of the result. But `ObjectQuery`
+supports only a single positive `object_type` (or none), and the store applies
+`limit` **before** any post-filtering, and returns no pagination cursor. So the
+engine's own indicator objects compete with assets for the query budget: in an
+estate with many indicators, a `limit`-sized query comes back full of indicators,
+which are then stripped, leaving few or **zero** assets — correlation silently
+under-matches or returns empty. Reproduced during review (`limit=2`, two matching
+assets → `matches=0`, the query returned two `threat_indicator`s).
+
+**Resolution.** Add `exclude_object_types: tuple[str, ...] = ()` to `ObjectQuery`,
+honored in the WHERE/predicate of both the in-memory and Postgres stores (so the
+`limit` applies to the already-filtered set). Threat `correlate` passes
+`THREAT_OBJECT_TYPES`, so the asset budget is spent on assets only. Additive and
+backward-compatible (default empty tuple; existing queries unaffected).
+
+**Impact.** New optional `ObjectQuery` field + one predicate in each store.
+Adds an object-store contract assertion for the exclusion, an EA-0014 scale test
+(indicators far exceeding `limit` no longer starve asset correlation), and folds
+in a `truncated`-on-match-limit fix (partial match lists are now reported as
+truncated, §11/FR-6).

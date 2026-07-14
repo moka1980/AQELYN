@@ -7,9 +7,19 @@ from datetime import datetime
 
 from aqelyn.conventions import ActorRef
 from aqelyn.conventions.errors import MalformedFeedRecord
-from aqelyn.objects import ObjectStore
+from aqelyn.graph import InMemoryKnowledgeGraph, KnowledgeGraph
+from aqelyn.objects import ObjectQuery, ObjectStore
 from aqelyn.threat.confidence import score_confidence
-from aqelyn.threat.models import FeedRecord, FusionConfig, QuarantinedFeedRecord, ThreatIndicator
+from aqelyn.threat.correlate import correlate
+from aqelyn.threat.correlate import explain as explain_match
+from aqelyn.threat.models import (
+    FeedRecord,
+    FusionConfig,
+    MatchReport,
+    QuarantinedFeedRecord,
+    ThreatIndicator,
+    ThreatMatch,
+)
 from aqelyn.threat.normalize import (
     ensure_threat_object_types,
     indicator_to_object,
@@ -30,11 +40,13 @@ class ThreatFusionEngine:
         config: FusionConfig | None = None,
         actor: ActorRef | None = None,
         source_registry: ThreatSourceRegistry | None = None,
+        graph: KnowledgeGraph | None = None,
     ) -> None:
         self.object_store = object_store
         self.config = config or FusionConfig()
         self.actor = actor or _ACTOR
         self.source_registry = source_registry or InMemoryThreatSourceRegistry()
+        self.graph = graph or InMemoryKnowledgeGraph(object_store)
         self._quarantine: list[QuarantinedFeedRecord] = []
         ensure_threat_object_types(object_store)
 
@@ -67,7 +79,10 @@ class ThreatFusionEngine:
             indicators.append(object_to_indicator(saved))
         return indicators
 
-    def explain(self, indicator: ThreatIndicator) -> dict[str, object]:
+    def explain(self, item: ThreatIndicator | ThreatMatch) -> dict[str, object]:
+        if isinstance(item, ThreatMatch):
+            return explain_match(item)
+        indicator = item
         return {
             "indicator_id": indicator.id,
             "indicator_type": indicator.indicator_type,
@@ -86,5 +101,22 @@ class ThreatFusionEngine:
             indicator,
             registry=self.source_registry,
             config=self.config,
+            now=now,
+        )
+
+    async def correlate(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: ObjectQuery | None = None,
+        now: datetime | None = None,
+    ) -> MatchReport:
+        return await correlate(
+            object_store=self.object_store,
+            graph=self.graph,
+            tenant_id=tenant_id,
+            scope=scope,
+            config=self.config.correlation,
+            min_match_confidence=self.config.min_match_confidence,
             now=now,
         )

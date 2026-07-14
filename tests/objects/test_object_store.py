@@ -145,6 +145,20 @@ async def test_uom_tenant_scoping(object_store: Any) -> None:
     assert len(rows) >= 1  # local mode returns NULL-tenant objects
 
 
+async def test_uom_exclude_object_types(object_store: Any) -> None:
+    # Exclusion must apply in the query so `limit` bounds the surviving set,
+    # not after (ECR-0004): three excluded objects must not starve the one kept.
+    for _ in range(3):
+        await object_store.upsert(_obj(object_type="device", attributes={"hostname": "h"}))
+    generic = await object_store.upsert(_obj())
+
+    rows, _ = await object_store.query(ObjectQuery(exclude_object_types=("device",), limit=2))
+
+    ids = {o.id for o in rows}
+    assert generic.id in ids
+    assert all(o.object_type != "device" for o in rows)
+
+
 async def test_uom_enterprise_requires_scope() -> None:
     store = InMemoryObjectStore(registry=ObjectTypeRegistry(), mode="enterprise")
     with pytest.raises(TenantScopeRequired):
