@@ -1,6 +1,8 @@
 """Risk Intelligence Engine (EA-0013)."""
 
 from aqelyn.risk.correlate import RiskCorrelator, correlate, explain
+from aqelyn.risk.engine import RiskIntelligenceEngine
+from aqelyn.risk.memory import InMemoryRiskSnapshotStore, InMemoryRiskStore
 from aqelyn.risk.models import (
     AppetiteConfig,
     CorrelationSignal,
@@ -14,21 +16,28 @@ from aqelyn.risk.models import (
     SignalRef,
 )
 from aqelyn.risk.scoring import band_for_score, score_risk
+from aqelyn.risk.store import RiskSnapshotStore, RiskStore, new_risk_snapshot_id
 
 __all__ = [
     "AppetiteConfig",
     "CorrelationSignal",
+    "InMemoryRiskSnapshotStore",
+    "InMemoryRiskStore",
     "Risk",
     "RiskBand",
     "RiskConfig",
     "RiskCorrelator",
+    "RiskIntelligenceEngine",
     "RiskLifecycle",
     "RiskSnapshot",
+    "RiskSnapshotStore",
+    "RiskStore",
     "RiskTreatment",
     "SignalKind",
     "SignalRef",
     "band_for_score",
     "correlate",
     "explain",
+    "new_risk_snapshot_id",
     "score_risk",
 ]
