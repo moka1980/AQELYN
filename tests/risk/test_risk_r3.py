@@ -24,6 +24,7 @@ from aqelyn.risk import (
     RiskSnapshot,
     RiskSnapshotStore,
     RiskStore,
+    correlate,
     new_risk_snapshot_id,
 )
 
@@ -401,3 +402,46 @@ async def test_risk_no_side_effects(risk_persistence: RiskPersistence) -> None:
     after = still_unchanged.model_dump(mode="json")
 
     assert after == before
+
+
+async def test_risk_cross_tenant_correlation_key(risk_store: RiskStore) -> None:
+    """Two tenants sharing a caller-provided correlation_key must not collide (ECR-0003)."""
+    finding_store = InMemoryFindingStore(mode="multi")
+    shared_key = "risk:shared-generic-exposure"
+
+    def _shared_signal(*, tenant_id: str, ref_id: str, asset_id: str) -> CorrelationSignal:
+        return CorrelationSignal(
+            kind="config",
+            ref_id=ref_id,
+            correlation_key=shared_key,
+            title="Shared-key governance signal",
+            category="config",
+            weight=0.5,
+            impact=0.4,
+            affected_object_ids=[asset_id],
+            tenant_id=tenant_id,
+            reason="Governance result contributes to a same-key risk.",
+            observed_at=NOW,
+        )
+
+    [risk_a] = await correlate(
+        finding_store,
+        tenant_id=TENANT_A,
+        signals=[_shared_signal(tenant_id=TENANT_A, ref_id="drift-a", asset_id=new_id("obj"))],
+    )
+    [risk_b] = await correlate(
+        finding_store,
+        tenant_id=TENANT_B,
+        signals=[_shared_signal(tenant_id=TENANT_B, ref_id="drift-b", asset_id=new_id("obj"))],
+    )
+
+    # Same correlation_key, but tenant-qualified ids must differ (no PK collision).
+    assert risk_a.correlation_key == risk_b.correlation_key == shared_key
+    assert risk_a.id != risk_b.id
+
+    stored_a = await risk_store.upsert(risk_a)
+    stored_b = await risk_store.upsert(risk_b)  # must NOT raise CrossTenantReference
+
+    assert stored_a.id != stored_b.id
+    assert [risk.id for risk in await risk_store.query(tenant_id=TENANT_A)] == [stored_a.id]
+    assert [risk.id for risk in await risk_store.query(tenant_id=TENANT_B)] == [stored_b.id]

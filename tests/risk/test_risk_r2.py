@@ -114,7 +114,7 @@ async def test_risk_correlate() -> None:
     assert len(risks) == 1
     [risk] = risks
     assert risk.correlation_key == "risk:shared-web-exposure"
-    assert risk.id == "risk:risk:shared-web-exposure"
+    assert risk.id == "risk:global:risk:shared-web-exposure"
     assert risk.affected_object_ids == [asset]
     assert risk.impact == 0.8
     assert [signal.kind for signal in risk.signals] == ["config", "finding", "finding"]
