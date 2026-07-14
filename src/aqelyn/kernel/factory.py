@@ -61,6 +61,9 @@ if TYPE_CHECKING:
     from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.service import RiskIntelligenceService
     from aqelyn.risk.store import RiskSnapshotStore, RiskStore
+    from aqelyn.threat.engine import ThreatFusionEngine
+    from aqelyn.threat.registry import ThreatSourceRegistry
+    from aqelyn.threat.service import ThreatFusionService
 
 
 @dataclass
@@ -100,6 +103,9 @@ class Runtime:
     risk_snapshot_store: RiskSnapshotStore
     risk_engine: RiskIntelligenceEngine
     risk_engine_service: RiskIntelligenceService
+    threat_source_registry: ThreatSourceRegistry
+    threat_engine: ThreatFusionEngine
+    threat_engine_service: ThreatFusionService
 
 
 class _RuntimeService:
@@ -209,6 +215,8 @@ def _register_runtime_services(
     risk_store: RiskStore,
     risk_snapshot_store: RiskSnapshotStore,
     risk_engine: RiskIntelligenceEngine,
+    threat_source_registry: ThreatSourceRegistry,
+    threat_engine: ThreatFusionEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -217,6 +225,7 @@ def _register_runtime_services(
     close_acg_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_risk_store: Callable[[], Awaitable[None]] | None = None,
     close_risk_snapshot_store: Callable[[], Awaitable[None]] | None = None,
+    close_threat_source_registry: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -227,11 +236,13 @@ def _register_runtime_services(
     IdentityAccessGovernanceService,
     AssetConfigGovernanceService,
     RiskIntelligenceService,
+    ThreatFusionService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
     from aqelyn.risk.service import RiskIntelligenceService
+    from aqelyn.threat.service import ThreatFusionService
 
     kernel.register(_RuntimeService("event_bus"))
     trust_service = TrustEngineService(trust_engine)
@@ -288,6 +299,13 @@ def _register_runtime_services(
         close_snapshot_store=close_risk_snapshot_store,
     )
     kernel.register(risk_service)
+    threat_service = ThreatFusionService(
+        threat_engine,
+        source_registry=threat_source_registry,
+        trust_engine=trust_engine,
+        close_source_registry=close_threat_source_registry,
+    )
+    kernel.register(threat_service)
     return (
         graph_service,
         trust_service,
@@ -298,6 +316,7 @@ def _register_runtime_services(
         iag_service,
         acg_service,
         risk_service,
+        threat_service,
     )
 
 
@@ -314,6 +333,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.memory import InMemoryRiskSnapshotStore, InMemoryRiskStore
     from aqelyn.risk.service import register_risk_events
+    from aqelyn.threat.engine import ThreatFusionEngine
+    from aqelyn.threat.registry import InMemoryThreatSourceRegistry
+    from aqelyn.threat.service import register_threat_events
 
     cfg = config or AQELYNConfig(backend="memory")
     registry = EventTypeRegistry()
@@ -325,6 +347,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_iag_events(registry)
     register_acg_events(registry)
     register_risk_events(registry)
+    register_threat_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -393,6 +416,16 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         evidence_store=evidence_store,
         workflow_engine=workflow_engine,
     )
+    threat_source_registry = InMemoryThreatSourceRegistry()
+    threat_engine = ThreatFusionEngine(
+        object_store,
+        source_registry=threat_source_registry,
+        graph=knowledge_graph,
+        evidence_store=evidence_store,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        mission_engine=mission_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -404,6 +437,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         iag_engine_service,
         acg_engine_service,
         risk_engine_service,
+        threat_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -426,6 +460,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         risk_store=risk_store,
         risk_snapshot_store=risk_snapshot_store,
         risk_engine=risk_engine,
+        threat_source_registry=threat_source_registry,
+        threat_engine=threat_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -461,6 +497,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         risk_snapshot_store=risk_snapshot_store,
         risk_engine=risk_engine,
         risk_engine_service=risk_engine_service,
+        threat_source_registry=threat_source_registry,
+        threat_engine=threat_engine,
+        threat_engine_service=threat_engine_service,
     )
 
 
@@ -477,6 +516,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.postgres import PostgresRiskSnapshotStore, PostgresRiskStore
     from aqelyn.risk.service import register_risk_events
+    from aqelyn.threat.engine import ThreatFusionEngine
+    from aqelyn.threat.postgres import PostgresThreatSourceRegistry
+    from aqelyn.threat.service import register_threat_events
 
     cfg = config or AQELYNConfig.load()
     if cfg.backend == "memory":
@@ -493,6 +535,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_iag_events(registry)
     register_acg_events(registry)
     register_risk_events(registry)
+    register_threat_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -572,6 +615,16 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         evidence_store=evidence_store,
         workflow_engine=workflow_engine,
     )
+    threat_source_registry = await PostgresThreatSourceRegistry.connect(cfg.database_url)
+    threat_engine = ThreatFusionEngine(
+        object_store,
+        source_registry=threat_source_registry,
+        graph=knowledge_graph,
+        evidence_store=evidence_store,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        mission_engine=mission_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -583,6 +636,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         iag_engine_service,
         acg_engine_service,
         risk_engine_service,
+        threat_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -605,6 +659,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         risk_store=risk_store,
         risk_snapshot_store=risk_snapshot_store,
         risk_engine=risk_engine,
+        threat_source_registry=threat_source_registry,
+        threat_engine=threat_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -613,6 +669,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_acg_snapshot_store=acg_snapshot_store.close,
         close_risk_store=risk_store.close,
         close_risk_snapshot_store=risk_snapshot_store.close,
+        close_threat_source_registry=threat_source_registry.close,
     )
     return Runtime(
         kernel=kernel,
@@ -648,4 +705,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         risk_snapshot_store=risk_snapshot_store,
         risk_engine=risk_engine,
         risk_engine_service=risk_engine_service,
+        threat_source_registry=threat_source_registry,
+        threat_engine=threat_engine,
+        threat_engine_service=threat_engine_service,
     )
