@@ -25,6 +25,9 @@ PREFIXES: dict[str, str] = {
     "snap": "compliance_snapshot",
     "cert": "iag_certification",
     "rvi": "iag_review_item",
+    "alt": "soc_alert",
+    "inc": "soc_incident",
+    "hnt": "soc_hunt",
     "svc": "service",
 }
 
