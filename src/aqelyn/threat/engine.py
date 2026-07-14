@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 
 from aqelyn.conventions import ActorRef
 from aqelyn.conventions.errors import MalformedFeedRecord
 from aqelyn.objects import ObjectStore
+from aqelyn.threat.confidence import score_confidence
 from aqelyn.threat.models import FeedRecord, FusionConfig, QuarantinedFeedRecord, ThreatIndicator
 from aqelyn.threat.normalize import (
     ensure_threat_object_types,
@@ -15,6 +17,7 @@ from aqelyn.threat.normalize import (
     object_to_indicator,
     quarantine_time,
 )
+from aqelyn.threat.registry import InMemoryThreatSourceRegistry, ThreatSourceRegistry
 
 _ACTOR = ActorRef(actor_type="system", actor_id="threat_fusion_engine")
 
@@ -26,10 +29,12 @@ class ThreatFusionEngine:
         *,
         config: FusionConfig | None = None,
         actor: ActorRef | None = None,
+        source_registry: ThreatSourceRegistry | None = None,
     ) -> None:
         self.object_store = object_store
         self.config = config or FusionConfig()
         self.actor = actor or _ACTOR
+        self.source_registry = source_registry or InMemoryThreatSourceRegistry()
         self._quarantine: list[QuarantinedFeedRecord] = []
         ensure_threat_object_types(object_store)
 
@@ -73,3 +78,13 @@ class ThreatFusionEngine:
                 "Indicator was normalized from handed-in feed data and cataloged by natural key."
             ),
         }
+
+    async def score_confidence(
+        self, indicator: ThreatIndicator, *, now: datetime | None = None
+    ) -> float:
+        return await score_confidence(
+            indicator,
+            registry=self.source_registry,
+            config=self.config,
+            now=now,
+        )
