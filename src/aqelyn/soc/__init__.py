@@ -16,9 +16,11 @@ from aqelyn.soc.models import (
     TimelineEntry,
 )
 from aqelyn.soc.postgres import PostgresSOCStore
+from aqelyn.soc.service import SOC_EVENTS, SecurityOperationsService, register_soc_events
 from aqelyn.soc.store import SOCStore
 
 __all__ = [
+    "SOC_EVENTS",
     "Alert",
     "AlertSourceKind",
     "AlertState",
@@ -32,7 +34,9 @@ __all__ = [
     "SOCConfig",
     "SOCStore",
     "SecurityOperationsEngine",
+    "SecurityOperationsService",
     "TimelineEntry",
     "correlate_alerts",
     "intake_alerts",
+    "register_soc_events",
 ]
