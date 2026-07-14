@@ -2,7 +2,7 @@
 
 from aqelyn.threat.confidence import score_confidence
 from aqelyn.threat.correlate import correlate
-from aqelyn.threat.engine import ThreatFusionEngine
+from aqelyn.threat.engine import THREAT_RESPONSE_ACTION, ThreatFusionEngine
 from aqelyn.threat.models import (
     FeedRecord,
     FusionConfig,
@@ -23,6 +23,7 @@ from aqelyn.threat.normalize import (
 from aqelyn.threat.registry import InMemoryThreatSourceRegistry, ThreatSourceRegistry
 
 __all__ = [
+    "THREAT_RESPONSE_ACTION",
     "FeedRecord",
     "FusionConfig",
     "InMemoryThreatSourceRegistry",
