@@ -8,7 +8,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from aqelyn.conventions import require_tenant_id, require_typed_id
+from aqelyn.conventions import ActorRef, require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import ThreatConfigInvalid
 from aqelyn.graph import Path
 from aqelyn.objects import SourceRef
@@ -188,6 +188,36 @@ class QuarantinedFeedRecord(BaseModel):
     @classmethod
     def _reason(cls, value: str) -> str:
         return _require_nonempty(value, field="quarantine reason")
+
+
+class ThreatSource(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    reliability: float
+    meta: dict[str, Any] = Field(default_factory=dict)
+    set_by: ActorRef
+    set_at: datetime
+    version: int = 1
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str) -> str:
+        if value == "*":
+            return value
+        return require_typed_id(value, "src", field="source_id")
+
+    @field_validator("reliability")
+    @classmethod
+    def _reliability(cls, value: float) -> float:
+        return _require_unit_interval(value, field="source reliability")
+
+    @field_validator("version")
+    @classmethod
+    def _version(cls, value: int) -> int:
+        if isinstance(value, bool) or value < 1:
+            raise ThreatConfigInvalid("source version must be >= 1")
+        return value
 
 
 class FusionConfig(BaseModel):
