@@ -25,7 +25,8 @@ EA-0010 → `src/aqelyn/governance/` + `tests/governance/`;
 EA-0011 → `src/aqelyn/iag/` + `tests/iag/`;
 EA-0012 → `src/aqelyn/assetconfig/` + `tests/assetconfig/`;
 EA-0013 → `src/aqelyn/risk/` + `tests/risk/`;
-EA-0014 → `src/aqelyn/threat/` + `tests/threat/`.
+EA-0014 → `src/aqelyn/threat/` + `tests/threat/`;
+EA-0015 → `src/aqelyn/soc/` + `tests/soc/`.
 
 ## Rules for AI agents and developers
 
@@ -52,6 +53,7 @@ EA-0014 → `src/aqelyn/threat/` + `tests/threat/`.
 | [EA-0012 Asset & Config Governance](EA-0012-asset-config-governance.spec.md) | EA-0012 | EA-0002, EA-0004, EA-0007, EA-0008 | [C-009](C-009_Task_Bundle.md) | Accepted |
 | [EA-0013 Risk Intelligence](EA-0013-risk-intelligence.spec.md) | EA-0013 | Finding, EA-0007, EA-0008, EA-0010-0012 | [C-010](C-010_Task_Bundle.md) | Accepted |
 | [EA-0014 Threat Intelligence Fusion](EA-0014-threat-intelligence-fusion.spec.md) | EA-0014 | EA-0002, EA-0005, EA-0006, EA-0013 | [C-011](C-011_Task_Bundle.md) | Accepted |
+| [EA-0015 Security Operations (SOC)](EA-0015-security-operations.spec.md) | EA-0015 | Finding, EA-0008, EA-0013, EA-0014, EA-0005 | [C-012](C-012_Task_Bundle.md) | Accepted |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
@@ -59,7 +61,7 @@ specs (currently ECR-0001 against EA-0005).
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0015 onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0016 onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).
