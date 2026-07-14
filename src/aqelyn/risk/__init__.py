@@ -16,9 +16,11 @@ from aqelyn.risk.models import (
     SignalRef,
 )
 from aqelyn.risk.scoring import band_for_score, score_risk
+from aqelyn.risk.service import RISK_EVENTS, RiskIntelligenceService, register_risk_events
 from aqelyn.risk.store import RiskSnapshotStore, RiskStore, new_risk_snapshot_id
 
 __all__ = [
+    "RISK_EVENTS",
     "AppetiteConfig",
     "CorrelationSignal",
     "InMemoryRiskSnapshotStore",
@@ -28,6 +30,7 @@ __all__ = [
     "RiskConfig",
     "RiskCorrelator",
     "RiskIntelligenceEngine",
+    "RiskIntelligenceService",
     "RiskLifecycle",
     "RiskSnapshot",
     "RiskSnapshotStore",
@@ -39,5 +42,6 @@ __all__ = [
     "correlate",
     "explain",
     "new_risk_snapshot_id",
+    "register_risk_events",
     "score_risk",
 ]
