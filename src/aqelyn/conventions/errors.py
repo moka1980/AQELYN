@@ -245,6 +245,19 @@ class ArtifactNotFound(AQError):
     code = "ArtifactNotFound"
 
 
+# --- EA-0017 ---
+class DetectionConfigInvalid(AQError):
+    code = "DetectionConfigInvalid"
+
+
+class DetectionRuleNotFound(AQError):
+    code = "DetectionRuleNotFound"
+
+
+class ProfileNotFound(AQError):
+    code = "ProfileNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
