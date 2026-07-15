@@ -33,6 +33,9 @@ PREFIXES: dict[str, str] = {
     "det": "threat_detection",
     "prf": "behavior_profile",
     "prj": "detection_projection",
+    "rsp": "response_campaign",
+    "trg": "response_trigger",
+    "apr": "response_approval_request",
     "svc": "service",
 }
 
