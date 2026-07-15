@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Sequence
+from datetime import datetime
 
 from aqelyn.conventions.errors import OptimisticConcurrencyConflict, TenantScopeRequired
 from aqelyn.lake.catalog import DatasetCatalog
@@ -17,6 +18,7 @@ from aqelyn.lake.store import (
     validate_record_id,
     validate_tenant,
 )
+from aqelyn.policy import Condition, condition_matches
 
 
 class InMemoryDatasetCatalog(DatasetCatalog):
@@ -57,6 +59,9 @@ class InMemoryTelemetryRecordStore:
         tenant_id: str | None,
         limit: int = 100,
         retention_state: Sequence[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        filter: Condition | None = None,
     ) -> list[TelemetryRecord]:
         validate_dataset_name(dataset)
         tenant_id = validate_tenant(tenant_id)
@@ -70,9 +75,34 @@ class InMemoryTelemetryRecordStore:
             if record.dataset == dataset
             and self._visible(record, tenant_id)
             and (states is None or record.retention_state in states)
+            and (since is None or record.occurred_at >= since)
+            and (until is None or record.occurred_at <= until)
+            and (filter is None or condition_matches(filter, _record_payload(record)))
         ]
         rows.sort(key=lambda record: (record.occurred_at, record.id))
         return rows[:limit]
+
+    async def count(
+        self,
+        *,
+        dataset: str,
+        tenant_id: str | None,
+        retention_state: Sequence[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        filter: Condition | None = None,
+    ) -> int:
+        return len(
+            await self.query(
+                dataset=dataset,
+                tenant_id=tenant_id,
+                limit=max(len(self._records), 1),
+                retention_state=retention_state,
+                since=since,
+                until=until,
+                filter=filter,
+            )
+        )
 
     async def quarantine(self, item: Quarantine, *, tenant_id: str | None) -> Quarantine:
         tenant_id = validate_tenant(tenant_id)
@@ -105,3 +135,9 @@ class InMemoryTelemetryRecordStore:
         if self.mode == "local" and row_tenant is not None:
             return False
         return tenant_id is None or row_tenant == tenant_id
+
+
+def _record_payload(record: TelemetryRecord) -> dict[str, object]:
+    data = record.model_dump(mode="json")
+    data["fields"] = record.fields
+    return data

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -15,6 +16,7 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.lake.ddl import DDL
 from aqelyn.lake.models import Dataset, Quarantine, TelemetryRecord
+from aqelyn.lake.query import compile_condition
 from aqelyn.lake.store import (
     normalize_retention_state_filter,
     validate_dataset,
@@ -25,6 +27,7 @@ from aqelyn.lake.store import (
     validate_record_id,
     validate_tenant,
 )
+from aqelyn.policy import Condition
 
 _DATASET_COLS = (
     "name, tenant_id, schema, classifications, retention_policy_id, "
@@ -245,10 +248,68 @@ class PostgresTelemetryRecordStore:
         tenant_id: str | None,
         limit: int = 100,
         retention_state: Sequence[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        filter: Condition | None = None,
     ) -> list[TelemetryRecord]:
         validate_dataset_name(dataset)
         tenant_id = validate_tenant(tenant_id)
         validate_positive(limit, field="limit")
+        clauses, args = self._record_clauses(
+            dataset=dataset,
+            tenant_id=tenant_id,
+            retention_state=retention_state,
+            since=since,
+            until=until,
+            filter=filter,
+        )
+        args.append(limit)
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"SELECT {_RECORD_COLS} FROM aq_lake_record WHERE {' AND '.join(clauses)} "
+                f"ORDER BY occurred_at, id LIMIT ${len(args)}",
+                *args,
+            )
+        return [_row_to_record(row) for row in rows]
+
+    async def count(
+        self,
+        *,
+        dataset: str,
+        tenant_id: str | None,
+        retention_state: Sequence[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        filter: Condition | None = None,
+    ) -> int:
+        validate_dataset_name(dataset)
+        tenant_id = validate_tenant(tenant_id)
+        clauses, args = self._record_clauses(
+            dataset=dataset,
+            tenant_id=tenant_id,
+            retention_state=retention_state,
+            since=since,
+            until=until,
+            filter=filter,
+        )
+        async with self._pool.acquire() as conn:
+            value = await conn.fetchval(
+                f"SELECT count(*) FROM aq_lake_record WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        assert isinstance(value, int)
+        return value
+
+    def _record_clauses(
+        self,
+        *,
+        dataset: str,
+        tenant_id: str | None,
+        retention_state: Sequence[str] | None,
+        since: datetime | None,
+        until: datetime | None,
+        filter: Condition | None,
+    ) -> tuple[list[str], list[Any]]:
         states = normalize_retention_state_filter(retention_state)
         if self.mode == "enterprise" and tenant_id is None:
             raise TenantScopeRequired("lake record query must be tenant-scoped")
@@ -262,14 +323,17 @@ class PostgresTelemetryRecordStore:
         if states is not None:
             args.append(list(states))
             clauses.append(f"retention_state = ANY(${len(args)}::text[])")
-        args.append(limit)
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                f"SELECT {_RECORD_COLS} FROM aq_lake_record WHERE {' AND '.join(clauses)} "
-                f"ORDER BY occurred_at, id LIMIT ${len(args)}",
-                *args,
-            )
-        return [_row_to_record(row) for row in rows]
+        if since is not None:
+            args.append(since)
+            clauses.append(f"occurred_at >= ${len(args)}")
+        if until is not None:
+            args.append(until)
+            clauses.append(f"occurred_at <= ${len(args)}")
+        if filter is not None:
+            predicate = compile_condition(filter, start_index=len(args) + 1)
+            clauses.append(predicate.sql)
+            args.extend(predicate.args)
+        return clauses, args
 
     async def quarantine(self, item: Quarantine, *, tenant_id: str | None) -> Quarantine:
         tenant_id = validate_tenant(tenant_id)
