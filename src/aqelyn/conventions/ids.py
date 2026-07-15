@@ -28,6 +28,8 @@ PREFIXES: dict[str, str] = {
     "alt": "soc_alert",
     "inc": "soc_incident",
     "hnt": "soc_hunt",
+    "acq": "forensics_acquisition",
+    "art": "forensics_artifact",
     "svc": "service",
 }
 

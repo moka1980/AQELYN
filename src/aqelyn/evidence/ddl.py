@@ -32,11 +32,28 @@ CREATE INDEX IF NOT EXISTS ix_evidence_hash ON aq_evidence (content_hash);
 CREATE TABLE IF NOT EXISTS aq_evidence_custody (
     seq         bigserial PRIMARY KEY,
     evidence_id text NOT NULL,
-    action      text NOT NULL CHECK (action IN ('read','export','package')),
+    action      text NOT NULL CHECK (action IN ('intake','read','export','package')),
     actor       jsonb NOT NULL,
     at          timestamptz NOT NULL DEFAULT now(),
     context     jsonb NULL
 );
+DO $$
+DECLARE
+    constraint_name text;
+BEGIN
+    FOR constraint_name IN
+        SELECT conname
+        FROM pg_constraint
+        WHERE conrelid = 'aq_evidence_custody'::regclass
+          AND contype = 'c'
+          AND pg_get_constraintdef(oid) LIKE '%action%'
+    LOOP
+        EXECUTE format('ALTER TABLE aq_evidence_custody DROP CONSTRAINT %I', constraint_name);
+    END LOOP;
+    ALTER TABLE aq_evidence_custody
+        ADD CONSTRAINT ck_evidence_custody_action
+        CHECK (action IN ('intake','read','export','package'));
+END $$;
 CREATE TABLE IF NOT EXISTS aq_evidence_package (
     id            text PRIMARY KEY,
     tenant_id     text NULL,

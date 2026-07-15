@@ -75,6 +75,14 @@ class InMemoryEvidenceStore:
         )
         chain.append(rec)
         self._by_id[rec.id] = rec
+        self._custody.append(
+            {
+                "evidence_id": rec.id,
+                "action": "intake",
+                "actor": rec.collector.model_dump(),
+                "at": rec.recorded_at.isoformat(),
+            }
+        )
         if self._bus is not None:
             await self._emit(rec)
         return rec
@@ -116,7 +124,8 @@ class InMemoryEvidenceStore:
         validate_evidence_id(evidence_id)
         return evidence_id in self._by_id
 
-    def custody_of(self, evidence_id: str) -> list[dict[str, Any]]:
+    async def custody_of(self, evidence_id: str) -> list[dict[str, Any]]:
+        validate_evidence_id(evidence_id)
         return [c for c in self._custody if c["evidence_id"] == evidence_id]
 
     async def verify(self, evidence_id: str) -> VerifyResult:
