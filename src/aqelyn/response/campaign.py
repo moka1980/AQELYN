@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any, Protocol
 
 from aqelyn.conventions import ActorRef, utc_now
@@ -17,7 +18,14 @@ from aqelyn.conventions.errors import (
     UnauthorizedAction,
 )
 from aqelyn.findings import Finding
+from aqelyn.response.approvals import (
+    escalate_request,
+    make_approval_request,
+    request_is_overdue,
+)
 from aqelyn.response.models import (
+    ApprovalRequest,
+    AutomationTrigger,
     CampaignStatus,
     Phase,
     PhaseName,
@@ -26,7 +34,14 @@ from aqelyn.response.models import (
     ResponseConfig,
     RunRef,
 )
-from aqelyn.response.store import CampaignStore
+from aqelyn.response.store import CampaignStore, TriggerStore
+from aqelyn.response.triggers import (
+    PlaybookResolver,
+    PolicyAuthorizer,
+    build_trigger_decision_request,
+    can_auto_start,
+    trigger_matches,
+)
 from aqelyn.workflow.models import ActionEffect, Playbook, Run
 
 
@@ -60,11 +75,20 @@ class ResponseOrchestrationEngine:
         workflow: WorkflowController,
         run_store: RunReader | None = None,
         config: ResponseConfig | None = None,
+        trigger_store: TriggerStore | None = None,
+        playbook_resolver: PlaybookResolver | None = None,
+        policy_authorizer: PolicyAuthorizer | None = None,
+        default_approval_route: ActorRef | str = "response-approver",
     ) -> None:
         self._campaign_store = campaign_store
         self._workflow = workflow
         self._run_store = run_store
         self._config = config or ResponseConfig()
+        self._trigger_store = trigger_store
+        self._playbook_resolver = playbook_resolver
+        self._policy_authorizer = policy_authorizer
+        self._default_approval_route = default_approval_route
+        self._approval_routes: dict[str, ApprovalRequest] = {}
 
     async def plan_campaign(
         self,
@@ -146,7 +170,10 @@ class ResponseOrchestrationEngine:
                     ),
                 )
                 blocked = blocked.model_copy(
-                    update={"status": _campaign_status(blocked.phases), "updated_at": utc_now()},
+                    update={
+                        "status": _campaign_status(blocked.phases),
+                        "updated_at": _updated_at(current),
+                    },
                     deep=True,
                 )
                 await self._campaign_store.upsert(blocked)
@@ -168,7 +195,7 @@ class ResponseOrchestrationEngine:
         )
         advanced = _replace_phase(current, phase.name, advanced_phase)
         advanced = _apply_dependency_blocks(advanced).model_copy(
-            update={"updated_at": utc_now()},
+            update={"updated_at": _updated_at(current)},
             deep=True,
         )
         advanced = advanced.model_copy(
@@ -208,11 +235,138 @@ class ResponseOrchestrationEngine:
             update={
                 "phases": halted_phases,
                 "status": "halted",
-                "updated_at": utc_now(),
+                "updated_at": _updated_at(current),
             },
             deep=True,
         )
         return await self._campaign_store.upsert(halted)
+
+    async def evaluate_triggers(
+        self,
+        *,
+        tenant_id: str | None,
+        findings: Sequence[Finding],
+        by: ActorRef,
+        approval_route: ActorRef | str | None = None,
+    ) -> list[str]:
+        if self._trigger_store is None:
+            raise ResponseConfigInvalid("evaluate_triggers requires a TriggerStore")
+        if self._playbook_resolver is None:
+            raise ResponseConfigInvalid("evaluate_triggers requires a playbook resolver")
+
+        started: list[str] = []
+        triggers = await self._trigger_store.list(tenant_id=tenant_id, enabled_only=True)
+        for trigger in triggers:
+            for finding in findings:
+                if not _same_tenant(tenant_id, trigger, finding):
+                    continue
+                if not trigger_matches(trigger, finding):
+                    continue
+
+                playbook = await self._playbook_resolver.resolve_playbook(
+                    trigger.playbook_id,
+                    tenant_id=trigger.tenant_id,
+                )
+                campaign = await self.plan_campaign(
+                    incident_id=None,
+                    tenant_id=trigger.tenant_id,
+                    playbooks=[playbook],
+                    by=by,
+                    source_finding=finding,
+                )
+                decision = None
+                if self._policy_authorizer is not None:
+                    decision = await self._policy_authorizer.authorize(
+                        build_trigger_decision_request(
+                            trigger=trigger,
+                            finding=finding,
+                            actor=by,
+                        )
+                    )
+
+                if can_auto_start(trigger=trigger, finding=finding, decision=decision):
+                    try:
+                        await self.advance(campaign.id, by=by, expected_version=campaign.version)
+                    except PhaseBlocked:
+                        self._route_campaign_for_approval(
+                            campaign,
+                            playbook=playbook,
+                            routed_to=approval_route or self._default_approval_route,
+                        )
+                    else:
+                        started.append(campaign.id)
+                    continue
+
+                self._route_campaign_for_approval(
+                    campaign,
+                    playbook=playbook,
+                    routed_to=approval_route or self._default_approval_route,
+                )
+        return started
+
+    def route_approval(
+        self,
+        workflow_run_id: str,
+        *,
+        step_ids: Sequence[str],
+        routed_to: ActorRef | str,
+        tenant_id: str | None = None,
+        sla_seconds: int | None = None,
+        escalate_to: ActorRef | str | None = None,
+        requested_at: datetime | None = None,
+    ) -> ApprovalRequest:
+        request = make_approval_request(
+            workflow_run_id=workflow_run_id,
+            step_ids=step_ids,
+            routed_to=routed_to,
+            tenant_id=tenant_id,
+            sla_seconds=sla_seconds or self._config.default_sla_seconds,
+            escalate_to=escalate_to,
+            requested_at=requested_at,
+        )
+        self._approval_routes[request.id] = request
+        return request.model_copy(deep=True)
+
+    def escalate_overdue(
+        self,
+        *,
+        tenant_id: str | None = None,
+        now: datetime | None = None,
+    ) -> list[ApprovalRequest]:
+        escalated: list[ApprovalRequest] = []
+        for request_id, request in list(self._approval_routes.items()):
+            if tenant_id is not None and request.tenant_id != tenant_id:
+                continue
+            if request.status != "open" or not request_is_overdue(request, now=now):
+                continue
+            updated = escalate_request(request)
+            self._approval_routes[request_id] = updated
+            escalated.append(updated.model_copy(deep=True))
+        return escalated
+
+    def list_approval_requests(self, *, tenant_id: str | None = None) -> list[ApprovalRequest]:
+        return [
+            request.model_copy(deep=True)
+            for request in self._approval_routes.values()
+            if tenant_id is None or request.tenant_id == tenant_id
+        ]
+
+    def _route_campaign_for_approval(
+        self,
+        campaign: ResponseCampaign,
+        *,
+        playbook: Playbook,
+        routed_to: ActorRef | str,
+    ) -> None:
+        step_ids = _playbook_step_ids(playbook)
+        for phase in campaign.phases:
+            for ref in phase.run_refs:
+                self.route_approval(
+                    ref.workflow_run_id,
+                    step_ids=step_ids,
+                    routed_to=routed_to,
+                    tenant_id=campaign.tenant_id,
+                )
 
     async def _require_campaign(self, campaign_id: str) -> ResponseCampaign:
         campaign = await self._campaign_store.get(campaign_id)
@@ -415,6 +569,10 @@ def _apply_dependency_blocks(campaign: ResponseCampaign) -> ResponseCampaign:
     )
 
 
+def _updated_at(campaign: ResponseCampaign) -> datetime:
+    return max(utc_now(), campaign.created_at, campaign.updated_at)
+
+
 def _remaining_refs(phase: Phase, current: RunRef) -> list[RunRef]:
     seen = False
     remaining: list[RunRef] = []
@@ -451,6 +609,22 @@ def _first_action_type(playbook: Playbook) -> str:
     if not playbook.steps:
         raise ResponseConfigInvalid("playbook requires at least one step")
     return playbook.steps[0].action_type
+
+
+def _playbook_step_ids(playbook: Playbook) -> list[str]:
+    if not playbook.steps:
+        raise ResponseConfigInvalid("playbook requires at least one step")
+    return [step.id for step in playbook.steps]
+
+
+def _same_tenant(
+    tenant_id: str | None,
+    trigger: AutomationTrigger,
+    finding: Finding,
+) -> bool:
+    if tenant_id is not None and finding.tenant_id != tenant_id:
+        return False
+    return not (trigger.tenant_id is not None and finding.tenant_id != trigger.tenant_id)
 
 
 def _nonempty(value: str, *, field: str) -> str:
