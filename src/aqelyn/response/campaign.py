@@ -117,6 +117,10 @@ class ResponseOrchestrationEngine:
         self._actor = actor or ActorRef(actor_type="system", actor_id="response_engine")
         self._source_id = source_id or new_id("src")
 
+    @property
+    def config(self) -> ResponseConfig:
+        return self._config
+
     async def plan_campaign(
         self,
         *,
