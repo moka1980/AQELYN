@@ -232,6 +232,19 @@ class AlertNotFound(AQError):
     code = "AlertNotFound"
 
 
+# --- EA-0016 ---
+class ForensicsConfigInvalid(AQError):
+    code = "ForensicsConfigInvalid"
+
+
+class ArtifactIntegrityError(AQError):
+    code = "ArtifactIntegrityError"
+
+
+class ArtifactNotFound(AQError):
+    code = "ArtifactNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

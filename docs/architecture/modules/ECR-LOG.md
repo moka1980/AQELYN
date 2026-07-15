@@ -9,6 +9,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0002 | EA-0009 Policy Engine | Accepted | Harden condition attribute lookup against dunder traversal. |
 | ECR-0003 | EA-0013 Risk Intelligence | Accepted | Tenant-qualify the correlated `Risk.id` to prevent a cross-tenant PK collision. |
 | ECR-0004 | EA-0002 Universal Object Model | Accepted | Add `ObjectQuery.exclude_object_types` so a query can bound results to a subset of types. |
+| ECR-0005 | EA-0004 Evidence & Integrity | Accepted | Add `EvidenceStore.custody_of()` and explicit intake custody rows for reconstructable custody. |
 
 ---
 
@@ -116,3 +117,31 @@ Adds an object-store contract assertion for the exclusion, an EA-0014 scale test
 (indicators far exceeding `limit` no longer starve asset correlation), and folds
 in a `truncated`-on-match-limit fix (partial match lists are now reported as
 truncated, §11/FR-6).
+
+---
+
+## ECR-0005 — Evidence custody reconstruction API
+
+**Raised by:** Claude Code (EA-0016 spec review / C-013 F1 kickoff).
+**Severity:** blocking contract gap for Digital Forensics.
+
+**Problem.** EA-0016 requires chain-of-custody to be reconstructable for
+forensic artifacts on both in-memory and Postgres backends. The C-001 evidence
+implementation already tracked custody internally, but the public contract was
+uneven: the in-memory store exposed a private `custody_of()` helper, while the
+Postgres store exposed only `custody_count()`. That allowed count checks but not
+the ordered custody reconstruction needed by forensic timelines, packages, and
+audits. Also, `EvidenceStore.add()` assigned the hash-chain fields but did not
+write an explicit intake custody row, despite EA-0004's contract text saying
+`add()` logs custody.
+
+**Resolution.** Add `async custody_of(evidence_id) -> list[dict[str, object]]`
+to the EA-0004 `EvidenceStore` protocol. Both in-memory and Postgres
+implementations return ordered custody rows. `add()` now records an `intake`
+custody entry using the evidence collector, and Postgres DDL permits
+`intake` alongside `read`, `export`, and `package`.
+
+**Impact.** Additive contract surface plus a stricter fulfillment of the
+existing custody requirement. Existing callers are unaffected; tests now assert
+ordered `intake` then `read` custody on both backends. EA-0016 F1 can depend on
+the public `EvidenceStore` protocol instead of backend-specific helpers.

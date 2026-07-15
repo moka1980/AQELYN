@@ -159,6 +159,7 @@ class BlobStore(Protocol):
 class EvidenceStore(Protocol):
     async def add(self, record: EvidenceRecord) -> EvidenceRecord: ...     # assigns id/seq/prev_hash/record_hash, appends chain, logs custody
     async def get(self, evidence_id: str, *, actor: "ActorRef") -> EvidenceRecord: ...  # logs custody read
+    async def custody_of(self, evidence_id: str) -> list[dict[str, object]]: ...  # ordered custody rows
     async def verify(self, evidence_id: str) -> VerifyResult: ...
     async def verify_chain(self, *, tenant_id: str | None,
                            from_seq: int = 0, to_seq: int | None = None) -> VerifyResult: ...

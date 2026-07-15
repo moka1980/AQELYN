@@ -34,6 +34,8 @@ relies on. Other specs reference this rather than restating it.
 | `alt` | SOC alert | EA-0015 |
 | `inc` | SOC incident | EA-0015 |
 | `hnt` | SOC hunt | EA-0015 |
+| `acq` | Forensics acquisition | EA-0016 |
+| `art` | Forensics artifact | EA-0016 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -170,6 +172,9 @@ Every created/changed record and every event carries the responsible actor.
 | `SOCConfigInvalid` | EA-0015 | no |
 | `IncidentNotFound` | EA-0015 | no |
 | `AlertNotFound` | EA-0015 | no |
+| `ForensicsConfigInvalid` | EA-0016 | no |
+| `ArtifactIntegrityError` | EA-0016 | no |
+| `ArtifactNotFound` | EA-0016 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

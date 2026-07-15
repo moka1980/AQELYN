@@ -100,11 +100,11 @@ async def test_evd_verify_chain_break(evidence_store: Any) -> None:
 
 async def test_evd_custody_logged(evidence_store: Any) -> None:
     r = await evidence_store.add(_rec())
+    intake = await evidence_store.custody_of(r.id)
+    assert [entry["action"] for entry in intake] == ["intake"]
     await evidence_store.get(r.id, actor=SYS)
-    if isinstance(evidence_store, InMemoryEvidenceStore):
-        assert len(evidence_store.custody_of(r.id)) == 1
-    else:
-        assert await evidence_store.custody_count(r.id) == 1
+    custody = await evidence_store.custody_of(r.id)
+    assert [entry["action"] for entry in custody] == ["intake", "read"]
 
 
 async def test_evd_package_self_verifying(evidence_store: Any) -> None:

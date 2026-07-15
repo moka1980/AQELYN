@@ -116,6 +116,14 @@ class PostgresEvidenceStore:
                 json.dumps(rec.signature) if rec.signature else None,
                 json.dumps(rec.anchor) if rec.anchor else None,
             )
+            await conn.execute(
+                "INSERT INTO aq_evidence_custody (evidence_id, action, actor, at) "
+                "VALUES ($1,$2,$3,$4)",
+                rec.id,
+                "intake",
+                json.dumps(rec.collector.model_dump()),
+                rec.recorded_at,
+            )
         if self._bus is not None:
             await self._bus.publish(
                 Event(
@@ -149,11 +157,31 @@ class PostgresEvidenceStore:
 
     async def custody_count(self, evidence_id: str) -> int:
         validate_evidence_id(evidence_id)
+        return len(await self.custody_of(evidence_id))
+
+    async def custody_of(self, evidence_id: str) -> list[dict[str, Any]]:
+        validate_evidence_id(evidence_id)
         async with self._pool.acquire() as conn:
-            n = await conn.fetchval(
-                "SELECT count(*) FROM aq_evidence_custody WHERE evidence_id=$1", evidence_id
+            rows = await conn.fetch(
+                "SELECT seq, evidence_id, action, actor, at, context "
+                "FROM aq_evidence_custody WHERE evidence_id=$1 ORDER BY seq",
+                evidence_id,
             )
-        return int(n)
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            actor = row["actor"]
+            context = row["context"]
+            out.append(
+                {
+                    "seq": int(row["seq"]),
+                    "evidence_id": row["evidence_id"],
+                    "action": row["action"],
+                    "actor": json.loads(actor) if isinstance(actor, str) else actor,
+                    "at": row["at"].isoformat(),
+                    "context": json.loads(context) if isinstance(context, str) else context,
+                }
+            )
+        return out
 
     async def verify(self, evidence_id: str) -> VerifyResult:
         validate_evidence_id(evidence_id)
