@@ -36,6 +36,9 @@ PREFIXES: dict[str, str] = {
     "rsp": "response_campaign",
     "trg": "response_trigger",
     "apr": "response_approval_request",
+    "tlm": "telemetry_record",
+    "rtp": "retention_policy",
+    "arc": "lake_archive",
     "svc": "service",
 }
 

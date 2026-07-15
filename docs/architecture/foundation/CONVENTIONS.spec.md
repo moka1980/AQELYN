@@ -42,6 +42,9 @@ relies on. Other specs reference this rather than restating it.
 | `rsp` | Response campaign | EA-0018 |
 | `trg` | Response automation trigger | EA-0018 |
 | `apr` | Response approval request | EA-0018 |
+| `tlm` | Telemetry record | EA-0019 |
+| `rtp` | Retention policy | EA-0019 |
+| `arc` | Data lake archive | EA-0019 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -188,6 +191,11 @@ Every created/changed record and every event carries the responsible actor.
 | `CampaignNotFound` | EA-0018 | no |
 | `TriggerNotFound` | EA-0018 | no |
 | `PhaseBlocked` | EA-0018 | no |
+| `LakeConfigInvalid` | EA-0019 | no |
+| `DatasetNotFound` | EA-0019 | no |
+| `RecordNotFound` | EA-0019 | no |
+| `ArchiveIntegrityError` | EA-0019 | no |
+| `RetentionBlocked` | EA-0019 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

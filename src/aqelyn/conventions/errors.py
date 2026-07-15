@@ -275,6 +275,27 @@ class PhaseBlocked(AQError):
     code = "PhaseBlocked"
 
 
+# --- EA-0019 ---
+class LakeConfigInvalid(AQError):
+    code = "LakeConfigInvalid"
+
+
+class DatasetNotFound(AQError):
+    code = "DatasetNotFound"
+
+
+class RecordNotFound(AQError):
+    code = "RecordNotFound"
+
+
+class ArchiveIntegrityError(AQError):
+    code = "ArchiveIntegrityError"
+
+
+class RetentionBlocked(AQError):
+    code = "RetentionBlocked"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
