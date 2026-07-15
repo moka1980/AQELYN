@@ -11,14 +11,17 @@ import asyncpg
 
 from aqelyn.conventions.errors import (
     OptimisticConcurrencyConflict,
+    RecordNotFound,
     StoreUnavailable,
     TenantScopeRequired,
 )
 from aqelyn.lake.ddl import DDL
-from aqelyn.lake.models import Dataset, Quarantine, TelemetryRecord
+from aqelyn.lake.models import ArchiveRecord, Dataset, Quarantine, TelemetryRecord
 from aqelyn.lake.query import compile_condition
 from aqelyn.lake.store import (
     normalize_retention_state_filter,
+    validate_archive,
+    validate_archive_id,
     validate_dataset,
     validate_dataset_name,
     validate_positive,
@@ -38,6 +41,10 @@ _RECORD_COLS = (
     "schema_version, retention_state, legal_hold, evidence_id"
 )
 _QUARANTINE_COLS = "source_id, reason, received_at, raw_ref"
+_ARCHIVE_COLS = (
+    'id, tenant_id, dataset, "range", location, record_count, content_hash, archived_at, '
+    "evidence_id"
+)
 
 
 def _to_dsn(url: str) -> str:
@@ -74,6 +81,13 @@ def _row_to_quarantine(row: asyncpg.Record) -> Quarantine:
     data: dict[str, Any] = dict(row)
     data["raw_ref"] = _json_value(data["raw_ref"])
     return Quarantine.model_validate(data)
+
+
+def _row_to_archive(row: asyncpg.Record) -> ArchiveRecord:
+    data: dict[str, Any] = dict(row)
+    data["range"] = _json_value(data["range"])
+    data["location"] = _json_value(data["location"])
+    return ArchiveRecord.model_validate(data)
 
 
 class PostgresDatasetCatalog:
@@ -218,6 +232,53 @@ class PostgresTelemetryRecordStore:
                 f"telemetry record already exists: {stored.id}"
             ) from exc
         return stored
+
+    async def update(self, record: TelemetryRecord) -> TelemetryRecord:
+        stored = validate_record(record)
+        validate_record_id(stored.id, field="id")
+        data = stored.model_dump(mode="json")
+        args: list[Any] = [
+            data["id"],
+            data["tenant_id"],
+            data["dataset"],
+            data["source_id"],
+            stored.occurred_at,
+            stored.ingested_at,
+            _json_dump(data["fields"]),
+            None if data["raw_ref"] is None else _json_dump(data["raw_ref"]),
+            data["schema_version"],
+            data["retention_state"],
+            data["legal_hold"],
+            data["evidence_id"],
+        ]
+        clauses = ["id = $1"]
+        if self.mode == "local":
+            clauses.append("tenant_id IS NULL")
+        if stored.tenant_id is not None:
+            clauses.append("tenant_id = $2")
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""
+                UPDATE aq_lake_record
+                SET tenant_id=$2,
+                    dataset=$3,
+                    source_id=$4,
+                    occurred_at=$5,
+                    ingested_at=$6,
+                    fields=$7::jsonb,
+                    raw_ref=$8::jsonb,
+                    schema_version=$9,
+                    retention_state=$10,
+                    legal_hold=$11,
+                    evidence_id=$12
+                WHERE {" AND ".join(clauses)}
+                RETURNING {_RECORD_COLS}
+                """,
+                *args,
+            )
+        if row is None:
+            raise RecordNotFound(f"telemetry record not found: {stored.id}")
+        return _row_to_record(row)
 
     async def get(
         self,
@@ -379,3 +440,53 @@ class PostgresTelemetryRecordStore:
                 *args,
             )
         return [_row_to_quarantine(row) for row in rows]
+
+    async def put_archive(self, archive: ArchiveRecord) -> ArchiveRecord:
+        stored = validate_archive(archive)
+        validate_archive_id(stored.id, field="id")
+        data = stored.model_dump(mode="json")
+        try:
+            async with self._pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO aq_lake_archive (
+                        id, tenant_id, dataset, "range", location, record_count,
+                        content_hash, archived_at, evidence_id
+                    )
+                    VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7,$8,$9)
+                    """,
+                    data["id"],
+                    data["tenant_id"],
+                    data["dataset"],
+                    _json_dump(data["range"]),
+                    _json_dump(data["location"]),
+                    data["record_count"],
+                    data["content_hash"],
+                    stored.archived_at,
+                    data["evidence_id"],
+                )
+        except asyncpg.UniqueViolationError as exc:
+            raise OptimisticConcurrencyConflict(f"archive already exists: {stored.id}") from exc
+        return stored
+
+    async def get_archive(
+        self,
+        archive_id: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> ArchiveRecord | None:
+        validate_archive_id(archive_id)
+        tenant_id = validate_tenant(tenant_id)
+        clauses = ["id = $1"]
+        args: list[Any] = [archive_id]
+        if self.mode == "local":
+            clauses.append("tenant_id IS NULL")
+        if tenant_id is not None:
+            args.append(tenant_id)
+            clauses.append(f"tenant_id = ${len(args)}")
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT {_ARCHIVE_COLS} FROM aq_lake_archive WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        return None if row is None else _row_to_archive(row)

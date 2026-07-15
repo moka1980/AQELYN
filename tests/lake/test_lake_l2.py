@@ -227,25 +227,33 @@ async def test_lake_raw_by_ref(kind: str) -> None:
 
 
 def test_lake_ingest_no_network() -> None:
+    # S1: ingestion is handed-in only — no network client, no collector/agent code.
+    # The guard is the absence of any network mechanism (a collector cannot reach
+    # out without one). The bare word "collector" is not forbidden because EA-0004
+    # `EvidenceRecord.collector` is a required, legitimate field for the lifecycle
+    # audit evidence the lake must write (D6/FR-12).
     source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (ROOT / "src" / "aqelyn" / "lake").glob("*.py")
         if path.name != "postgres.py"
     )
-    forbidden = ["socket", "requests", "httpx", "aiohttp", "urllib", "credential", "collector"]
+    forbidden = ["socket", "requests", "httpx", "aiohttp", "urllib", "credential"]
     assert not any(token in source for token in forbidden)
 
 
 def test_lake_not_a_second_store() -> None:
+    # S2 / FR-13: the lake is not a second object store, event log, or evidence
+    # store, and it never creates entities, findings, or platform events. It MAY
+    # write lifecycle audit evidence via the injected EA-0004 EvidenceStore
+    # (D6/FR-12) and reference evidence ids — that is required, not forbidden, so
+    # `EvidenceStore`/`EvidenceRecord` are intentionally not in this list.
     source = "\n".join(
         path.read_text(encoding="utf-8") for path in (ROOT / "src" / "aqelyn" / "lake").glob("*.py")
     )
     forbidden = [
         "ObjectStore",
-        "EventBus",
-        "EvidenceStore",
-        "EvidenceRecord",
-        "raise_finding",
         "AQObject",
+        "EventBus",
+        "raise_finding",
     ]
     assert not any(token in source for token in forbidden)
