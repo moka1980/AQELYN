@@ -8,7 +8,13 @@ from typing import Protocol, cast
 
 from aqelyn.conventions import require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import LakeConfigInvalid
-from aqelyn.lake.models import Dataset, Quarantine, RetentionState, TelemetryRecord
+from aqelyn.lake.models import (
+    ArchiveRecord,
+    Dataset,
+    Quarantine,
+    RetentionState,
+    TelemetryRecord,
+)
 from aqelyn.policy import Condition
 
 
@@ -20,6 +26,8 @@ class DatasetCatalogStore(Protocol):
 
 class TelemetryRecordStore(Protocol):
     async def append(self, record: TelemetryRecord) -> TelemetryRecord: ...
+
+    async def update(self, record: TelemetryRecord) -> TelemetryRecord: ...
 
     async def get(
         self,
@@ -60,6 +68,15 @@ class TelemetryRecordStore(Protocol):
         limit: int = 100,
     ) -> list[Quarantine]: ...
 
+    async def put_archive(self, archive: ArchiveRecord) -> ArchiveRecord: ...
+
+    async def get_archive(
+        self,
+        archive_id: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> ArchiveRecord | None: ...
+
 
 def validate_dataset(dataset: Dataset) -> Dataset:
     return Dataset.model_validate(dataset.model_dump(mode="json", by_alias=True))
@@ -73,6 +90,10 @@ def validate_quarantine(item: Quarantine) -> Quarantine:
     return Quarantine.model_validate(item.model_dump(mode="json"))
 
 
+def validate_archive(archive: ArchiveRecord) -> ArchiveRecord:
+    return ArchiveRecord.model_validate(archive.model_dump(mode="json"))
+
+
 def validate_record_id(
     value: str,
     *,
@@ -80,6 +101,15 @@ def validate_record_id(
     allow_empty: bool = False,
 ) -> str:
     return require_typed_id(value, "tlm", field=field, allow_empty=allow_empty)
+
+
+def validate_archive_id(
+    value: str,
+    *,
+    field: str = "archive_id",
+    allow_empty: bool = False,
+) -> str:
+    return require_typed_id(value, "arc", field=field, allow_empty=allow_empty)
 
 
 def validate_tenant(value: str | None) -> str | None:

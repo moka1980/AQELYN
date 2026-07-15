@@ -21,6 +21,12 @@ from aqelyn.lake.models import (
 )
 from aqelyn.lake.postgres import PostgresDatasetCatalog, PostgresTelemetryRecordStore
 from aqelyn.lake.query import REDACTED, PolicyAuthorizer, count, query
+from aqelyn.lake.retention import (
+    RecordReferenceChecker,
+    ReferenceCheckers,
+    RetentionEngine,
+    WorkflowProposer,
+)
 from aqelyn.lake.store import DatasetCatalogStore, TelemetryRecordStore
 
 __all__ = [
@@ -42,12 +48,16 @@ __all__ = [
     "Quarantine",
     "Query",
     "QueryResult",
+    "RecordReferenceChecker",
+    "ReferenceCheckers",
+    "RetentionEngine",
     "RetentionPolicy",
     "RetentionReport",
     "RetentionState",
     "SchemaType",
     "TelemetryRecord",
     "TelemetryRecordStore",
+    "WorkflowProposer",
     "count",
     "ingest",
     "query",

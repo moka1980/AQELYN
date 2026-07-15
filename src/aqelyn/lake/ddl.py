@@ -50,4 +50,18 @@ CREATE TABLE IF NOT EXISTS aq_lake_quarantine (
 );
 CREATE INDEX IF NOT EXISTS ix_lake_quarantine_tenant_time
     ON aq_lake_quarantine (tenant_id, received_at, seq);
+
+CREATE TABLE IF NOT EXISTS aq_lake_archive (
+    id           text PRIMARY KEY,
+    tenant_id    text NULL,
+    dataset      text NOT NULL,
+    "range"     jsonb NOT NULL,
+    location     jsonb NOT NULL,
+    record_count int NOT NULL CHECK (record_count >= 0),
+    content_hash text NOT NULL,
+    archived_at  timestamptz NOT NULL,
+    evidence_id  text NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_lake_archive_tenant_dataset_time
+    ON aq_lake_archive (tenant_id, dataset, archived_at, id);
 """

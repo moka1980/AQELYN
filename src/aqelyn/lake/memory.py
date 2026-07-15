@@ -6,11 +6,17 @@ import copy
 from collections.abc import Sequence
 from datetime import datetime
 
-from aqelyn.conventions.errors import OptimisticConcurrencyConflict, TenantScopeRequired
+from aqelyn.conventions.errors import (
+    OptimisticConcurrencyConflict,
+    RecordNotFound,
+    TenantScopeRequired,
+)
 from aqelyn.lake.catalog import DatasetCatalog
-from aqelyn.lake.models import Quarantine, TelemetryRecord
+from aqelyn.lake.models import ArchiveRecord, Quarantine, TelemetryRecord
 from aqelyn.lake.store import (
     normalize_retention_state_filter,
+    validate_archive,
+    validate_archive_id,
     validate_dataset_name,
     validate_positive,
     validate_quarantine,
@@ -28,6 +34,7 @@ class InMemoryDatasetCatalog(DatasetCatalog):
 class InMemoryTelemetryRecordStore:
     def __init__(self, *, mode: str = "local") -> None:
         self._records: dict[str, TelemetryRecord] = {}
+        self._archives: dict[str, ArchiveRecord] = {}
         self._quarantine: list[tuple[str | None, Quarantine]] = []
         self.mode = mode
 
@@ -36,6 +43,15 @@ class InMemoryTelemetryRecordStore:
         validate_record_id(stored.id, field="id")
         if stored.id in self._records:
             raise OptimisticConcurrencyConflict(f"telemetry record already exists: {stored.id}")
+        self._records[stored.id] = stored
+        return copy.deepcopy(stored)
+
+    async def update(self, record: TelemetryRecord) -> TelemetryRecord:
+        stored = validate_record(record)
+        validate_record_id(stored.id, field="id")
+        current = self._records.get(stored.id)
+        if current is None or not self._visible(current, stored.tenant_id):
+            raise RecordNotFound(f"telemetry record not found: {stored.id}")
         self._records[stored.id] = stored
         return copy.deepcopy(stored)
 
@@ -127,6 +143,27 @@ class InMemoryTelemetryRecordStore:
         ]
         rows.sort(key=lambda item: (item.received_at, item.source_id, item.reason))
         return rows[:limit]
+
+    async def put_archive(self, archive: ArchiveRecord) -> ArchiveRecord:
+        stored = validate_archive(archive)
+        validate_archive_id(stored.id, field="id")
+        if stored.id in self._archives:
+            raise OptimisticConcurrencyConflict(f"archive already exists: {stored.id}")
+        self._archives[stored.id] = stored
+        return copy.deepcopy(stored)
+
+    async def get_archive(
+        self,
+        archive_id: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> ArchiveRecord | None:
+        validate_archive_id(archive_id)
+        tenant_id = validate_tenant(tenant_id)
+        archive = self._archives.get(archive_id)
+        if archive is None or not self._visible_tenant(archive.tenant_id, tenant_id):
+            return None
+        return copy.deepcopy(archive)
 
     def _visible(self, record: TelemetryRecord, tenant_id: str | None) -> bool:
         return self._visible_tenant(record.tenant_id, tenant_id)
