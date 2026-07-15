@@ -10,6 +10,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0003 | EA-0013 Risk Intelligence | Accepted | Tenant-qualify the correlated `Risk.id` to prevent a cross-tenant PK collision. |
 | ECR-0004 | EA-0002 Universal Object Model | Accepted | Add `ObjectQuery.exclude_object_types` so a query can bound results to a subset of types. |
 | ECR-0005 | EA-0004 Evidence & Integrity | Accepted | Add `EvidenceStore.custody_of()` and explicit intake custody rows for reconstructable custody. |
+| ECR-0006 | EA-0018 / IS-018 | Accepted | Realize IS-018 as an orchestration layer above EA-0008, not a second executor. |
 
 ---
 
@@ -145,3 +146,42 @@ custody entry using the evidence collector, and Postgres DDL permits
 existing custody requirement. Existing callers are unaffected; tests now assert
 ordered `intake` then `read` custody on both backends. EA-0016 F1 can depend on
 the public `EvidenceStore` protocol instead of backend-specific helpers.
+
+---
+
+## ECR-0006 - IS-018 realized as orchestration above EA-0008 (not a second executor)
+
+**Raised by:** planning (EA-0018 spec pass).
+**Severity:** architectural - would otherwise break the platform's §0 safety spine.
+
+**Problem.** The archive's IS-018 component list (Playbook Engine, Approval
+Engine, Response/Automation Engine, Containment/Remediation/Recovery Engines)
+substantially duplicates **EA-0008 Workflow**, which is already implemented and
+is the platform's single acting authority:
+
+- IS-018 "Playbook Engine" vs EA-0008 `Playbook` (declarative, versioned, steps);
+- IS-018 "Approval Engine" vs EA-0008 `Approval` gates (S4);
+- IS-018 "Response/Automation Engine" vs EA-0008 gated run lifecycle + the
+  `finding.automation.eligibility` ceiling (S3);
+- IS-018 "Containment/Remediation/Recovery Engines" vs EA-0008 `ActionHandler`s,
+  which EA-0008 §13 explicitly assigns to connectors.
+
+Implementing IS-018 literally would create a **second acting path** with its own
+playbooks and its own approvals, able to produce effects outside the gates every
+prior module upholds. That would undo the §0 discipline proven across thirteen
+modules.
+
+**Resolution.** IS-018 is realized as the **orchestration layer above EA-0008**.
+EA-0018 §0 carries a component-by-component mapping table so no archive scope is
+dropped: playbooks/approvals/execution are **reused from EA-0008**; the genuinely
+new contributions are multi-phase **response campaigns** composed of gated runs,
+**automation triggers** bounded by eligibility + Policy (tighten-only; destructive
+never auto-started), **approval routing/escalation** (routing is not granting),
+**recovery verification**, and **response metrics** (MTTD/MTTR). The orchestrator
+has **no privileged path** - it calls the same public `execute()` any caller does,
+and EA-0008 re-validates every gate at run time.
+
+**Impact.** No change to EA-0008. EA-0018 gains §0 (scope reconciliation) and §1
+(safety boundary S1-S5), with `test_resp_no_privileged_path` (handler spy) and
+`test_resp_no_auto_destructive` enforcing the invariant. The archive master is
+unchanged; this spec governs implementation (per `modules/README.md`).
