@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Protocol
 
-from aqelyn.conventions import ActorRef, utc_now
+from aqelyn.conventions import ActorRef, new_id, utc_now
 from aqelyn.conventions.errors import (
     ApprovalRequired,
     CampaignNotFound,
@@ -15,14 +15,19 @@ from aqelyn.conventions.errors import (
     PhaseBlocked,
     ResponseConfigInvalid,
     RunNotFound,
+    StoreUnavailable,
     UnauthorizedAction,
 )
+from aqelyn.events import Subject
+from aqelyn.evidence import EvidenceRecord, EvidenceStore
 from aqelyn.findings import Finding
+from aqelyn.findings.store import FindingStore
 from aqelyn.response.approvals import (
     escalate_request,
     make_approval_request,
     request_is_overdue,
 )
+from aqelyn.response.metrics import IncidentReader, compute_metrics
 from aqelyn.response.models import (
     ApprovalRequest,
     AutomationTrigger,
@@ -30,9 +35,18 @@ from aqelyn.response.models import (
     Phase,
     PhaseName,
     PhaseStatus,
+    RecoveryVerification,
     ResponseCampaign,
     ResponseConfig,
+    ResponseMetrics,
     RunRef,
+)
+from aqelyn.response.recovery import (
+    RecoveryAssessor,
+    checks_verified,
+    follow_up_playbook,
+    recovery_finding,
+    verification_result,
 )
 from aqelyn.response.store import CampaignStore, TriggerStore
 from aqelyn.response.triggers import (
@@ -79,6 +93,12 @@ class ResponseOrchestrationEngine:
         playbook_resolver: PlaybookResolver | None = None,
         policy_authorizer: PolicyAuthorizer | None = None,
         default_approval_route: ActorRef | str = "response-approver",
+        evidence_store: EvidenceStore | None = None,
+        finding_store: FindingStore | None = None,
+        recovery_assessor: RecoveryAssessor | None = None,
+        incident_reader: IncidentReader | None = None,
+        actor: ActorRef | None = None,
+        source_id: str | None = None,
     ) -> None:
         self._campaign_store = campaign_store
         self._workflow = workflow
@@ -89,6 +109,13 @@ class ResponseOrchestrationEngine:
         self._policy_authorizer = policy_authorizer
         self._default_approval_route = default_approval_route
         self._approval_routes: dict[str, ApprovalRequest] = {}
+        self._approval_evidence: dict[str, str] = {}
+        self._evidence_store = evidence_store
+        self._finding_store = finding_store
+        self._recovery_assessor = recovery_assessor
+        self._incident_reader = incident_reader
+        self._actor = actor or ActorRef(actor_type="system", actor_id="response_engine")
+        self._source_id = source_id or new_id("src")
 
     async def plan_campaign(
         self,
@@ -136,7 +163,22 @@ class ResponseOrchestrationEngine:
             evidence_ids=[],
             version=1,
         )
-        return await self._campaign_store.upsert(campaign)
+        created = await self._campaign_store.upsert(campaign)
+        evidence = await self._record_campaign_evidence(
+            kind="campaign_planned",
+            campaign=created,
+            by=by,
+            method="response.plan_campaign/v1",
+            content={
+                "incident_id": incident_id,
+                "source_finding_id": created.source_finding_id,
+                "phases": [phase.model_dump(mode="json") for phase in created.phases],
+            },
+        )
+        with_evidence = self._append_campaign_evidence(created, evidence)
+        if with_evidence is created:
+            return created
+        return await self._campaign_store.upsert(with_evidence)
 
     async def advance(
         self,
@@ -176,6 +218,19 @@ class ResponseOrchestrationEngine:
                     },
                     deep=True,
                 )
+                evidence = await self._record_campaign_evidence(
+                    kind="phase_blocked",
+                    campaign=blocked,
+                    by=by,
+                    method="response.advance/v1",
+                    content={
+                        "phase": phase.name,
+                        "workflow_run_id": ref.workflow_run_id,
+                        "error_code": exc.code,
+                        "reason": exc.message,
+                    },
+                )
+                blocked = self._append_campaign_evidence(blocked, evidence)
                 await self._campaign_store.upsert(blocked)
                 raise PhaseBlocked(
                     f"phase {phase.name!r} blocked by Workflow refusal",
@@ -202,6 +257,17 @@ class ResponseOrchestrationEngine:
             update={"status": _campaign_status(advanced.phases)},
             deep=True,
         )
+        evidence = await self._record_campaign_evidence(
+            kind="phase_advanced",
+            campaign=advanced,
+            by=by,
+            method="response.advance/v1",
+            content={
+                "phase": phase.name,
+                "run_refs": [ref.model_dump(mode="json") for ref in updated_refs],
+            },
+        )
+        advanced = self._append_campaign_evidence(advanced, evidence)
         return await self._campaign_store.upsert(advanced)
 
     async def halt_campaign(
@@ -274,6 +340,20 @@ class ResponseOrchestrationEngine:
                     by=by,
                     source_finding=finding,
                 )
+                trigger_evidence = await self._record_campaign_evidence(
+                    kind="trigger_fired",
+                    campaign=campaign,
+                    by=by,
+                    method="response.evaluate_triggers/v1",
+                    content={
+                        "trigger": trigger.model_dump(mode="json"),
+                        "finding_id": finding.id,
+                    },
+                    finding_id=finding.id,
+                )
+                campaign = self._append_campaign_evidence(campaign, trigger_evidence)
+                if trigger_evidence is not None:
+                    campaign = await self._campaign_store.upsert(campaign)
                 decision = None
                 if self._policy_authorizer is not None:
                     decision = await self._policy_authorizer.authorize(
@@ -288,7 +368,7 @@ class ResponseOrchestrationEngine:
                     try:
                         await self.advance(campaign.id, by=by, expected_version=campaign.version)
                     except PhaseBlocked:
-                        self._route_campaign_for_approval(
+                        await self._route_campaign_for_approval(
                             campaign,
                             playbook=playbook,
                             routed_to=approval_route or self._default_approval_route,
@@ -297,20 +377,21 @@ class ResponseOrchestrationEngine:
                         started.append(campaign.id)
                     continue
 
-                self._route_campaign_for_approval(
+                await self._route_campaign_for_approval(
                     campaign,
                     playbook=playbook,
                     routed_to=approval_route or self._default_approval_route,
                 )
         return started
 
-    def route_approval(
+    async def route_approval(
         self,
         workflow_run_id: str,
         *,
         step_ids: Sequence[str],
         routed_to: ActorRef | str,
         tenant_id: str | None = None,
+        campaign_id: str | None = None,
         sla_seconds: int | None = None,
         escalate_to: ActorRef | str | None = None,
         requested_at: datetime | None = None,
@@ -325,9 +406,21 @@ class ResponseOrchestrationEngine:
             requested_at=requested_at,
         )
         self._approval_routes[request.id] = request
+        evidence = await self._record_evidence(
+            kind="approval_routed",
+            tenant_id=tenant_id,
+            by=self._actor,
+            method="response.route_approval/v1",
+            content={
+                "approval_request": request.model_dump(mode="json"),
+                "campaign_id": campaign_id,
+            },
+        )
+        if evidence is not None:
+            self._approval_evidence[request.id] = evidence.id
         return request.model_copy(deep=True)
 
-    def escalate_overdue(
+    async def escalate_overdue(
         self,
         *,
         tenant_id: str | None = None,
@@ -351,22 +444,161 @@ class ResponseOrchestrationEngine:
             if tenant_id is None or request.tenant_id == tenant_id
         ]
 
-    def _route_campaign_for_approval(
+    async def verify_recovery(
+        self,
+        campaign_id: str,
+        *,
+        by: ActorRef,
+    ) -> RecoveryVerification:
+        if self._recovery_assessor is None:
+            raise StoreUnavailable("verify_recovery requires a recovery assessor")
+        if self._evidence_store is None:
+            raise StoreUnavailable("verify_recovery requires an EvidenceStore")
+        campaign = await self._require_campaign(campaign_id)
+        current = await self._current_campaign(campaign)
+        checks = await self._recovery_assessor.assess_recovery(current, by=by)
+        verification = verification_result(current, checks)
+        evidence = await self._record_campaign_evidence(
+            kind="recovery_verification",
+            campaign=current,
+            by=by,
+            method="response.verify_recovery/v1",
+            content=verification.model_dump(mode="json"),
+        )
+        current = self._append_campaign_evidence(current, evidence)
+
+        if not checks_verified(verification.checks):
+            if self._finding_store is None:
+                raise StoreUnavailable("unverified recovery requires a FindingStore")
+            assert evidence is not None
+            finding = await self._finding_store.raise_finding(
+                recovery_finding(
+                    current,
+                    verification,
+                    evidence_id=evidence.id,
+                )
+            )
+            await self._workflow.propose(
+                follow_up_playbook(current, finding),
+                by=by,
+                source_finding=finding,
+            )
+            verification = verification.model_copy(
+                update={"reopened_finding_id": finding.id},
+                deep=True,
+            )
+
+        await self._campaign_store.upsert(current)
+        return verification
+
+    async def metrics(self, *, tenant_id: str | None, since: datetime) -> ResponseMetrics:
+        return await compute_metrics(
+            campaign_store=self._campaign_store,
+            run_store=self._run_store,
+            incident_reader=self._incident_reader,
+            tenant_id=tenant_id,
+            since=since,
+            limit=self._config.batch_size,
+        )
+
+    async def _route_campaign_for_approval(
         self,
         campaign: ResponseCampaign,
         *,
         playbook: Playbook,
         routed_to: ActorRef | str,
-    ) -> None:
+    ) -> ResponseCampaign:
         step_ids = _playbook_step_ids(playbook)
+        evidence_ids: list[str] = []
         for phase in campaign.phases:
             for ref in phase.run_refs:
-                self.route_approval(
+                request = await self.route_approval(
                     ref.workflow_run_id,
                     step_ids=step_ids,
                     routed_to=routed_to,
                     tenant_id=campaign.tenant_id,
+                    campaign_id=campaign.id,
                 )
+                evidence_id = self._approval_evidence.get(request.id)
+                if evidence_id is not None:
+                    evidence_ids.append(evidence_id)
+        if not evidence_ids:
+            return campaign
+        updated = self._append_campaign_evidence_ids(campaign, evidence_ids)
+        return await self._campaign_store.upsert(updated)
+
+    async def _record_campaign_evidence(
+        self,
+        *,
+        kind: str,
+        campaign: ResponseCampaign,
+        by: ActorRef,
+        method: str,
+        content: dict[str, Any],
+        finding_id: str | None = None,
+    ) -> EvidenceRecord | None:
+        return await self._record_evidence(
+            kind=kind,
+            tenant_id=campaign.tenant_id,
+            by=by,
+            method=method,
+            content={"campaign_id": campaign.id, **content},
+            finding_id=finding_id or campaign.source_finding_id,
+        )
+
+    async def _record_evidence(
+        self,
+        *,
+        kind: str,
+        tenant_id: str | None,
+        by: ActorRef,
+        method: str,
+        content: dict[str, Any],
+        finding_id: str | None = None,
+    ) -> EvidenceRecord | None:
+        if self._evidence_store is None:
+            return None
+        now = utc_now()
+        record = EvidenceRecord(
+            id="",
+            tenant_id=tenant_id,
+            evidence_type=f"response.{kind}",
+            schema_version=1,
+            subject=Subject(finding_id=finding_id),
+            collected_at=now,
+            recorded_at=now,
+            collector=by,
+            source_id=self._source_id,
+            method=method,
+            content=content,
+            content_hash="",
+            confidence=1.0,
+            labels={"module": "EA-0018", "kind": kind},
+            seq=0,
+            prev_hash=None,
+            record_hash="",
+        )
+        return await self._evidence_store.add(record)
+
+    def _append_campaign_evidence(
+        self,
+        campaign: ResponseCampaign,
+        evidence: EvidenceRecord | None,
+    ) -> ResponseCampaign:
+        if evidence is None:
+            return campaign
+        return self._append_campaign_evidence_ids(campaign, [evidence.id])
+
+    def _append_campaign_evidence_ids(
+        self,
+        campaign: ResponseCampaign,
+        evidence_ids: Sequence[str],
+    ) -> ResponseCampaign:
+        merged = list(dict.fromkeys([*campaign.evidence_ids, *evidence_ids]))
+        return campaign.model_copy(
+            update={"evidence_ids": merged, "updated_at": _updated_at(campaign)},
+            deep=True,
+        )
 
     async def _require_campaign(self, campaign_id: str) -> ResponseCampaign:
         campaign = await self._campaign_store.get(campaign_id)
