@@ -24,6 +24,11 @@ from aqelyn.forensics.models import (
     VerifyReport,
 )
 from aqelyn.forensics.postgres import PostgresArtifactStore
+from aqelyn.forensics.service import (
+    FORENSICS_EVENTS,
+    DigitalForensicsService,
+    register_forensics_events,
+)
 from aqelyn.forensics.store import ArtifactStore
 from aqelyn.forensics.timeline import (
     build_timeline,
@@ -35,11 +40,13 @@ from aqelyn.forensics.timeline import (
 
 __all__ = [
     "ASSET_OBJECT_TYPE",
+    "FORENSICS_EVENTS",
     "FORENSICS_SOURCE_ENGINE",
     "FORENSIC_ARTIFACT_OBJECT_TYPE",
     "Acquisition",
     "Artifact",
     "ArtifactStore",
+    "DigitalForensicsService",
     "ForensicTimeline",
     "ForensicsConfig",
     "InMemoryArtifactStore",
@@ -56,6 +63,7 @@ __all__ = [
     "package_case",
     "register_acquisition",
     "register_forensic_object_types",
+    "register_forensics_events",
     "verify_artifact",
     "verify_case",
 ]
