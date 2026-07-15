@@ -6,9 +6,8 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Protocol, cast
+from typing import Protocol
 
-from aqelyn import evidence as evidence_module
 from aqelyn.conventions import ActorRef, canonical_json, new_id, sha256_hex, utc_now
 from aqelyn.conventions.errors import (
     ArchiveIntegrityError,
@@ -18,7 +17,7 @@ from aqelyn.conventions.errors import (
     StoreUnavailable,
 )
 from aqelyn.events import Subject
-from aqelyn.evidence import BlobStore
+from aqelyn.evidence import BlobStore, EvidenceRecord, EvidenceStore
 from aqelyn.lake.models import ArchiveRecord, RetentionPolicy, RetentionReport, TelemetryRecord
 from aqelyn.lake.store import TelemetryRecordStore, validate_archive_id, validate_tenant
 from aqelyn.policy import Condition
@@ -36,10 +35,6 @@ class WorkflowProposer(Protocol):
     async def propose(self, playbook: Playbook, *, by: ActorRef) -> Run: ...
 
 
-class LifecycleEvidence(Protocol):
-    id: str
-
-
 @dataclass(frozen=True)
 class ReferenceCheckers:
     evidence: RecordReferenceChecker
@@ -53,7 +48,7 @@ class RetentionEngine:
         *,
         store: TelemetryRecordStore,
         blob_store: BlobStore,
-        evidence_store: Any,
+        evidence_store: EvidenceStore,
         reference_checkers: ReferenceCheckers,
         workflow_engine: WorkflowProposer | None = None,
         source_id: str | None = None,
@@ -346,32 +341,28 @@ class RetentionEngine:
         actor: ActorRef,
         method: str,
         content: dict[str, object],
-    ) -> LifecycleEvidence:
+    ) -> EvidenceRecord:
         now = utc_now()
-        model = getattr(evidence_module, "Evidence" + "Record")
-        payload = {
-            "id": "",
-            "tenant_id": tenant_id,
-            "evidence_type": _LIFECYCLE_EVIDENCE_TYPE,
-            "schema_version": 1,
-            "subject": Subject(),
-            "collected_at": now,
-            "recorded_at": now,
-            "collect" + "or": actor,
-            "source_id": self._source_id,
-            "method": method,
-            "content": {"kind": kind, **content},
-            "content_ref": None,
-            "content_hash": "",
-            "confidence": 1.0,
-            "labels": {"lake.lifecycle": kind},
-            "seq": 0,
-            "prev_hash": None,
-            "record_hash": "",
-        }
-        return cast(
-            LifecycleEvidence,
-            await self._evidence_store.add(model(**payload)),
+        return await self._evidence_store.add(
+            EvidenceRecord(
+                id="",
+                tenant_id=tenant_id,
+                evidence_type=_LIFECYCLE_EVIDENCE_TYPE,
+                schema_version=1,
+                subject=Subject(),
+                collected_at=now,
+                recorded_at=now,
+                collector=actor,
+                source_id=self._source_id,
+                method=method,
+                content={"kind": kind, **content},
+                content_hash="",
+                confidence=1.0,
+                labels={"lake.lifecycle": kind},
+                seq=0,
+                prev_hash=None,
+                record_hash="",
+            )
         )
 
 
