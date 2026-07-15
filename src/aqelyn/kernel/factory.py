@@ -68,6 +68,9 @@ if TYPE_CHECKING:
     from aqelyn.forensics.store import ArtifactStore
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
+    from aqelyn.lake.retention import RetentionEngine
+    from aqelyn.lake.service import DataLakeService
+    from aqelyn.lake.store import DatasetCatalogStore, TelemetryRecordStore
     from aqelyn.response.campaign import ResponseOrchestrationEngine
     from aqelyn.response.service import ResponseOrchestrationService
     from aqelyn.response.store import CampaignStore, TriggerStore
@@ -135,6 +138,10 @@ class Runtime:
     response_engine_service: ResponseOrchestrationService
     forensics_artifact_store: ArtifactStore
     forensics_engine_service: DigitalForensicsService
+    lake_catalog: DatasetCatalogStore
+    lake_record_store: TelemetryRecordStore
+    lake_retention_engine: RetentionEngine
+    lake_service: DataLakeService
 
 
 class _RuntimeService:
@@ -201,6 +208,11 @@ async def _check_object_store(object_store: ObjectStore) -> None:
     await object_store.get(new_id("obj"), resolve_merged=False)
 
 
+class _FailClosedLakeReferenceChecker:
+    async def is_referenced(self, _record: object) -> bool:
+        raise StoreUnavailable("lake reference checker unavailable")
+
+
 def _default_governance_config() -> GovernanceConfig:
     return GovernanceConfig.model_validate(
         {
@@ -256,6 +268,9 @@ def _register_runtime_services(
     response_trigger_store: TriggerStore,
     response_engine: ResponseOrchestrationEngine,
     forensics_artifact_store: ArtifactStore,
+    lake_catalog: DatasetCatalogStore,
+    lake_record_store: TelemetryRecordStore,
+    lake_retention_engine: RetentionEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -271,6 +286,8 @@ def _register_runtime_services(
     close_response_campaign_store: Callable[[], Awaitable[None]] | None = None,
     close_response_trigger_store: Callable[[], Awaitable[None]] | None = None,
     close_forensics_artifact_store: Callable[[], Awaitable[None]] | None = None,
+    close_lake_catalog: Callable[[], Awaitable[None]] | None = None,
+    close_lake_record_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -286,12 +303,14 @@ def _register_runtime_services(
     SecurityOperationsService,
     ResponseOrchestrationService,
     DigitalForensicsService,
+    DataLakeService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.detection.service import ThreatDetectionService
     from aqelyn.forensics.service import DigitalForensicsService
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
+    from aqelyn.lake.service import DataLakeService
     from aqelyn.response.service import ResponseOrchestrationService
     from aqelyn.risk.service import RiskIntelligenceService
     from aqelyn.soc.service import SecurityOperationsService
@@ -330,6 +349,18 @@ def _register_runtime_services(
         dependencies=("event_bus", "policy_engine"),
     )
     kernel.register(workflow_service)
+    lake_service = DataLakeService(
+        catalog=lake_catalog,
+        record_store=lake_record_store,
+        retention_engine=lake_retention_engine,
+        blob_store=blob_store,
+        audit_store=evidence_store,
+        policy_authorizer=policy_engine_service,
+        workflow_engine=workflow_engine,
+        close_catalog=close_lake_catalog,
+        close_record_store=close_lake_record_store,
+    )
+    kernel.register(lake_service)
     iag_service = IdentityAccessGovernanceService(
         iag_engine,
         certification_store=iag_certification_store,
@@ -412,6 +443,7 @@ def _register_runtime_services(
         soc_service,
         response_service,
         forensics_service,
+        lake_service,
     )
 
 
@@ -430,6 +462,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.lake.memory import InMemoryDatasetCatalog, InMemoryTelemetryRecordStore
+    from aqelyn.lake.retention import ReferenceCheckers, RetentionEngine
+    from aqelyn.lake.service import register_lake_events
     from aqelyn.response import (
         InMemoryCampaignStore,
         InMemoryTriggerStore,
@@ -461,6 +496,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_soc_events(registry)
     register_response_events(registry)
     register_forensics_events(registry)
+    register_lake_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -572,6 +608,19 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         incident_reader=soc_store,
     )
     forensics_artifact_store = InMemoryArtifactStore()
+    lake_catalog = InMemoryDatasetCatalog()
+    lake_record_store = InMemoryTelemetryRecordStore(mode=cfg.tenant_mode)
+    lake_retention_engine = RetentionEngine(
+        store=lake_record_store,
+        blob_store=blob_store,
+        evidence_store=evidence_store,
+        reference_checkers=ReferenceCheckers(
+            evidence=_FailClosedLakeReferenceChecker(),
+            finding=_FailClosedLakeReferenceChecker(),
+            case=_FailClosedLakeReferenceChecker(),
+        ),
+        workflow_engine=workflow_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -588,6 +637,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         soc_engine_service,
         response_engine_service,
         forensics_engine_service,
+        lake_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -622,6 +672,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         response_trigger_store=response_trigger_store,
         response_engine=response_engine,
         forensics_artifact_store=forensics_artifact_store,
+        lake_catalog=lake_catalog,
+        lake_record_store=lake_record_store,
+        lake_retention_engine=lake_retention_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -673,6 +726,10 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         response_engine_service=response_engine_service,
         forensics_artifact_store=forensics_artifact_store,
         forensics_engine_service=forensics_engine_service,
+        lake_catalog=lake_catalog,
+        lake_record_store=lake_record_store,
+        lake_retention_engine=lake_retention_engine,
+        lake_service=lake_service,
     )
 
 
@@ -691,6 +748,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.lake.postgres import PostgresDatasetCatalog, PostgresTelemetryRecordStore
+    from aqelyn.lake.retention import ReferenceCheckers, RetentionEngine
+    from aqelyn.lake.service import register_lake_events
     from aqelyn.response import (
         PostgresCampaignStore,
         PostgresTriggerStore,
@@ -727,6 +787,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_soc_events(registry)
     register_response_events(registry)
     register_forensics_events(registry)
+    register_lake_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -855,6 +916,25 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         incident_reader=soc_store,
     )
     forensics_artifact_store = await PostgresArtifactStore.connect(cfg.database_url)
+    lake_catalog = await PostgresDatasetCatalog.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    lake_record_store = await PostgresTelemetryRecordStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    lake_retention_engine = RetentionEngine(
+        store=lake_record_store,
+        blob_store=blob_store,
+        evidence_store=evidence_store,
+        reference_checkers=ReferenceCheckers(
+            evidence=_FailClosedLakeReferenceChecker(),
+            finding=_FailClosedLakeReferenceChecker(),
+            case=_FailClosedLakeReferenceChecker(),
+        ),
+        workflow_engine=workflow_engine,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -871,6 +951,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         soc_engine_service,
         response_engine_service,
         forensics_engine_service,
+        lake_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -905,6 +986,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         response_trigger_store=response_trigger_store,
         response_engine=response_engine,
         forensics_artifact_store=forensics_artifact_store,
+        lake_catalog=lake_catalog,
+        lake_record_store=lake_record_store,
+        lake_retention_engine=lake_retention_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -920,6 +1004,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_response_campaign_store=response_campaign_store.close,
         close_response_trigger_store=response_trigger_store.close,
         close_forensics_artifact_store=forensics_artifact_store.close,
+        close_lake_catalog=lake_catalog.close,
+        close_lake_record_store=lake_record_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -971,4 +1057,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         response_engine_service=response_engine_service,
         forensics_artifact_store=forensics_artifact_store,
         forensics_engine_service=forensics_engine_service,
+        lake_catalog=lake_catalog,
+        lake_record_store=lake_record_store,
+        lake_retention_engine=lake_retention_engine,
+        lake_service=lake_service,
     )

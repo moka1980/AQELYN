@@ -27,14 +27,17 @@ from aqelyn.lake.retention import (
     RetentionEngine,
     WorkflowProposer,
 )
+from aqelyn.lake.service import LAKE_EVENTS, DataLakeService, register_lake_events
 from aqelyn.lake.store import DatasetCatalogStore, TelemetryRecordStore
 
 __all__ = [
+    "LAKE_EVENTS",
     "REDACTED",
     "VALID_CLASSIFICATIONS",
     "VALID_SCHEMA_TYPES",
     "ArchiveRecord",
     "Classification",
+    "DataLakeService",
     "Dataset",
     "DatasetCatalog",
     "DatasetCatalogStore",
@@ -61,4 +64,5 @@ __all__ = [
     "count",
     "ingest",
     "query",
+    "register_lake_events",
 ]
