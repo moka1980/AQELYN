@@ -6,6 +6,13 @@ from aqelyn.forensics.acquire import (
     register_acquisition,
     register_forensic_object_types,
 )
+from aqelyn.forensics.engine import (
+    ASSET_OBJECT_TYPE,
+    FORENSICS_SOURCE_ENGINE,
+    findings_from_artifacts,
+    link_to_assets,
+    package_case,
+)
 from aqelyn.forensics.memory import InMemoryArtifactStore
 from aqelyn.forensics.models import (
     FORENSIC_ARTIFACT_OBJECT_TYPE,
@@ -27,6 +34,8 @@ from aqelyn.forensics.timeline import (
 )
 
 __all__ = [
+    "ASSET_OBJECT_TYPE",
+    "FORENSICS_SOURCE_ENGINE",
     "FORENSIC_ARTIFACT_OBJECT_TYPE",
     "Acquisition",
     "Artifact",
@@ -42,6 +51,9 @@ __all__ = [
     "custody_chain",
     "ensure_forensic_object_types",
     "explain",
+    "findings_from_artifacts",
+    "link_to_assets",
+    "package_case",
     "register_acquisition",
     "register_forensic_object_types",
     "verify_artifact",
