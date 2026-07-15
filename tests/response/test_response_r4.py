@@ -337,7 +337,7 @@ async def test_resp_trigger_and_gate_routes_when_any_bound_fails(
         assert requests[0].status == "open"
 
 
-def test_resp_routing_not_granting() -> None:
+async def test_resp_routing_not_granting() -> None:
     handler = _handler("response.inspect")
     registry = InMemoryActionRegistry()
     registry.register(handler)
@@ -352,7 +352,7 @@ def test_resp_routing_not_granting() -> None:
         campaign_store=InMemoryCampaignStore(),
         workflow=workflow,
     )
-    request = engine.route_approval(
+    request = await engine.route_approval(
         new_id("run"),
         step_ids=["step-1"],
         routed_to="tier-1",
@@ -362,7 +362,7 @@ def test_resp_routing_not_granting() -> None:
     )
 
     assert request.status == "open"
-    overdue = engine.escalate_overdue(now=NOW)
+    overdue = await engine.escalate_overdue(now=NOW)
     assert [item.status for item in overdue] == ["escalated"]
     assert engine.list_approval_requests()[0].status == "escalated"
     assert workflow.approve_calls == 0
