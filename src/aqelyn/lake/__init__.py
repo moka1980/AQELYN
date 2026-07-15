@@ -20,9 +20,11 @@ from aqelyn.lake.models import (
     TelemetryRecord,
 )
 from aqelyn.lake.postgres import PostgresDatasetCatalog, PostgresTelemetryRecordStore
+from aqelyn.lake.query import REDACTED, PolicyAuthorizer, count, query
 from aqelyn.lake.store import DatasetCatalogStore, TelemetryRecordStore
 
 __all__ = [
+    "REDACTED",
     "VALID_CLASSIFICATIONS",
     "VALID_SCHEMA_TYPES",
     "ArchiveRecord",
@@ -34,6 +36,7 @@ __all__ = [
     "InMemoryTelemetryRecordStore",
     "IngestResult",
     "LakeConfig",
+    "PolicyAuthorizer",
     "PostgresDatasetCatalog",
     "PostgresTelemetryRecordStore",
     "Quarantine",
@@ -45,5 +48,7 @@ __all__ = [
     "SchemaType",
     "TelemetryRecord",
     "TelemetryRecordStore",
+    "count",
     "ingest",
+    "query",
 ]

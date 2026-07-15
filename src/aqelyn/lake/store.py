@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol, cast
 
 from aqelyn.conventions import require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import LakeConfigInvalid
 from aqelyn.lake.models import Dataset, Quarantine, RetentionState, TelemetryRecord
+from aqelyn.policy import Condition
 
 
 class DatasetCatalogStore(Protocol):
@@ -33,7 +35,21 @@ class TelemetryRecordStore(Protocol):
         tenant_id: str | None,
         limit: int = 100,
         retention_state: Sequence[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        filter: Condition | None = None,
     ) -> list[TelemetryRecord]: ...
+
+    async def count(
+        self,
+        *,
+        dataset: str,
+        tenant_id: str | None,
+        retention_state: Sequence[str] | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+        filter: Condition | None = None,
+    ) -> int: ...
 
     async def quarantine(self, item: Quarantine, *, tenant_id: str | None) -> Quarantine: ...
 
