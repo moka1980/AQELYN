@@ -1,6 +1,8 @@
 """Security Data Lake & Telemetry Platform (EA-0019)."""
 
 from aqelyn.lake.catalog import DatasetCatalog
+from aqelyn.lake.ingest import IngestResult, ingest
+from aqelyn.lake.memory import InMemoryDatasetCatalog, InMemoryTelemetryRecordStore
 from aqelyn.lake.models import (
     VALID_CLASSIFICATIONS,
     VALID_SCHEMA_TYPES,
@@ -17,6 +19,8 @@ from aqelyn.lake.models import (
     SchemaType,
     TelemetryRecord,
 )
+from aqelyn.lake.postgres import PostgresDatasetCatalog, PostgresTelemetryRecordStore
+from aqelyn.lake.store import DatasetCatalogStore, TelemetryRecordStore
 
 __all__ = [
     "VALID_CLASSIFICATIONS",
@@ -25,7 +29,13 @@ __all__ = [
     "Classification",
     "Dataset",
     "DatasetCatalog",
+    "DatasetCatalogStore",
+    "InMemoryDatasetCatalog",
+    "InMemoryTelemetryRecordStore",
+    "IngestResult",
     "LakeConfig",
+    "PostgresDatasetCatalog",
+    "PostgresTelemetryRecordStore",
     "Quarantine",
     "Query",
     "QueryResult",
@@ -34,4 +44,6 @@ __all__ = [
     "RetentionState",
     "SchemaType",
     "TelemetryRecord",
+    "TelemetryRecordStore",
+    "ingest",
 ]
