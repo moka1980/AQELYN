@@ -36,6 +36,9 @@ relies on. Other specs reference this rather than restating it.
 | `hnt` | SOC hunt | EA-0015 |
 | `acq` | Forensics acquisition | EA-0016 |
 | `art` | Forensics artifact | EA-0016 |
+| `det` | Threat detection | EA-0017 |
+| `prf` | Behavior profile | EA-0017 |
+| `prj` | Detection projection | EA-0017 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -175,6 +178,9 @@ Every created/changed record and every event carries the responsible actor.
 | `ForensicsConfigInvalid` | EA-0016 | no |
 | `ArtifactIntegrityError` | EA-0016 | no |
 | `ArtifactNotFound` | EA-0016 | no |
+| `DetectionConfigInvalid` | EA-0017 | no |
+| `DetectionRuleNotFound` | EA-0017 | no |
+| `ProfileNotFound` | EA-0017 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

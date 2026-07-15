@@ -30,6 +30,9 @@ PREFIXES: dict[str, str] = {
     "hnt": "soc_hunt",
     "acq": "forensics_acquisition",
     "art": "forensics_artifact",
+    "det": "threat_detection",
+    "prf": "behavior_profile",
+    "prj": "detection_projection",
     "svc": "service",
 }
 
