@@ -20,10 +20,16 @@ from aqelyn.response.models import (
 )
 from aqelyn.response.postgres import PostgresCampaignStore, PostgresTriggerStore
 from aqelyn.response.recovery import RECOVERY_FOLLOW_UP_ACTION, RecoveryAssessor
+from aqelyn.response.service import (
+    RESPONSE_EVENTS,
+    ResponseOrchestrationService,
+    register_response_events,
+)
 from aqelyn.response.store import CampaignStore, TriggerStore
 
 __all__ = [
     "RECOVERY_FOLLOW_UP_ACTION",
+    "RESPONSE_EVENTS",
     "ApprovalRequest",
     "ApprovalRequestStatus",
     "AutoStartEffect",
@@ -44,7 +50,9 @@ __all__ = [
     "ResponseConfig",
     "ResponseMetrics",
     "ResponseOrchestrationEngine",
+    "ResponseOrchestrationService",
     "RunRef",
     "TriggerStore",
     "derive_campaign_status",
+    "register_response_events",
 ]
