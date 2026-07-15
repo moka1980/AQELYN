@@ -258,6 +258,23 @@ class ProfileNotFound(AQError):
     code = "ProfileNotFound"
 
 
+# --- EA-0018 ---
+class ResponseConfigInvalid(AQError):
+    code = "ResponseConfigInvalid"
+
+
+class CampaignNotFound(AQError):
+    code = "CampaignNotFound"
+
+
+class TriggerNotFound(AQError):
+    code = "TriggerNotFound"
+
+
+class PhaseBlocked(AQError):
+    code = "PhaseBlocked"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

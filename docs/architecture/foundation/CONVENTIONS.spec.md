@@ -39,6 +39,9 @@ relies on. Other specs reference this rather than restating it.
 | `det` | Threat detection | EA-0017 |
 | `prf` | Behavior profile | EA-0017 |
 | `prj` | Detection projection | EA-0017 |
+| `rsp` | Response campaign | EA-0018 |
+| `trg` | Response automation trigger | EA-0018 |
+| `apr` | Response approval request | EA-0018 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -181,6 +184,10 @@ Every created/changed record and every event carries the responsible actor.
 | `DetectionConfigInvalid` | EA-0017 | no |
 | `DetectionRuleNotFound` | EA-0017 | no |
 | `ProfileNotFound` | EA-0017 | no |
+| `ResponseConfigInvalid` | EA-0018 | no |
+| `CampaignNotFound` | EA-0018 | no |
+| `TriggerNotFound` | EA-0018 | no |
+| `PhaseBlocked` | EA-0018 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
