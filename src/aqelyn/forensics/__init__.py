@@ -18,6 +18,13 @@ from aqelyn.forensics.models import (
 )
 from aqelyn.forensics.postgres import PostgresArtifactStore
 from aqelyn.forensics.store import ArtifactStore
+from aqelyn.forensics.timeline import (
+    build_timeline,
+    custody_chain,
+    explain,
+    verify_artifact,
+    verify_case,
+)
 
 __all__ = [
     "FORENSIC_ARTIFACT_OBJECT_TYPE",
@@ -30,8 +37,13 @@ __all__ = [
     "PostgresArtifactStore",
     "TimelineEvent",
     "VerifyReport",
+    "build_timeline",
     "catalog_artifact",
+    "custody_chain",
     "ensure_forensic_object_types",
+    "explain",
     "register_acquisition",
     "register_forensic_object_types",
+    "verify_artifact",
+    "verify_case",
 ]
