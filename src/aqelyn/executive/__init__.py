@@ -1,6 +1,17 @@
 """Executive Intelligence & Strategic Reporting Engine (EA-0022)."""
 
-from aqelyn.executive.definitions import InMemoryKPIDefinitionStore, KPIDefinitionStore
+from aqelyn.executive.definitions import KPIDefinitionStore
+from aqelyn.executive.kpi import (
+    DrillDownRecord,
+    ExecutiveKPIEngine,
+    KPIValueSource,
+    OwnerMetric,
+    compute_kpi,
+    drill_down,
+    kpi_operation_registry,
+    kpi_result,
+)
+from aqelyn.executive.memory import InMemoryKPIDefinitionStore, InMemoryReportStore
 from aqelyn.executive.models import (
     VALID_BANDS,
     VALID_COMBINATORS,
@@ -23,6 +34,8 @@ from aqelyn.executive.models import (
     SourceKind,
     SourceRef,
 )
+from aqelyn.executive.postgres import PostgresKPIDefinitionStore, PostgresReportStore
+from aqelyn.executive.store import ReportStore
 
 __all__ = [
     "VALID_BANDS",
@@ -32,19 +45,31 @@ __all__ = [
     "VALID_SOURCE_KINDS",
     "ApprovalStatus",
     "Dashboard",
+    "DrillDownRecord",
     "ExceptionItem",
     "ExecutiveBriefing",
     "ExecutiveConfig",
+    "ExecutiveKPIEngine",
     "ExecutiveReport",
     "Figure",
     "InMemoryKPIDefinitionStore",
+    "InMemoryReportStore",
     "KPIDefinition",
     "KPIDefinitionStore",
     "KPIInput",
     "KPIRecord",
+    "KPIValueSource",
+    "OwnerMetric",
+    "PostgresKPIDefinitionStore",
+    "PostgresReportStore",
     "ReportConfig",
     "ReportExclude",
     "ReportSection",
+    "ReportStore",
     "SourceKind",
     "SourceRef",
+    "compute_kpi",
+    "drill_down",
+    "kpi_operation_registry",
+    "kpi_result",
 ]
