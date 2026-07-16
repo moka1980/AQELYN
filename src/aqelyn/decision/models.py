@@ -9,7 +9,7 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id
-from aqelyn.conventions.errors import DecisionConfigInvalid
+from aqelyn.conventions.errors import DecisionConfigInvalid, DerivationNotReplayable
 from aqelyn.decision.operations import DEFAULT_OPERATION_NAMES
 
 ClaimKind = Literal["finding", "risk", "detection", "trust", "mission", "case"]
@@ -169,6 +169,13 @@ class Recommendation(BaseModel):
     derivation: Derivation
     advisory: bool = True
     created_at: datetime
+
+    @model_validator(mode="before")
+    @classmethod
+    def _requires_derivation(cls, data: object) -> object:
+        if isinstance(data, dict) and data.get("derivation") is None:
+            raise DerivationNotReplayable("recommendation requires a replayable derivation")
+        return data
 
     @field_validator("id")
     @classmethod
