@@ -26,7 +26,14 @@ EA-0011 → `src/aqelyn/iag/` + `tests/iag/`;
 EA-0012 → `src/aqelyn/assetconfig/` + `tests/assetconfig/`;
 EA-0013 → `src/aqelyn/risk/` + `tests/risk/`;
 EA-0014 → `src/aqelyn/threat/` + `tests/threat/`;
-EA-0015 → `src/aqelyn/soc/` + `tests/soc/`.
+EA-0015 → `src/aqelyn/soc/` + `tests/soc/`;
+EA-0016 → `src/aqelyn/forensics/` + `tests/forensics/`;
+EA-0017 → `src/aqelyn/detection/` + `tests/detection/`;
+EA-0018 → `src/aqelyn/response/` + `tests/response/`;
+EA-0019 → `src/aqelyn/lake/` + `tests/lake/`;
+EA-0020 → `src/aqelyn/decision/` + `tests/decision/`;
+EA-0021 → `src/aqelyn/forecast/` + `tests/forecast/`;
+EA-0022 → `src/aqelyn/executive/` + `tests/executive/`.
 
 ## Rules for AI agents and developers
 
@@ -54,6 +61,13 @@ EA-0015 → `src/aqelyn/soc/` + `tests/soc/`.
 | [EA-0013 Risk Intelligence](EA-0013-risk-intelligence.spec.md) | EA-0013 | Finding, EA-0007, EA-0008, EA-0010-0012 | [C-010](C-010_Task_Bundle.md) | Accepted |
 | [EA-0014 Threat Intelligence Fusion](EA-0014-threat-intelligence-fusion.spec.md) | EA-0014 | EA-0002, EA-0005, EA-0006, EA-0013 | [C-011](C-011_Task_Bundle.md) | Accepted |
 | [EA-0015 Security Operations (SOC)](EA-0015-security-operations.spec.md) | EA-0015 | Finding, EA-0008, EA-0013, EA-0014, EA-0005 | [C-012](C-012_Task_Bundle.md) | Accepted |
+| [EA-0016 Digital Forensics](EA-0016-digital-forensics.spec.md) | EA-0016 | EA-0004, EA-0002, EA-0005, EA-0015 | [C-013](C-013_Task_Bundle.md) | Accepted |
+| [EA-0017 Threat Detection & Analytics](EA-0017-threat-detection-analytics.spec.md) | EA-0017 | EA-0006, EA-0007, EA-0009, EA-0014 | [C-014](C-014_Task_Bundle.md) | Accepted |
+| [EA-0018 Automated Response & Orchestration](EA-0018-automated-response-orchestration.spec.md) | EA-0018 | **EA-0008**, EA-0009, EA-0015 | [C-015](C-015_Task_Bundle.md) | Accepted (see ECR-0006) |
+| [EA-0019 Security Data Lake & Telemetry](EA-0019-security-data-lake-telemetry.spec.md) | EA-0019 | EA-0004, EA-0008, EA-0009 | [C-016](C-016_Task_Bundle.md) | Accepted |
+| [EA-0020 AI Decision Intelligence](EA-0020-ai-decision-intelligence.spec.md) | EA-0020 | **EA-0006**, EA-0008, EA-0013, EA-0015 | [C-017](C-017_Task_Bundle.md) | Accepted (see ECR-0007) |
+| [EA-0021 Predictive Analytics & Forecasting](EA-0021-predictive-analytics-forecasting.spec.md) | EA-0021 | **EA-0020**, **EA-0006**, EA-0019 | [C-018](C-018_Task_Bundle.md) | Accepted (see ECR-0008) |
+| [EA-0022 Executive Intelligence & Reporting](EA-0022-executive-intelligence-strategic-reporting.spec.md) | EA-0022 | EA-0007/0010/0013/0021, EA-0020, EA-0004 | [C-019](C-019_Task_Bundle.md) | Accepted |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
@@ -61,7 +75,7 @@ specs (currently ECR-0001 against EA-0005).
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0016 onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0023 (Threat Exposure & Attack Surface Management) onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).
