@@ -6,6 +6,12 @@ from aqelyn.decision.derive import (
     replay,
     validate_replayable_recommendation,
 )
+from aqelyn.decision.learning import (
+    build_learning_record,
+    proposed_model_params,
+    validate_feedback,
+    validate_learning_records,
+)
 from aqelyn.decision.memory import InMemoryModelVersionStore, InMemoryRecommendationStore
 from aqelyn.decision.models import (
     VALID_CLAIM_KINDS,
@@ -79,16 +85,20 @@ __all__ = [
     "TrustAssessor",
     "WorkflowProposer",
     "build_derivation",
+    "build_learning_record",
     "default_operation_registry",
     "explain",
     "filter_items",
     "mission_weight",
+    "proposed_model_params",
     "rank",
     "replay",
     "select_claims",
     "similar_cases",
     "similarity",
     "threshold",
+    "validate_feedback",
+    "validate_learning_records",
     "validate_replayable_recommendation",
     "weigh",
 ]

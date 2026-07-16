@@ -233,9 +233,23 @@ async def test_dec_model_contract(kind: str) -> None:
         with pytest.raises(TenantScopeRequired):
             await store.active(tenant_id=None)
 
-        await store.put(_model(1, active=True), tenant_id=TENANT_A)
+        await store.put(_model(1), tenant_id=TENANT_A)
+        await store.promote(
+            1,
+            by=ACTOR,
+            reason="Initial human-approved version.",
+            tenant_id=TENANT_A,
+            evidence_id=new_id("evd"),
+        )
         await store.put(_model(2), tenant_id=TENANT_A)
-        await store.put(_model(1, active=True), tenant_id=TENANT_B)
+        await store.put(_model(1), tenant_id=TENANT_B)
+        await store.promote(
+            1,
+            by=ACTOR,
+            reason="Initial human-approved version.",
+            tenant_id=TENANT_B,
+            evidence_id=new_id("evd"),
+        )
 
         assert (await store.active(tenant_id=TENANT_A)).version == 1
         promoted = await store.promote(

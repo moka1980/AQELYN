@@ -10,6 +10,7 @@ from typing import Protocol
 from aqelyn.conventions import ActorRef, new_id, utc_now
 from aqelyn.conventions.errors import DecisionConfigInvalid, RecommendationNotFound
 from aqelyn.decision.derive import build_derivation, explain, replay
+from aqelyn.decision.learning import build_learning_record, proposed_model_params
 from aqelyn.decision.models import (
     VALID_DECISIONS,
     ClaimRef,
@@ -17,6 +18,8 @@ from aqelyn.decision.models import (
     DecisionRecord,
     Derivation,
     DerivationStep,
+    LearningRecord,
+    ModelVersion,
     Recommendation,
     SimilarityHit,
 )
@@ -85,6 +88,7 @@ class DecisionIntelligenceEngine:
         self.source_id = source_id or new_id("src")
         self._clock = clock or utc_now
         self._decisions: dict[str, DecisionRecord] = {}
+        self._learning: dict[str, LearningRecord] = {}
 
     async def recommend(self, *, subject_ref: str, tenant_id: str | None) -> list[Recommendation]:
         _validate_subject_ref(subject_ref)
@@ -167,11 +171,94 @@ class DecisionIntelligenceEngine:
     async def similar_cases(self, case_id: str, *, limit: int = 5) -> list[SimilarityHit]:
         return compute_similar_cases(case_id, self.case_corpus, limit=limit)
 
+    async def record_feedback(
+        self,
+        rec_id: str,
+        *,
+        feedback: str,
+        by: ActorRef,
+    ) -> LearningRecord:
+        recommendation = await self.recommendation_store.get(rec_id)
+        if recommendation is None:
+            raise RecommendationNotFound(rec_id)
+        record = build_learning_record(
+            recommendation,
+            feedback=feedback,
+            by=by,
+            at=self._clock(),
+        )
+        self._learning[record.id] = record.model_copy(deep=True)
+        return copy.deepcopy(record)
+
+    async def propose_model_version(
+        self,
+        *,
+        from_learning: Sequence[str],
+        by: ActorRef,
+        tenant_id: str | None = None,
+    ) -> ModelVersion:
+        records = self._learning_records(from_learning)
+        selected_tenant = await self._learning_tenant(records, tenant_id=tenant_id)
+        active_model = await self.model_store.active(tenant_id=selected_tenant)
+        proposed = ModelVersion(
+            version=active_model.version + 1,
+            params=proposed_model_params(active_model, records, by=by),
+        )
+        return await self.model_store.put(proposed, tenant_id=selected_tenant)
+
+    async def promote(
+        self,
+        version: int,
+        *,
+        by: ActorRef,
+        reason: str,
+        evidence_id: str,
+        tenant_id: str | None = None,
+    ) -> ModelVersion:
+        return await self.model_store.promote(
+            version,
+            by=by,
+            reason=reason,
+            evidence_id=evidence_id,
+            tenant_id=tenant_id,
+        )
+
     def explain(self, recommendation: Recommendation) -> dict[str, object]:
         return explain(recommendation)
 
     async def replay(self, recommendation: Recommendation) -> dict[str, object]:
         return replay(recommendation.derivation)
+
+    def _learning_records(self, learning_ids: Sequence[str]) -> list[LearningRecord]:
+        if not learning_ids:
+            raise DecisionConfigInvalid("from_learning must not be empty")
+        records: list[LearningRecord] = []
+        seen: set[str] = set()
+        for learning_id in learning_ids:
+            if learning_id in seen:
+                raise DecisionConfigInvalid("from_learning must not contain duplicates")
+            seen.add(learning_id)
+            record = self._learning.get(learning_id)
+            if record is None:
+                raise DecisionConfigInvalid(f"unknown learning record: {learning_id}")
+            records.append(record.model_copy(deep=True))
+        return records
+
+    async def _learning_tenant(
+        self, records: Sequence[LearningRecord], *, tenant_id: str | None
+    ) -> str | None:
+        tenants: set[str | None] = set()
+        for record in records:
+            recommendation = await self.recommendation_store.get(record.recommendation_id)
+            if recommendation is None:
+                raise RecommendationNotFound(record.recommendation_id)
+            tenants.add(recommendation.tenant_id)
+        if len(tenants) != 1:
+            raise DecisionConfigInvalid("learning records must belong to one tenant")
+        selected = next(iter(tenants))
+        if tenant_id is not None and tenant_id != selected:
+            raise DecisionConfigInvalid("learning tenant does not match requested tenant")
+        return selected
 
     async def _claims(self, *, subject_ref: str, tenant_id: str | None) -> list[ClaimRef]:
         raw_claims = await self.claim_source.claims_for(

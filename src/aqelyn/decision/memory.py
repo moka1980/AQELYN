@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 
-from aqelyn.conventions import ActorRef, new_id, utc_now
+from aqelyn.conventions import ActorRef, utc_now
 from aqelyn.conventions.errors import (
     ModelVersionNotFound,
     OptimisticConcurrencyConflict,
@@ -12,9 +12,12 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.decision.models import ModelVersion, Recommendation
 from aqelyn.decision.store import (
+    validate_inactive_model_version,
     validate_limit,
     validate_model_version,
     validate_model_version_number,
+    validate_promotion_actor,
+    validate_promotion_evidence_id,
     validate_promotion_reason,
     validate_recommendation,
     validate_recommendation_id,
@@ -74,7 +77,7 @@ class InMemoryModelVersionStore:
         self, model_version: ModelVersion, *, tenant_id: str | None = None
     ) -> ModelVersion:
         tenant_id = validate_tenant(tenant_id)
-        stored = validate_model_version(model_version)
+        stored = validate_inactive_model_version(model_version)
         key = (tenant_id, stored.version)
         if key in self._versions:
             raise OptimisticConcurrencyConflict(f"model version already exists: {stored.version}")
@@ -111,12 +114,14 @@ class InMemoryModelVersionStore:
         *,
         by: ActorRef,
         reason: str,
+        evidence_id: str,
         tenant_id: str | None = None,
-        evidence_id: str | None = None,
     ) -> ModelVersion:
         version = validate_model_version_number(version)
         tenant_id = validate_tenant(tenant_id)
+        by = validate_promotion_actor(by)
         validate_promotion_reason(reason)
+        evidence_id = validate_promotion_evidence_id(evidence_id)
         key = (tenant_id, version)
         existing = self._versions.get(key)
         if existing is None:
@@ -127,7 +132,7 @@ class InMemoryModelVersionStore:
                 "active": True,
                 "promoted_by": by,
                 "promoted_at": utc_now(),
-                "evidence_id": evidence_id or new_id("evd"),
+                "evidence_id": evidence_id,
             },
             deep=True,
         )
