@@ -9,7 +9,7 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id
-from aqelyn.conventions.errors import ForecastConfigInvalid
+from aqelyn.conventions.errors import ForecastConfigInvalid, ForecastNotReplayable
 from aqelyn.decision import Derivation
 
 Method = Literal[
@@ -239,6 +239,16 @@ class Forecast(BaseModel):
     advisory: bool = True
     statement: str
     outcome: Outcome | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _requires_interval_and_derivation(cls, data: object) -> object:
+        if isinstance(data, dict):
+            if data.get("interval") is None:
+                raise ForecastConfigInvalid("forecast requires an interval")
+            if data.get("derivation") is None:
+                raise ForecastNotReplayable("forecast requires a replayable derivation")
+        return data
 
     @field_validator("id")
     @classmethod
