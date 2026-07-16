@@ -33,6 +33,7 @@ from aqelyn.forecast.models import TrendRecord
 from aqelyn.graph.models import EdgeView, Path
 from aqelyn.iag.models import AccessPath, AccessRiskReport
 from aqelyn.mission.models import MissionImpactResult
+from aqelyn.objects import ObjectQuery
 from aqelyn.risk.models import Risk, RiskConfig, SignalRef
 from aqelyn.risk.scoring import score_risk
 from aqelyn.trust.models import TrustAssessment
@@ -97,7 +98,7 @@ class IdentityExposureProvider(Protocol):
     ) -> list[AccessPath]: ...
 
     async def analyze_risk(
-        self, *, tenant_id: str | None, scope: object | None = None
+        self, *, tenant_id: str | None, scope: ObjectQuery | None = None
     ) -> AccessRiskReport: ...
 
 
@@ -116,6 +117,7 @@ class ExposureTrustProvider(Protocol):
         self,
         subject_ref: str,
         evidence: Sequence[EvidenceRecord],
+        *,
         now: datetime | None = None,
     ) -> TrustAssessment: ...
 

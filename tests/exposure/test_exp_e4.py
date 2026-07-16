@@ -50,6 +50,7 @@ class _TrustSpy:
         self,
         subject_ref: str,
         evidence: Sequence[EvidenceRecord],
+        *,
         now: datetime | None = None,
     ) -> TrustAssessment:
         self.calls.append((subject_ref, [record.id for record in evidence], now))
