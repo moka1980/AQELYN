@@ -296,6 +296,27 @@ class RetentionBlocked(AQError):
     code = "RetentionBlocked"
 
 
+# --- EA-0020 ---
+class DecisionConfigInvalid(AQError):
+    code = "DecisionConfigInvalid"
+
+
+class DerivationNotReplayable(AQError):
+    code = "DerivationNotReplayable"
+
+
+class UnknownOperation(AQError):
+    code = "UnknownOperation"
+
+
+class RecommendationNotFound(AQError):
+    code = "RecommendationNotFound"
+
+
+class ModelVersionNotFound(AQError):
+    code = "ModelVersionNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

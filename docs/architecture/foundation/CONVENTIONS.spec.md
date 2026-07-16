@@ -45,6 +45,9 @@ relies on. Other specs reference this rather than restating it.
 | `tlm` | Telemetry record | EA-0019 |
 | `rtp` | Retention policy | EA-0019 |
 | `arc` | Data lake archive | EA-0019 |
+| `rec` | Decision recommendation | EA-0020 |
+| `dec` | Decision record | EA-0020 |
+| `lrn` | Decision learning record | EA-0020 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -196,6 +199,11 @@ Every created/changed record and every event carries the responsible actor.
 | `RecordNotFound` | EA-0019 | no |
 | `ArchiveIntegrityError` | EA-0019 | no |
 | `RetentionBlocked` | EA-0019 | no |
+| `DecisionConfigInvalid` | EA-0020 | no |
+| `DerivationNotReplayable` | EA-0020 | no |
+| `UnknownOperation` | EA-0020 | no |
+| `RecommendationNotFound` | EA-0020 | no |
+| `ModelVersionNotFound` | EA-0020 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

@@ -39,6 +39,9 @@ PREFIXES: dict[str, str] = {
     "tlm": "telemetry_record",
     "rtp": "retention_policy",
     "arc": "lake_archive",
+    "rec": "decision_recommendation",
+    "dec": "decision_record",
+    "lrn": "decision_learning_record",
     "svc": "service",
 }
 
