@@ -173,12 +173,15 @@ async def _seed_active_model(store: ModelVersionStore) -> None:
         ModelVersion(
             version=1,
             params={"limit": 5, "mission_factor": 1.0, "min_confidence": 0.0},
-            active=True,
-            promoted_by=ACTOR,
-            promoted_at=NOW,
-            evidence_id=new_id("evd"),
         ),
         tenant_id=TENANT_A,
+    )
+    await store.promote(
+        1,
+        by=ACTOR,
+        reason="Initial human-approved version.",
+        tenant_id=TENANT_A,
+        evidence_id=new_id("evd"),
     )
 
 

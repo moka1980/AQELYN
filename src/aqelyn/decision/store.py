@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from aqelyn.conventions import ActorRef, require_tenant_id, require_typed_id
-from aqelyn.conventions.errors import DecisionConfigInvalid
+from aqelyn.conventions.errors import DecisionConfigInvalid, SchemaValidationError
 from aqelyn.decision.derive import validate_replayable_recommendation
 from aqelyn.decision.models import ModelVersion, Recommendation
 
@@ -37,8 +37,8 @@ class ModelVersionStore(Protocol):
         *,
         by: ActorRef,
         reason: str,
+        evidence_id: str,
         tenant_id: str | None = None,
-        evidence_id: str | None = None,
     ) -> ModelVersion: ...
 
 
@@ -52,6 +52,13 @@ def validate_recommendation(recommendation: Recommendation) -> Recommendation:
 
 def validate_model_version(model_version: ModelVersion) -> ModelVersion:
     return ModelVersion.model_validate(model_version.model_dump(mode="json"))
+
+
+def validate_inactive_model_version(model_version: ModelVersion) -> ModelVersion:
+    stored = validate_model_version(model_version)
+    if stored.active:
+        raise DecisionConfigInvalid("model versions must be activated by promote")
+    return stored
 
 
 def validate_model_version_number(value: int, *, field: str = "model version") -> int:
@@ -74,3 +81,16 @@ def validate_promotion_reason(value: str) -> str:
     if not value.strip():
         raise DecisionConfigInvalid("promotion reason must not be empty")
     return value
+
+
+def validate_promotion_actor(value: ActorRef) -> ActorRef:
+    if not isinstance(value, ActorRef):
+        raise DecisionConfigInvalid("promotion requires an attributed ActorRef")
+    return value
+
+
+def validate_promotion_evidence_id(value: str) -> str:
+    try:
+        return require_typed_id(value, "evd", field="promotion evidence_id")
+    except SchemaValidationError as exc:
+        raise DecisionConfigInvalid("promotion requires evidence_id") from exc
