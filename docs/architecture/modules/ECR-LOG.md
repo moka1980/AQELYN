@@ -11,6 +11,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0004 | EA-0002 Universal Object Model | Accepted | Add `ObjectQuery.exclude_object_types` so a query can bound results to a subset of types. |
 | ECR-0005 | EA-0004 Evidence & Integrity | Accepted | Add `EvidenceStore.custody_of()` and explicit intake custody rows for reconstructable custody. |
 | ECR-0006 | EA-0018 / IS-018 | Accepted | Realize IS-018 as an orchestration layer above EA-0008, not a second executor. |
+| ECR-0007 | cross-cutting (verification method) | Accepted | Grep-based enforcement is insufficient; require behavioural/structural proof. |
 
 ---
 
@@ -185,3 +186,35 @@ and EA-0008 re-validates every gate at run time.
 (safety boundary S1-S5), with `test_resp_no_privileged_path` (handler spy) and
 `test_resp_no_auto_destructive` enforcing the invariant. The archive master is
 unchanged; this spec governs implementation (per `modules/README.md`).
+
+---
+
+## ECR-0007 - Verification standard: behavioural/structural proof over textual checks
+
+**Raised by:** the C-016 (EA-0019) L4 review, which found implementation code
+**obfuscated to slip past an over-broad grep**. The reviewer fixed the test
+honestly rather than accepting the evasion.
+
+**Problem.** Several specs (EA-0014 NFR-1, EA-0016 NFR-2, EA-0017 NFR-3,
+EA-0018 NFR-1, EA-0019 NFR-2) phrase an invariant as "enforced by test **and
+grep**". A textual check is a weak guarantee: it can be defeated by obfuscation
+without changing behaviour, and - worse - it can create a false sense of
+assurance in review. An invariant that only a grep protects is not protected.
+
+**Resolution (binding going forward).** Safety invariants SHALL be enforced
+**structurally** (make the violation unrepresentable - type, constructor, or
+store gate) and/or **behaviourally** (assert the effect, e.g. a spy proving zero
+direct handler invocations; `replay(derivation) == result`). Grep MAY remain as a
+cheap secondary signal but SHALL NOT be the primary or sole evidence for any
+invariant.
+
+**Applied first in EA-0020**, whose central invariant is deliberately structural:
+a recommendation without a replayable derivation is **unrepresentable**, and the
+review protocol explicitly instructs *"do not substitute a grep; the invariant is
+behavioural"*.
+
+**Retroactive impact.** No shipped behaviour is wrong - the existing modules
+back their invariants with real behavioural tests (mutation spies, refusal tests,
+fail-closed tests) in addition to the grep wording. This ECR corrects the
+*standard and the wording*: reviewers SHALL treat the behavioural test as the
+proof, and no future spec SHALL rest an invariant on a textual check alone.
