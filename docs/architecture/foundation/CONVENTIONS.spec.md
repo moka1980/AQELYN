@@ -204,6 +204,11 @@ Every created/changed record and every event carries the responsible actor.
 | `UnknownOperation` | EA-0020 | no |
 | `RecommendationNotFound` | EA-0020 | no |
 | `ModelVersionNotFound` | EA-0020 | no |
+| `ForecastConfigInvalid` | EA-0021 | no |
+| `UnknownMethod` | EA-0021 | no |
+| `InsufficientHistory` | EA-0021 | no |
+| `ForecastNotFound` | EA-0021 | no |
+| `ForecastNotReplayable` | EA-0021 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

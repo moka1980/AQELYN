@@ -42,6 +42,10 @@ PREFIXES: dict[str, str] = {
     "rec": "decision_recommendation",
     "dec": "decision_record",
     "lrn": "decision_learning_record",
+    "fct": "forecast",
+    "trn": "forecast_trend",
+    "pdm": "prediction_model",
+    "scn": "forecast_scenario",
     "svc": "service",
 }
 

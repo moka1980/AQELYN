@@ -317,6 +317,27 @@ class ModelVersionNotFound(AQError):
     code = "ModelVersionNotFound"
 
 
+# --- EA-0021 ---
+class ForecastConfigInvalid(AQError):
+    code = "ForecastConfigInvalid"
+
+
+class UnknownMethod(AQError):
+    code = "UnknownMethod"
+
+
+class InsufficientHistory(AQError):
+    code = "InsufficientHistory"
+
+
+class ForecastNotFound(AQError):
+    code = "ForecastNotFound"
+
+
+class ForecastNotReplayable(AQError):
+    code = "ForecastNotReplayable"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
