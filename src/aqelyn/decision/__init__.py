@@ -38,15 +38,26 @@ from aqelyn.decision.operations import (
     weigh,
 )
 from aqelyn.decision.postgres import PostgresModelVersionStore, PostgresRecommendationStore
+from aqelyn.decision.recommend import (
+    ClaimSource,
+    DecisionIntelligenceEngine,
+    TrustAssessor,
+    WorkflowProposer,
+)
+from aqelyn.decision.similarity import CaseCorpus, CaseFeatures, similar_cases
 from aqelyn.decision.store import ModelVersionStore, RecommendationStore
 
 __all__ = [
     "DEFAULT_OPERATION_NAMES",
     "VALID_CLAIM_KINDS",
     "VALID_DECISIONS",
+    "CaseCorpus",
+    "CaseFeatures",
     "ClaimKind",
     "ClaimRef",
+    "ClaimSource",
     "DecisionConfig",
+    "DecisionIntelligenceEngine",
     "DecisionOutcome",
     "DecisionRecord",
     "Derivation",
@@ -65,6 +76,8 @@ __all__ = [
     "Recommendation",
     "RecommendationStore",
     "SimilarityHit",
+    "TrustAssessor",
+    "WorkflowProposer",
     "build_derivation",
     "default_operation_registry",
     "explain",
@@ -73,6 +86,7 @@ __all__ = [
     "rank",
     "replay",
     "select_claims",
+    "similar_cases",
     "similarity",
     "threshold",
     "validate_replayable_recommendation",
