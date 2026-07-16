@@ -1,5 +1,12 @@
 """Threat Exposure & Attack Surface Management Engine (EA-0023)."""
 
+from aqelyn.exposure.engine import (
+    KnownDataExposureEngine,
+    KnownSurfaceRecord,
+    KnownSurfaceSource,
+    StaticKnownSurfaceSource,
+)
+from aqelyn.exposure.memory import InMemoryExposureStore
 from aqelyn.exposure.models import (
     ACTIVE_SCAN_CAPABILITY,
     VALID_ASSET_KINDS,
@@ -21,6 +28,8 @@ from aqelyn.exposure.models import (
     active_reachability_action_spec,
     refuse_active_reachability_collection,
 )
+from aqelyn.exposure.postgres import PostgresExposureStore
+from aqelyn.exposure.store import ExposureStore
 
 __all__ = [
     "ACTIVE_SCAN_CAPABILITY",
@@ -38,8 +47,15 @@ __all__ = [
     "ExposureLevel",
     "ExposureRecord",
     "ExposureStatus",
+    "ExposureStore",
+    "InMemoryExposureStore",
+    "KnownDataExposureEngine",
+    "KnownSurfaceRecord",
+    "KnownSurfaceSource",
+    "PostgresExposureStore",
     "Reachability",
     "ReachablePath",
+    "StaticKnownSurfaceSource",
     "active_reachability_action_spec",
     "refuse_active_reachability_collection",
 ]
