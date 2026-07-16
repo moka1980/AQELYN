@@ -61,6 +61,9 @@ if TYPE_CHECKING:
     from aqelyn.assetconfig.drift import AssetConfigAnalyzer
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.assetconfig.store import BaselineStore, DriftSnapshotStore
+    from aqelyn.decision.recommend import DecisionIntelligenceEngine
+    from aqelyn.decision.service import DecisionIntelligenceService
+    from aqelyn.decision.store import ModelVersionStore, RecommendationStore
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.service import ThreatDetectionService
     from aqelyn.detection.store import ProfileStore, RuleStore
@@ -132,6 +135,10 @@ class Runtime:
     soc_store: SOCStore
     soc_engine: SecurityOperationsEngine
     soc_engine_service: SecurityOperationsService
+    decision_recommendation_store: RecommendationStore
+    decision_model_store: ModelVersionStore
+    decision_engine: DecisionIntelligenceEngine
+    decision_engine_service: DecisionIntelligenceService
     response_campaign_store: CampaignStore
     response_trigger_store: TriggerStore
     response_engine: ResponseOrchestrationEngine
@@ -264,6 +271,9 @@ def _register_runtime_services(
     detection_engine: ThreatDetectionEngine,
     soc_store: SOCStore,
     soc_engine: SecurityOperationsEngine,
+    decision_recommendation_store: RecommendationStore,
+    decision_model_store: ModelVersionStore,
+    decision_engine: DecisionIntelligenceEngine,
     response_campaign_store: CampaignStore,
     response_trigger_store: TriggerStore,
     response_engine: ResponseOrchestrationEngine,
@@ -283,6 +293,8 @@ def _register_runtime_services(
     close_detection_rule_store: Callable[[], Awaitable[None]] | None = None,
     close_detection_profile_store: Callable[[], Awaitable[None]] | None = None,
     close_soc_store: Callable[[], Awaitable[None]] | None = None,
+    close_decision_recommendation_store: Callable[[], Awaitable[None]] | None = None,
+    close_decision_model_store: Callable[[], Awaitable[None]] | None = None,
     close_response_campaign_store: Callable[[], Awaitable[None]] | None = None,
     close_response_trigger_store: Callable[[], Awaitable[None]] | None = None,
     close_forensics_artifact_store: Callable[[], Awaitable[None]] | None = None,
@@ -301,11 +313,13 @@ def _register_runtime_services(
     ThreatFusionService,
     ThreatDetectionService,
     SecurityOperationsService,
+    DecisionIntelligenceService,
     ResponseOrchestrationService,
     DigitalForensicsService,
     DataLakeService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
+    from aqelyn.decision.service import DecisionIntelligenceService
     from aqelyn.detection.service import ThreatDetectionService
     from aqelyn.forensics.service import DigitalForensicsService
     from aqelyn.governance.service import ComplianceGovernanceService
@@ -405,6 +419,15 @@ def _register_runtime_services(
         close_store=close_soc_store,
     )
     kernel.register(soc_service)
+    decision_service = DecisionIntelligenceService(
+        decision_engine,
+        recommendation_store=decision_recommendation_store,
+        model_store=decision_model_store,
+        evidence_store=evidence_store,
+        close_recommendation_store=close_decision_recommendation_store,
+        close_model_store=close_decision_model_store,
+    )
+    kernel.register(decision_service)
     response_service = ResponseOrchestrationService(
         response_engine,
         campaign_store=response_campaign_store,
@@ -441,6 +464,7 @@ def _register_runtime_services(
         threat_service,
         detection_service,
         soc_service,
+        decision_service,
         response_service,
         forensics_service,
         lake_service,
@@ -452,6 +476,13 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.assetconfig.drift import AssetConfigAnalyzer
     from aqelyn.assetconfig.memory import InMemoryBaselineStore, InMemoryDriftSnapshotStore
     from aqelyn.assetconfig.service import register_acg_events
+    from aqelyn.decision import (
+        DecisionIntelligenceEngine,
+        EmptyDecisionClaimSource,
+        InMemoryModelVersionStore,
+        InMemoryRecommendationStore,
+        register_decision_events,
+    )
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.memory import InMemoryProfileStore, InMemoryRuleStore
     from aqelyn.detection.service import register_detection_events
@@ -497,6 +528,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_response_events(registry)
     register_forensics_events(registry)
     register_lake_events(registry)
+    register_decision_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -595,6 +627,16 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_engine=workflow_engine,
         object_store=object_store,
     )
+    decision_recommendation_store = InMemoryRecommendationStore(mode=cfg.tenant_mode)
+    decision_model_store = InMemoryModelVersionStore(mode=cfg.tenant_mode)
+    decision_engine = DecisionIntelligenceEngine(
+        decision_recommendation_store,
+        decision_model_store,
+        claim_source=EmptyDecisionClaimSource(),
+        evidence_store=evidence_store,
+        trust_engine=trust_engine,
+        workflow_engine=workflow_engine,
+    )
     response_campaign_store = InMemoryCampaignStore(mode=cfg.tenant_mode)
     response_trigger_store = InMemoryTriggerStore(mode=cfg.tenant_mode)
     response_engine = ResponseOrchestrationEngine(
@@ -635,6 +677,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         threat_engine_service,
         detection_engine_service,
         soc_engine_service,
+        decision_engine_service,
         response_engine_service,
         forensics_engine_service,
         lake_service,
@@ -668,6 +711,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         detection_engine=detection_engine,
         soc_store=soc_store,
         soc_engine=soc_engine,
+        decision_recommendation_store=decision_recommendation_store,
+        decision_model_store=decision_model_store,
+        decision_engine=decision_engine,
         response_campaign_store=response_campaign_store,
         response_trigger_store=response_trigger_store,
         response_engine=response_engine,
@@ -720,6 +766,10 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         soc_store=soc_store,
         soc_engine=soc_engine,
         soc_engine_service=soc_engine_service,
+        decision_recommendation_store=decision_recommendation_store,
+        decision_model_store=decision_model_store,
+        decision_engine=decision_engine,
+        decision_engine_service=decision_engine_service,
         response_campaign_store=response_campaign_store,
         response_trigger_store=response_trigger_store,
         response_engine=response_engine,
@@ -738,6 +788,15 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.assetconfig.drift import AssetConfigAnalyzer
     from aqelyn.assetconfig.postgres import PostgresBaselineStore, PostgresDriftSnapshotStore
     from aqelyn.assetconfig.service import register_acg_events
+    from aqelyn.decision import (
+        DecisionIntelligenceEngine,
+        EmptyDecisionClaimSource,
+        register_decision_events,
+    )
+    from aqelyn.decision.postgres import (
+        PostgresModelVersionStore,
+        PostgresRecommendationStore,
+    )
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.postgres import PostgresProfileStore, PostgresRuleStore
     from aqelyn.detection.service import register_detection_events
@@ -788,6 +847,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_response_events(registry)
     register_forensics_events(registry)
     register_lake_events(registry)
+    register_decision_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -897,6 +957,22 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         workflow_engine=workflow_engine,
         object_store=object_store,
     )
+    decision_recommendation_store = await PostgresRecommendationStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    decision_model_store = await PostgresModelVersionStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    decision_engine = DecisionIntelligenceEngine(
+        decision_recommendation_store,
+        decision_model_store,
+        claim_source=EmptyDecisionClaimSource(),
+        evidence_store=evidence_store,
+        trust_engine=trust_engine,
+        workflow_engine=workflow_engine,
+    )
     response_campaign_store = await PostgresCampaignStore.connect(
         cfg.database_url,
         mode=cfg.tenant_mode,
@@ -949,6 +1025,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         threat_engine_service,
         detection_engine_service,
         soc_engine_service,
+        decision_engine_service,
         response_engine_service,
         forensics_engine_service,
         lake_service,
@@ -982,6 +1059,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         detection_engine=detection_engine,
         soc_store=soc_store,
         soc_engine=soc_engine,
+        decision_recommendation_store=decision_recommendation_store,
+        decision_model_store=decision_model_store,
+        decision_engine=decision_engine,
         response_campaign_store=response_campaign_store,
         response_trigger_store=response_trigger_store,
         response_engine=response_engine,
@@ -1001,6 +1081,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_detection_rule_store=detection_rule_store.close,
         close_detection_profile_store=detection_profile_store.close,
         close_soc_store=soc_store.close,
+        close_decision_recommendation_store=decision_recommendation_store.close,
+        close_decision_model_store=decision_model_store.close,
         close_response_campaign_store=response_campaign_store.close,
         close_response_trigger_store=response_trigger_store.close,
         close_forensics_artifact_store=forensics_artifact_store.close,
@@ -1051,6 +1133,10 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         soc_store=soc_store,
         soc_engine=soc_engine,
         soc_engine_service=soc_engine_service,
+        decision_recommendation_store=decision_recommendation_store,
+        decision_model_store=decision_model_store,
+        decision_engine=decision_engine,
+        decision_engine_service=decision_engine_service,
         response_campaign_store=response_campaign_store,
         response_trigger_store=response_trigger_store,
         response_engine=response_engine,

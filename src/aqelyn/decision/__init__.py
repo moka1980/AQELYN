@@ -50,10 +50,17 @@ from aqelyn.decision.recommend import (
     TrustAssessor,
     WorkflowProposer,
 )
+from aqelyn.decision.service import (
+    DECISION_EVENTS,
+    DecisionIntelligenceService,
+    EmptyDecisionClaimSource,
+    register_decision_events,
+)
 from aqelyn.decision.similarity import CaseCorpus, CaseFeatures, similar_cases
 from aqelyn.decision.store import ModelVersionStore, RecommendationStore
 
 __all__ = [
+    "DECISION_EVENTS",
     "DEFAULT_OPERATION_NAMES",
     "VALID_CLAIM_KINDS",
     "VALID_DECISIONS",
@@ -64,10 +71,12 @@ __all__ = [
     "ClaimSource",
     "DecisionConfig",
     "DecisionIntelligenceEngine",
+    "DecisionIntelligenceService",
     "DecisionOutcome",
     "DecisionRecord",
     "Derivation",
     "DerivationStep",
+    "EmptyDecisionClaimSource",
     "InMemoryModelVersionStore",
     "InMemoryRecommendationStore",
     "JsonMap",
@@ -92,6 +101,7 @@ __all__ = [
     "mission_weight",
     "proposed_model_params",
     "rank",
+    "register_decision_events",
     "replay",
     "select_claims",
     "similar_cases",
