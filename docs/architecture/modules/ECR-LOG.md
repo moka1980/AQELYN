@@ -16,6 +16,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0009 | EA-0022 / IS-022 | Accepted | Override master §28.2/§28.3: a missing/failed executive figure is omitted + recorded, never backfilled with a stale value. |
 | ECR-0010 | EA-0022 / IS-022 | Accepted | Composite `Figure.as_of` uses the **stalest** input (`min`), not the newest — a single timestamp must not overstate freshness. |
 | ECR-0011 | EA-0023 / IS-023 | Accepted | Exposure is derived from known data; **no `scan()`/`probe()`/`connect()`**. Active scanning is an EA-0008 `scan.active` ActionSpec. Overrides master §20.3 scan endpoint + §28.2/§28.3. |
+| ECR-0012 | EA-0024 / IS-024 | Accepted | CVSS/EPSS carried, **never recomputed**; every assessment carries a mandatory `CoverageReport` and is **refused if coverage can't be computed** (not-scanned ≠ clean). Overrides master §12.2 severity-normalization + §28.2/§28.3. |
 
 ---
 
@@ -357,3 +358,41 @@ governs). Captured as EA-0023 §0.1, **S1/S2/S9**, **FR-1/2/11/12**, **NFR-1**, 
 **AC-1/2/3/13/14**. The no-probing invariant is proven **structurally** (no scan
 method exists) and **behaviourally** (a network spy asserts zero outbound attempts),
 per ECR-0007.
+
+---
+
+## ECR-0012 - EA-0024 carries CVSS/EPSS (never recomputes) and refuses coverage-blind assessments
+
+**Raised by:** planning (EA-0024 spec pass).
+**Severity:** architectural - the master would license both silent divergence from
+the severity authority and "not scanned" masquerading as "clean".
+
+**Problem.** The EA-0024 archive master (a) implies the engine **recomputes**
+severity - §12.2 lists "Severity normalization" and §28.3 "Risk recalculated" - and
+(b) repeats the fabrication/stale hazard - §28.2 "**Fallback assessment generated**"
+and §28.3 "**Previous assessment retained**". It is also **silent on coverage**: a
+vulnerability assessment that does not account for what was *not* scanned reports the
+unscanned estate as implicitly clean. Two failure modes follow: a severity that
+silently diverges from CVSS/EPSS (the published authority), and an assessment whose
+green surface hides an unscanned or stale fleet.
+
+**Resolution.** (1) **CVSS/EPSS are carried verbatim with their source and never
+recomputed** (S2) - recomputation invites silent divergence from the authority.
+(2) Every `VulnerabilityAssessment` carries a **mandatory `CoverageReport`**
+(scanned/unscanned/stale); **if coverage cannot be computed, the assessment is
+refused** (`CoverageUnavailable`), never issued clean (S4) - *"not scanned"* is
+never *"clean"*, the same discipline as EA-0023's `unknown` reachability (ECR-0011)
+and EA-0022's "a missing number must look missing" (ECR-0009). (3) Master §28.2/§28.3
+are overridden: a failed correlation/prioritization is recorded degraded/unavailable,
+never a fabricated fallback or a silently retained prior assessment (S7).
+
+**Also recorded here:** every `VulnPriority` is **replayable composition** - an
+EA-0020 `Derivation` naming each factor, its owner source, and its weight (S1); and a
+vulnerability is treated as a **scanner's claim** carrying EA-0006 Trust confidence
+(S3), never a bare fact. These are spec hardenings the master did not ask for.
+
+**Impact.** Governs implementation only; the archive master is unchanged (the spec
+governs). Captured as EA-0024 **S1-S7**, **FR-2/4/5/6/7/11**, **NFR-1/2/3**, and
+**AC-2/4/5/6/7/8/9/14**. Proven **structurally** (priority unrepresentable without a
+replaying derivation; assessment refused without coverage) and **behaviourally** (a
+spy proves no severity recomputation), per ECR-0007.
