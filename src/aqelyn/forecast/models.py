@@ -33,6 +33,7 @@ VALID_METHODS: Final[frozenset[str]] = frozenset(
 )
 VALID_BASIS_KINDS: Final[frozenset[str]] = frozenset(("telemetry", "finding", "risk", "metric"))
 VALID_TREND_DIRECTIONS: Final[frozenset[str]] = frozenset(("up", "down", "flat"))
+VALID_FORECAST_SUBJECT_PREFIXES: Final[tuple[str, ...]] = ("aggregate:", "system:")
 
 
 def _nonempty(value: str, *, field: str) -> str:
@@ -260,10 +261,18 @@ class Forecast(BaseModel):
     def _tenant_id(cls, value: str | None) -> str | None:
         return require_tenant_id(value)
 
-    @field_validator("metric", "subject_ref", "statement")
+    @field_validator("metric", "statement")
     @classmethod
     def _text(cls, value: str) -> str:
         return _nonempty(value, field="forecast field")
+
+    @field_validator("subject_ref")
+    @classmethod
+    def _subject_ref(cls, value: str) -> str:
+        selected = _nonempty(value, field="subject_ref")
+        if not selected.startswith(VALID_FORECAST_SUBJECT_PREFIXES):
+            raise ForecastConfigInvalid("forecast subject_ref must be aggregate/system scope")
+        return selected
 
     @field_validator("method")
     @classmethod
