@@ -4,12 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from aqelyn.conventions import new_id, require_tenant_id, require_typed_id, utc_now
-from aqelyn.conventions.errors import ExposureConfigInvalid
+from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id, utc_now
+from aqelyn.conventions.errors import (
+    DerivationNotReplayable,
+    ExposureConfigInvalid,
+    ExposureNotReplayable,
+)
+from aqelyn.decision import ClaimRef, DerivationStep, build_derivation, replay
+from aqelyn.evidence.models import EvidenceRecord
 from aqelyn.exposure.models import (
     VALID_REACHABILITY,
     AssetRef,
@@ -21,9 +27,15 @@ from aqelyn.exposure.models import (
     ReachablePath,
 )
 from aqelyn.exposure.store import ExposureStore, validate_tenant
+from aqelyn.findings.models import Automation, Finding, Remediation
+from aqelyn.findings.store import FindingStore
 from aqelyn.forecast.models import TrendRecord
 from aqelyn.graph.models import EdgeView, Path
 from aqelyn.iag.models import AccessPath, AccessRiskReport
+from aqelyn.mission.models import MissionImpactResult
+from aqelyn.risk.models import Risk, RiskConfig, SignalRef
+from aqelyn.risk.scoring import score_risk
+from aqelyn.trust.models import TrustAssessment
 
 
 class KnownSurfaceRecord(BaseModel):
@@ -95,6 +107,23 @@ class ExposureTrendProvider(Protocol):
     ) -> TrendRecord: ...
 
 
+class ExposureEvidenceLookup(Protocol):
+    async def get(self, evidence_id: str, *, actor: ActorRef) -> EvidenceRecord: ...
+
+
+class ExposureTrustProvider(Protocol):
+    async def assess(
+        self,
+        subject_ref: str,
+        evidence: Sequence[EvidenceRecord],
+        now: datetime | None = None,
+    ) -> TrustAssessment: ...
+
+
+class ExposureMissionProvider(Protocol):
+    async def mission_impact(self, object_id: str) -> MissionImpactResult: ...
+
+
 class StaticKnownSurfaceSource:
     def __init__(self, records: Sequence[KnownSurfaceRecord], *, unavailable: bool = False) -> None:
         self.records = [record.model_copy(deep=True) for record in records]
@@ -118,6 +147,11 @@ class KnownDataExposureEngine:
         graph: ExposurePathGraph | None = None,
         identity_provider: IdentityExposureProvider | None = None,
         trend_provider: ExposureTrendProvider | None = None,
+        evidence_lookup: ExposureEvidenceLookup | None = None,
+        trust_provider: ExposureTrustProvider | None = None,
+        mission_provider: ExposureMissionProvider | None = None,
+        finding_store: FindingStore | None = None,
+        risk_config: RiskConfig | None = None,
         path_roots: Sequence[str] = (),
     ) -> None:
         self.store = store
@@ -126,6 +160,11 @@ class KnownDataExposureEngine:
         self.graph = graph
         self.identity_provider = identity_provider
         self.trend_provider = trend_provider
+        self.evidence_lookup = evidence_lookup
+        self.trust_provider = trust_provider
+        self.mission_provider = mission_provider
+        self.finding_store = finding_store
+        self.risk_config = risk_config or RiskConfig()
         self.path_roots = [require_typed_id(root, "obj", field="path_roots") for root in path_roots]
 
     async def derive_surface(self, *, tenant_id: str | None) -> list[AttackSurfaceAsset]:
@@ -254,6 +293,334 @@ class KnownDataExposureEngine:
             window_days=window_days,
             tenant_id=selected_tenant,
         )
+
+    async def score_exposure(self, exposure: ExposureRecord) -> ExposureRecord:
+        selected = exposure.model_copy(deep=True)
+        if self.evidence_lookup is None:
+            raise ExposureConfigInvalid("evidence lookup is unavailable")
+        if self.trust_provider is None:
+            raise ExposureConfigInvalid("trust provider is unavailable")
+        if self.mission_provider is None:
+            raise ExposureConfigInvalid("mission provider is unavailable")
+        asset_id = require_typed_id(selected.asset_ref.ref_id, "obj", field="asset_ref.ref_id")
+        evidence = await self._evidence_for(selected)
+        trust = await self.trust_provider.assess(
+            f"exposure:{selected.id}",
+            evidence,
+            now=selected.validated_at or selected.discovered_at,
+        )
+        mission = await self.mission_provider.mission_impact(asset_id)
+        mission_factor, top_mission_id = _mission_factors(mission)
+        risk = _risk_for_exposure(
+            selected,
+            trust=trust,
+            mission_factor=mission_factor,
+            top_mission_id=top_mission_id,
+            risk_config=self.risk_config,
+        )
+        derivation = _score_derivation(
+            selected,
+            trust=trust,
+            mission_factor=mission_factor,
+            top_mission_id=top_mission_id,
+            risk=risk,
+        )
+        scored = selected.model_copy(
+            update={
+                "score": risk.score,
+                "confidence": trust.score,
+                "derivation": derivation,
+                "rationale": _score_reason(selected, trust=trust, risk=risk),
+                "validated_at": selected.validated_at or utc_now(),
+            },
+            deep=True,
+        )
+        return validate_replayable_exposure(scored)
+
+    async def raise_exposure_finding(self, exposure: ExposureRecord) -> Finding:
+        selected = validate_replayable_exposure(exposure)
+        if self.finding_store is None:
+            raise ExposureConfigInvalid("finding store is unavailable")
+        evidence_ids = _evidence_ids(selected)
+        if not evidence_ids:
+            raise ExposureConfigInvalid("material exposure finding requires evidence")
+        finding = _finding_for_exposure(selected, evidence_ids=evidence_ids)
+        return await self.finding_store.raise_finding(finding)
+
+    async def _evidence_for(self, exposure: ExposureRecord) -> list[EvidenceRecord]:
+        assert self.evidence_lookup is not None
+        actor = ActorRef(actor_type="system", actor_id="exposure_engine")
+        records: list[EvidenceRecord] = []
+        for evidence_id in _evidence_ids(exposure):
+            records.append(await self.evidence_lookup.get(evidence_id, actor=actor))
+        if not records:
+            raise ExposureConfigInvalid("scoring requires evidence-backed exposure basis")
+        records.sort(key=lambda record: record.id)
+        return records
+
+
+def validate_replayable_exposure(exposure: ExposureRecord) -> ExposureRecord:
+    if exposure.score is None:
+        return exposure.model_copy(deep=True)
+    if exposure.derivation is None:
+        raise ExposureNotReplayable("scored exposure requires a replayable derivation")
+    try:
+        replay(exposure.derivation)
+    except DerivationNotReplayable as exc:
+        raise ExposureNotReplayable("exposure score derivation does not replay") from exc
+    return exposure.model_copy(deep=True)
+
+
+def _evidence_ids(exposure: ExposureRecord) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for basis in exposure.basis:
+        if basis.evidence_id is None or basis.evidence_id in seen:
+            continue
+        seen.add(basis.evidence_id)
+        out.append(basis.evidence_id)
+    if exposure.asset_ref.evidence_id is not None and exposure.asset_ref.evidence_id not in seen:
+        out.append(exposure.asset_ref.evidence_id)
+    return out
+
+
+def _mission_factors(result: MissionImpactResult) -> tuple[float, str | None]:
+    if not result.impacts:
+        return 0.0, None
+    selected = max(
+        result.impacts,
+        key=lambda impact: (impact.impact_score, impact.mission.id),
+    )
+    return selected.impact_score, selected.mission.id
+
+
+def _risk_for_exposure(
+    exposure: ExposureRecord,
+    *,
+    trust: TrustAssessment,
+    mission_factor: float,
+    top_mission_id: str | None,
+    risk_config: RiskConfig,
+) -> Risk:
+    evidence_id = _first_evidence_id(exposure)
+    asset_id = require_typed_id(exposure.asset_ref.ref_id, "obj", field="asset_ref.ref_id")
+    observed = exposure.validated_at or exposure.discovered_at
+    seed = Risk(
+        id=f"risk:{exposure.id}",
+        tenant_id=exposure.tenant_id,
+        correlation_key=f"exposure:{exposure.asset_ref.ref_id}:{exposure.exposure_type}",
+        title=f"Exposure risk for {exposure.asset_ref.ref_id}",
+        category="attack_surface_exposure",
+        likelihood=0.0,
+        impact=_reachability_factor(exposure.reachability),
+        score=0.0,
+        band="within_appetite",
+        signals=[
+            SignalRef(
+                kind="finding",
+                ref_id=f"exposure:{exposure.id}",
+                weight=trust.score,
+                evidence_id=evidence_id,
+            )
+        ],
+        affected_object_ids=[asset_id],
+        top_mission_id=top_mission_id,
+        reason="Exposure risk is composed from reachability, Trust, and Mission impact.",
+        first_seen_at=exposure.discovered_at,
+        last_scored_at=observed,
+    )
+    return score_risk(
+        seed,
+        config=risk_config,
+        mission_factor=mission_factor,
+        top_mission_id=top_mission_id,
+    )
+
+
+def _score_derivation(
+    exposure: ExposureRecord,
+    *,
+    trust: TrustAssessment,
+    mission_factor: float,
+    top_mission_id: str | None,
+    risk: Risk,
+) -> Any:
+    evidence_id = _first_evidence_id(exposure)
+    trust_claim = ClaimRef(kind="trust", ref_id=trust.subject_ref, evidence_id=evidence_id)
+    mission_claim = ClaimRef(
+        kind="mission",
+        ref_id=top_mission_id or exposure.asset_ref.ref_id,
+        evidence_id=evidence_id,
+    )
+    risk_claim = ClaimRef(kind="risk", ref_id=risk.id, evidence_id=evidence_id)
+    selected_output: dict[str, Any] = {
+        "claims": [
+            trust_claim.model_dump(mode="json"),
+            mission_claim.model_dump(mode="json"),
+            risk_claim.model_dump(mode="json"),
+        ],
+        "count": 3,
+    }
+    risk_unit = risk.score / 100.0
+    weighed_items = [{**claim, "weight": risk_unit} for claim in selected_output["claims"]]
+    weighed_output: dict[str, Any] = {"items": weighed_items}
+    scored_items = [{**item, "score": risk_unit} for item in weighed_items]
+    scored_output: dict[str, Any] = {"items": scored_items, "factor": 1.0}
+    steps = [
+        DerivationStep(
+            seq=1,
+            op="select_claims",
+            input_refs=[trust_claim.ref_id, mission_claim.ref_id, risk_claim.ref_id],
+            params={"kinds": ["trust", "mission", "risk"]},
+            output=selected_output,
+            note="Select the Trust, Mission, and Risk owner records used for exposure scoring.",
+        ),
+        DerivationStep(
+            seq=2,
+            op="weigh",
+            input_refs=["step:1"],
+            params={"default": risk_unit},
+            output=weighed_output,
+            note=(
+                "Use EA-0013 risk score as the replayed exposure score factor; "
+                f"EA-0006 trust={trust.score:.3f}, EA-0007 mission={mission_factor:.3f}."
+            ),
+        ),
+        DerivationStep(
+            seq=3,
+            op="mission_weight",
+            input_refs=["step:2"],
+            params={"factor": 1.0, "source_field": "weight", "target_field": "score"},
+            output=scored_output,
+            note="Emit a replayable [0,1] score factor without recomputing owner engines.",
+        ),
+    ]
+    return build_derivation(
+        inputs=[trust_claim, mission_claim, risk_claim],
+        steps=steps,
+        model_version=1,
+        engine_version="exposure-score/v1",
+    )
+
+
+def _score_reason(
+    exposure: ExposureRecord,
+    *,
+    trust: TrustAssessment,
+    risk: Risk,
+) -> str:
+    return (
+        f"{exposure.rationale} Exposure score {risk.score:.0f} is composed from "
+        f"Trust confidence {trust.score:.3f}, Mission impact {risk.factors['mission_factor']:.3f}, "
+        f"and EA-0013 risk band {risk.band}."
+    )
+
+
+def _finding_for_exposure(exposure: ExposureRecord, *, evidence_ids: list[str]) -> Finding:
+    score = exposure.score if exposure.score is not None else 0.0
+    affected = _affected_object_ids(exposure)
+    return Finding(
+        id=new_id("fnd"),
+        tenant_id=exposure.tenant_id,
+        finding_type="attack_surface_exposure",
+        schema_version=1,
+        dedup_key=f"exposure:{exposure.asset_ref.ref_id}:{exposure.exposure_type}",
+        title=(
+            f"{_title_reachability(exposure.reachability)} exposure on {exposure.asset_ref.ref_id}"
+        ),
+        severity=_severity_for_score(score),
+        severity_score=round(score / 100.0, 6),
+        status="open",
+        what_happened=(
+            f"AQELYN derived {exposure.reachability} reachability for "
+            f"{exposure.asset_ref.ref_id} from known-data attack-surface records."
+        ),
+        why_it_matters=(
+            "Reachable or uncertain externally relevant surface can increase attack paths "
+            "and should be reviewed with its cited basis."
+        ),
+        how_determined=(
+            "The Threat Exposure engine used handed-in known data, owner-engine scoring, "
+            "and a replayable derivation; it performed no scan or response action."
+        ),
+        risk_of_inaction=(
+            "Untreated exposure can leave reachable services, identities, or domains "
+            "available to an attacker."
+        ),
+        evidence_ids=evidence_ids,
+        affected_object_ids=affected,
+        expert_details={
+            "exposure_id": exposure.id,
+            "reachability": exposure.reachability,
+            "score": score,
+            "derivation": exposure.derivation.model_dump(mode="json")
+            if exposure.derivation is not None
+            else None,
+        },
+        remediation=Remediation(
+            summary="Review the exposure and route any remediation through the Workflow Engine.",
+            steps=[
+                "Validate the cited exposure basis.",
+                "Decide whether the exposed surface should remain reachable.",
+                "Create a gated remediation workflow if a change is required.",
+            ],
+            difficulty="medium",
+            estimated_effort=None,
+            expected_outcome=(
+                "Exposure is accepted, reduced, or remediated through governed workflow."
+            ),
+        ),
+        automation=Automation(
+            eligibility="none",
+            action_ref=None,
+            requires_approval=True,
+            risk_note=(
+                "Threat Exposure raises findings only; actions must be proposed through EA-0008."
+            ),
+        ),
+        confidence=exposure.confidence if exposure.confidence is not None else 0.0,
+        source_engine="exposure_engine",
+        first_detected_at=exposure.discovered_at,
+        last_detected_at=exposure.validated_at or exposure.discovered_at,
+    )
+
+
+def _first_evidence_id(exposure: ExposureRecord) -> str | None:
+    evidence_ids = _evidence_ids(exposure)
+    return evidence_ids[0] if evidence_ids else None
+
+
+def _affected_object_ids(exposure: ExposureRecord) -> list[str]:
+    ref_id = exposure.asset_ref.ref_id
+    if not ref_id.startswith("obj_"):
+        return []
+    return [require_typed_id(ref_id, "obj", field="affected_object_ids")]
+
+
+def _reachability_factor(reachability: str) -> float:
+    if reachability == "external":
+        return 1.0
+    if reachability == "internal":
+        return 0.45
+    return 0.15
+
+
+def _severity_for_score(score: float) -> str:
+    if score >= 90.0:
+        return "critical"
+    if score >= 70.0:
+        return "high"
+    if score >= 40.0:
+        return "medium"
+    if score > 0.0:
+        return "low"
+    return "info"
+
+
+def _title_reachability(reachability: str) -> str:
+    if reachability == "unknown":
+        return "Unknown"
+    return reachability.capitalize()
 
 
 def _find_row(rows: Sequence[KnownSurfaceRecord], asset_ref: AssetRef) -> KnownSurfaceRecord | None:

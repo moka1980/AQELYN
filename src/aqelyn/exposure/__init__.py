@@ -1,13 +1,17 @@
 """Threat Exposure & Attack Surface Management Engine (EA-0023)."""
 
 from aqelyn.exposure.engine import (
+    ExposureEvidenceLookup,
+    ExposureMissionProvider,
     ExposurePathGraph,
     ExposureTrendProvider,
+    ExposureTrustProvider,
     IdentityExposureProvider,
     KnownDataExposureEngine,
     KnownSurfaceRecord,
     KnownSurfaceSource,
     StaticKnownSurfaceSource,
+    validate_replayable_exposure,
 )
 from aqelyn.exposure.memory import InMemoryExposureStore
 from aqelyn.exposure.models import (
@@ -47,12 +51,15 @@ __all__ = [
     "ExposureBasis",
     "ExposureBasisKind",
     "ExposureConfig",
+    "ExposureEvidenceLookup",
     "ExposureLevel",
+    "ExposureMissionProvider",
     "ExposurePathGraph",
     "ExposureRecord",
     "ExposureStatus",
     "ExposureStore",
     "ExposureTrendProvider",
+    "ExposureTrustProvider",
     "IdentityExposureProvider",
     "InMemoryExposureStore",
     "KnownDataExposureEngine",
@@ -64,4 +71,5 @@ __all__ = [
     "StaticKnownSurfaceSource",
     "active_reachability_action_spec",
     "refuse_active_reachability_collection",
+    "validate_replayable_exposure",
 ]
