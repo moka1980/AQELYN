@@ -338,6 +338,31 @@ class ForecastNotReplayable(AQError):
     code = "ForecastNotReplayable"
 
 
+# --- EA-0022 ---
+class ExecutiveConfigInvalid(AQError):
+    code = "ExecutiveConfigInvalid"
+
+
+class FigureProvenanceMissing(AQError):
+    code = "FigureProvenanceMissing"
+
+
+class FrozenReportMutation(AQError):
+    code = "FrozenReportMutation"
+
+
+class ExceptionsUnavailable(AQError):
+    code = "ExceptionsUnavailable"
+
+
+class KPIDefinitionNotFound(AQError):
+    code = "KPIDefinitionNotFound"
+
+
+class ReportNotFound(AQError):
+    code = "ReportNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

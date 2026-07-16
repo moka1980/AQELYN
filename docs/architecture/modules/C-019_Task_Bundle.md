@@ -43,7 +43,7 @@ tests/executive/      # acceptance suite (in-memory + Postgres)
 **Spec:** §5, §6, D1, S4, FR-8/15; §10.
 **Deliverables:** the models; `KPIDefinitionStore` (new version per change,
 **inactive until an explicit attributed `promote`**; never mutate active);
-config/definition validation (`ReportConfigInvalid` on unknown source engine/
+config/definition validation (`ExecutiveConfigInvalid` on unknown source engine/
 metric, unordered thresholds, `max_kpis ≤ 0`); new error codes in
 `conventions.errors` + CONVENTIONS §9.
 **Depends on:** EA-0020/0006 types, conventions.

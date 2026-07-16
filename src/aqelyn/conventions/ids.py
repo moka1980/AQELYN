@@ -46,6 +46,11 @@ PREFIXES: dict[str, str] = {
     "trn": "forecast_trend",
     "pdm": "prediction_model",
     "scn": "forecast_scenario",
+    "kdf": "kpi_definition",
+    "kpi": "kpi_record",
+    "rpt": "executive_report",
+    "dsh": "executive_dashboard",
+    "brf": "executive_briefing",
     "svc": "service",
 }
 

@@ -48,6 +48,15 @@ relies on. Other specs reference this rather than restating it.
 | `rec` | Decision recommendation | EA-0020 |
 | `dec` | Decision record | EA-0020 |
 | `lrn` | Decision learning record | EA-0020 |
+| `fct` | Forecast | EA-0021 |
+| `trn` | Forecast trend | EA-0021 |
+| `pdm` | Prediction model | EA-0021 |
+| `scn` | Forecast scenario | EA-0021 |
+| `kdf` | KPI definition | EA-0022 |
+| `kpi` | KPI record | EA-0022 |
+| `rpt` | Executive report | EA-0022 |
+| `dsh` | Executive dashboard | EA-0022 |
+| `brf` | Executive briefing | EA-0022 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -209,6 +218,12 @@ Every created/changed record and every event carries the responsible actor.
 | `InsufficientHistory` | EA-0021 | no |
 | `ForecastNotFound` | EA-0021 | no |
 | `ForecastNotReplayable` | EA-0021 | no |
+| `ExecutiveConfigInvalid` | EA-0022 | no |
+| `FigureProvenanceMissing` | EA-0022 | no |
+| `FrozenReportMutation` | EA-0022 | no |
+| `ExceptionsUnavailable` | EA-0022 | no |
+| `KPIDefinitionNotFound` | EA-0022 | no |
+| `ReportNotFound` | EA-0022 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
