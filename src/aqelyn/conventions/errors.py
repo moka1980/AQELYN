@@ -363,6 +363,27 @@ class ReportNotFound(AQError):
     code = "ReportNotFound"
 
 
+# --- EA-0023 ---
+class ExposureConfigInvalid(AQError):
+    code = "ExposureConfigInvalid"
+
+
+class ExposureBasisMissing(AQError):
+    code = "ExposureBasisMissing"
+
+
+class ExposureNotFound(AQError):
+    code = "ExposureNotFound"
+
+
+class ExposureNotReplayable(AQError):
+    code = "ExposureNotReplayable"
+
+
+class ScanNotPermitted(AQError):
+    code = "ScanNotPermitted"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
