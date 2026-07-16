@@ -36,10 +36,16 @@ from aqelyn.exposure.models import (
     refuse_active_reachability_collection,
 )
 from aqelyn.exposure.postgres import PostgresExposureStore
+from aqelyn.exposure.service import (
+    EXPOSURE_EVENTS,
+    ExposureManagementService,
+    register_exposure_events,
+)
 from aqelyn.exposure.store import ExposureStore
 
 __all__ = [
     "ACTIVE_SCAN_CAPABILITY",
+    "EXPOSURE_EVENTS",
     "VALID_ASSET_KINDS",
     "VALID_BASIS_KINDS",
     "VALID_EXPOSURE_LEVELS",
@@ -53,6 +59,7 @@ __all__ = [
     "ExposureConfig",
     "ExposureEvidenceLookup",
     "ExposureLevel",
+    "ExposureManagementService",
     "ExposureMissionProvider",
     "ExposurePathGraph",
     "ExposureRecord",
@@ -71,5 +78,6 @@ __all__ = [
     "StaticKnownSurfaceSource",
     "active_reachability_action_spec",
     "refuse_active_reachability_collection",
+    "register_exposure_events",
     "validate_replayable_exposure",
 ]
