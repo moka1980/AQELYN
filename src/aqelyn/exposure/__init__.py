@@ -1,6 +1,9 @@
 """Threat Exposure & Attack Surface Management Engine (EA-0023)."""
 
 from aqelyn.exposure.engine import (
+    ExposurePathGraph,
+    ExposureTrendProvider,
+    IdentityExposureProvider,
     KnownDataExposureEngine,
     KnownSurfaceRecord,
     KnownSurfaceSource,
@@ -45,9 +48,12 @@ __all__ = [
     "ExposureBasisKind",
     "ExposureConfig",
     "ExposureLevel",
+    "ExposurePathGraph",
     "ExposureRecord",
     "ExposureStatus",
     "ExposureStore",
+    "ExposureTrendProvider",
+    "IdentityExposureProvider",
     "InMemoryExposureStore",
     "KnownDataExposureEngine",
     "KnownSurfaceRecord",
