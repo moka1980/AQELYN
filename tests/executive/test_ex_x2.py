@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Protocol, cast
 
 import pytest
@@ -328,3 +328,53 @@ async def test_exec_report_contract(kind: str) -> None:
         await store.put(frozen)
         with pytest.raises(FrozenReportMutation):
             await store.put(frozen.model_copy(update={"title": "mutated"}, deep=True))
+
+
+async def test_exec_composite_as_of_is_stalest() -> None:
+    # ECR-0010: a composite figure is only as fresh as its STALEST input (min),
+    # not the newest (max) — a single timestamp must not overstate freshness.
+    older = NOW - timedelta(hours=6)
+    store = InMemoryKPIDefinitionStore()
+    definition = _definition(
+        key="staleness_posture",
+        inputs=[
+            {"source_engine": "risk", "metric": "score", "weight": 0.5},
+            {"source_engine": "compliance", "metric": "posture_score", "weight": 0.5},
+        ],
+        combinator="weighted_average",
+    )
+    proposed = await store.propose(definition, by=ACTOR)
+    await store.promote(proposed.key, proposed.version, by=ACTOR, reason="staleness test")
+
+    fresh_metric = OwnerMetric(
+        source_engine="risk",
+        ref_id="risk:score:record",
+        value=80.0,
+        unit="score",
+        as_of=NOW,
+        confidence=0.9,
+        evidence_id=new_id("evd"),
+        owner_record={},
+    )
+    stale_metric = OwnerMetric(
+        source_engine="compliance",
+        ref_id="compliance:posture_score:record",
+        value=60.0,
+        unit="score",
+        as_of=older,
+        confidence=0.7,
+        evidence_id=new_id("evd"),
+        owner_record={},
+    )
+    engine = ExecutiveKPIEngine(
+        store,
+        {
+            "risk": _Source("risk", {"score": fresh_metric}),
+            "compliance": _Source("compliance", {"posture_score": stale_metric}),
+        },
+    )
+
+    record = await engine.compute_kpi(key="staleness_posture", period="2026-Q3", tenant_id=TENANT)
+
+    assert record.figure.as_of == older
+    assert record.figure.as_of != NOW
