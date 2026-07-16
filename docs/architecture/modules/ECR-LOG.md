@@ -12,6 +12,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0005 | EA-0004 Evidence & Integrity | Accepted | Add `EvidenceStore.custody_of()` and explicit intake custody rows for reconstructable custody. |
 | ECR-0006 | EA-0018 / IS-018 | Accepted | Realize IS-018 as an orchestration layer above EA-0008, not a second executor. |
 | ECR-0007 | cross-cutting (verification method) | Accepted | Grep-based enforcement is insufficient; require behavioural/structural proof. |
+| ECR-0008 | EA-0017 Threat Detection | Accepted | `project()` superseded by EA-0021; EA-0017 keeps its S4 stance. |
 
 ---
 
@@ -218,3 +219,38 @@ back their invariants with real behavioural tests (mutation spies, refusal tests
 fail-closed tests) in addition to the grep wording. This ECR corrects the
 *standard and the wording*: reviewers SHALL treat the behavioural test as the
 proof, and no future spec SHALL rest an invariant on a textual check alone.
+
+---
+
+## ECR-0008 - EA-0017 `project()` superseded by EA-0021
+
+**Raised by:** planning (EA-0021 spec pass).
+**Severity:** scope collision (one capability, two owners).
+
+**Problem.** EA-0017 §S4 scoped "predictive analytics" narrowly and shipped
+`project(subject_ref, horizon_days) -> Projection` (EA-0017 line 156) as an
+advisory feature inside the detection engine. EA-0021 is a full forecasting
+engine (methods, intervals, trends, scenarios, outcome scoring). Left as-is the
+platform would have **two projection paths with different guarantees** - exactly
+the duplication this project has rejected everywhere else (one capability, one
+owner).
+
+**Resolution.** **EA-0021 owns forecasting platform-wide.** EA-0017's `project()`
+is **deprecated** and SHALL delegate to `ForecastingEngine.forecast(...)`; it
+SHALL NOT keep an independent projection implementation. EA-0017's **S4 stance**
+(predictions are advisory, never findings, never evidence) is **retained and
+generalised** by EA-0021 §1 S3, which strengthens it further with mandatory
+uncertainty intervals (S4), outcome scoring (S5), and the no-automation rule
+(S7).
+
+**Impact.** Non-breaking at the call site (same advisory semantics, richer
+result). EA-0017's `Projection` type is superseded by EA-0021's `Forecast`.
+Sequencing: EA-0021 (C-018) lands the engine, then the EA-0017 delegation is a
+small follow-up ticket; until then EA-0017's `project()` remains as shipped and
+is not extended.
+
+**Also recorded here:** IS-021 requested a **Confidence Engine** (the third such
+request, after IS-020) and an **Explainability Engine** (the second). Both are
+mapped to existing owners - **EA-0006 Trust** and **EA-0020 `Derivation`/
+`replay`** respectively - per EA-0021 §0. The platform keeps **one confidence
+authority and one explainability mechanism**.
