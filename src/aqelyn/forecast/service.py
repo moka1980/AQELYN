@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from aqelyn.conventions import new_id
 from aqelyn.conventions.errors import EvidenceNotFound, ForecastConfigInvalid, StoreUnavailable
@@ -15,6 +16,10 @@ from aqelyn.forecast.store import ForecastStore, PredictionModelStore
 from aqelyn.forecast.trend import MetricObservation
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.trust.models import TrustConfig
+
+if TYPE_CHECKING:
+    from aqelyn.lake.service import DataLakeService
+    from aqelyn.risk.engine import RiskIntelligenceEngine
 
 FORECAST_EVENTS: dict[str, int] = {
     "aqelyn.forecast.generated": 1,
@@ -60,8 +65,8 @@ class ForecastingService:
         forecast_store: ForecastStore,
         model_store: PredictionModelStore,
         evidence_store: EvidenceStore,
-        lake_service: object,
-        risk_engine: object,
+        lake_service: DataLakeService | None,
+        risk_engine: RiskIntelligenceEngine | None,
         close_forecast_store: Callable[[], Awaitable[None]] | None = None,
         close_model_store: Callable[[], Awaitable[None]] | None = None,
         dependencies: Sequence[str] = ("datalake_engine", "trust_engine", "risk_engine"),

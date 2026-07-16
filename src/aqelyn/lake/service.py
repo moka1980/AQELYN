@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from aqelyn.conventions import new_id
 from aqelyn.conventions.errors import EvidenceNotFound, StoreUnavailable
 from aqelyn.events.registry import EventTypeRegistry
-from aqelyn.evidence import BlobStore
+from aqelyn.evidence import BlobStore, EvidenceStore
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.lake.models import LakeConfig
 from aqelyn.lake.retention import RetentionEngine, WorkflowProposer
@@ -35,7 +35,7 @@ class DataLakeService:
         record_store: TelemetryRecordStore,
         retention_engine: RetentionEngine,
         blob_store: BlobStore,
-        audit_store: object,
+        audit_store: EvidenceStore,
         policy_authorizer: PolicyEngineService,
         workflow_engine: WorkflowProposer,
         config: LakeConfig | None = None,
