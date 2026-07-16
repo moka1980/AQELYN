@@ -13,6 +13,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0006 | EA-0018 / IS-018 | Accepted | Realize IS-018 as an orchestration layer above EA-0008, not a second executor. |
 | ECR-0007 | cross-cutting (verification method) | Accepted | Grep-based enforcement is insufficient; require behavioural/structural proof. |
 | ECR-0008 | EA-0017 Threat Detection | Accepted | `project()` superseded by EA-0021; EA-0017 keeps its S4 stance. |
+| ECR-0009 | EA-0022 / IS-022 | Accepted | Override master §28.2/§28.3: a missing/failed executive figure is omitted + recorded, never backfilled with a stale value. |
 
 ---
 
@@ -254,3 +255,41 @@ request, after IS-020) and an **Explainability Engine** (the second). Both are
 mapped to existing owners - **EA-0006 Trust** and **EA-0020 `Derivation`/
 `replay`** respectively - per EA-0021 §0. The platform keeps **one confidence
 authority and one explainability mechanism**.
+
+---
+
+## ECR-0009 - EA-0022 overrides master §28.2/§28.3 (a missing number must look missing)
+
+**Raised by:** planning (EA-0022 spec pass).
+**Severity:** architectural - the master's stated failure handling would license
+the exact un-evidenced verdict this module exists not to produce.
+
+**Problem.** The EA-0022 archive master, in its failure-handling section, permits
+two behaviours that are safe for an operational dashboard but **corrosive in an
+executive report**:
+
+- **§28.2 Dashboard Failure - "Fallback metrics displayed".** Substituting a
+  fallback/last-known value for a figure that could not be read.
+- **§28.3 KPI Calculation Failure - "Previous values retained".** Carrying a prior
+  period's value forward when the current calculation fails.
+
+In a *live dashboard* a last-known value is defensible. In an **issued executive
+report** it is a lie: a board reads a retained/fallback number as the current,
+computed figure, with full provenance implied. A stale value presented as current
+is worse than a gap - it severs the evidence chain precisely where a non-expert
+cannot see the seam. This directly contradicts EA-0022 S1 (no number without
+provenance) and S5 (material exceptions cannot be omitted).
+
+**Resolution.** For **issued reports and KPI records** (not live dashboards), a
+figure that cannot be read/computed is **omitted and recorded in an `excludes`
+list**, and SHALL NOT be zeroed, defaulted, or backfilled with a prior value. A
+missing number **looks missing**. §28.2's "fallback metrics" is scoped to the
+**live dashboard** surface only (which S3 already distinguishes from a frozen
+report); §28.3's "previous values retained" is **not** applied to issued reports.
+Captured as EA-0022 **FR-9**, **NFR-2**, **§12**, and **AC-9**
+(`test_ex_missing_kpi_excluded`).
+
+**Impact.** Governs implementation only; the archive master is unchanged (per
+`modules/README.md`, the spec governs). No prior module behaviour changes. This
+is the executive-layer application of the same discipline EA-0021 used for
+`unscoreable` outcomes (record + exclude, never flatter the number).
