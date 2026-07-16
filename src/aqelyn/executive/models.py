@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import ExecutiveConfigInvalid, FigureProvenanceMissing
+from aqelyn.decision import Derivation
 
 SourceKind = Literal[
     "risk",
@@ -283,6 +284,7 @@ class KPIRecord(BaseModel):
     figure: Figure
     reporting_period: str
     band: str
+    derivation: Derivation | None = None
 
     @field_validator("id")
     @classmethod

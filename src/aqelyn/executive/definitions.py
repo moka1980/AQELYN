@@ -24,6 +24,10 @@ class KPIDefinitionStore(Protocol):
 
     async def active(self, key: str) -> KPIDefinition: ...
 
+    async def get(self, key: str, version: int) -> KPIDefinition | None: ...
+
+    async def versions(self, key: str, *, limit: int = 100) -> list[KPIDefinition]: ...
+
 
 class InMemoryKPIDefinitionStore:
     def __init__(self) -> None:
@@ -113,3 +117,15 @@ def _nonempty(value: str, *, field: str) -> str:
     if not value.strip():
         raise ExecutiveConfigInvalid(f"{field} must not be empty")
     return value
+
+
+def validate_definition(definition: KPIDefinition) -> KPIDefinition:
+    return KPIDefinition.model_validate(definition.model_dump(mode="json"))
+
+
+def validate_definition_key(value: str) -> str:
+    return _nonempty(value, field="key")
+
+
+def validate_promotion_reason(value: str) -> str:
+    return _nonempty(value, field="promotion reason")
