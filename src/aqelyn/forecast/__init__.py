@@ -40,6 +40,11 @@ from aqelyn.forecast.models import (
     TrendRecord,
 )
 from aqelyn.forecast.postgres import PostgresForecastStore, PostgresPredictionModelStore
+from aqelyn.forecast.scenario import (
+    scenario_operation_registry,
+    scenario_result,
+    simulate_scenario,
+)
 from aqelyn.forecast.scoring import (
     ActualValueSource,
     EvidenceRecorder,
@@ -99,8 +104,11 @@ __all__ = [
     "moving_average",
     "publish_forecasts",
     "rate_extrapolation",
+    "scenario_operation_registry",
+    "scenario_result",
     "scored_outcome",
     "seasonal_naive",
+    "simulate_scenario",
     "statement_from_derivation",
     "unscoreable_outcome",
     "validate_forecast_subject_ref",

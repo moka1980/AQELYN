@@ -26,6 +26,7 @@ from aqelyn.response.service import (
     register_response_events,
 )
 from aqelyn.response.store import CampaignStore, TriggerStore
+from aqelyn.response.triggers import reject_forecast_trigger_input
 
 __all__ = [
     "RECOVERY_FOLLOW_UP_ACTION",
@@ -55,4 +56,5 @@ __all__ = [
     "TriggerStore",
     "derive_campaign_status",
     "register_response_events",
+    "reject_forecast_trigger_input",
 ]

@@ -5,7 +5,9 @@ from __future__ import annotations
 from typing import Protocol
 
 from aqelyn.conventions import ActorRef
+from aqelyn.conventions.errors import ResponseConfigInvalid
 from aqelyn.findings import Finding
+from aqelyn.forecast.models import Forecast
 from aqelyn.policy.interpreter import condition_matches
 from aqelyn.policy.models import Decision, DecisionRequest, DecisionResource
 from aqelyn.workflow.models import Playbook
@@ -27,6 +29,11 @@ def trigger_matches(trigger: AutomationTrigger, finding: Finding) -> bool:
         "trigger": trigger.model_dump(mode="json"),
     }
     return condition_matches(trigger.condition, payload)
+
+
+def reject_forecast_trigger_input(value: object) -> None:
+    if isinstance(value, Forecast):
+        raise ResponseConfigInvalid("forecasts cannot be used as AutomationTrigger input")
 
 
 def build_trigger_decision_request(
