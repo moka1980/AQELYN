@@ -57,6 +57,8 @@ relies on. Other specs reference this rather than restating it.
 | `rpt` | Executive report | EA-0022 |
 | `dsh` | Executive dashboard | EA-0022 |
 | `brf` | Executive briefing | EA-0022 |
+| `exp` | Exposure record | EA-0023 |
+| `asa` | Attack surface asset | EA-0023 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -224,6 +226,11 @@ Every created/changed record and every event carries the responsible actor.
 | `ExceptionsUnavailable` | EA-0022 | no |
 | `KPIDefinitionNotFound` | EA-0022 | no |
 | `ReportNotFound` | EA-0022 | no |
+| `ExposureConfigInvalid` | EA-0023 | no |
+| `ExposureBasisMissing` | EA-0023 | no |
+| `ExposureNotFound` | EA-0023 | no |
+| `ExposureNotReplayable` | EA-0023 | no |
+| `ScanNotPermitted` | EA-0023 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

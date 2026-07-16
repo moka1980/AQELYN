@@ -51,6 +51,8 @@ PREFIXES: dict[str, str] = {
     "rpt": "executive_report",
     "dsh": "executive_dashboard",
     "brf": "executive_briefing",
+    "exp": "exposure_record",
+    "asa": "attack_surface_asset",
     "svc": "service",
 }
 
