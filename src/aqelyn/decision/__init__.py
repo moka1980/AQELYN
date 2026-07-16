@@ -1,5 +1,12 @@
 """AI Decision Intelligence Engine (EA-0020)."""
 
+from aqelyn.decision.derive import (
+    build_derivation,
+    explain,
+    replay,
+    validate_replayable_recommendation,
+)
+from aqelyn.decision.memory import InMemoryModelVersionStore, InMemoryRecommendationStore
 from aqelyn.decision.models import (
     VALID_CLAIM_KINDS,
     VALID_DECISIONS,
@@ -30,6 +37,8 @@ from aqelyn.decision.operations import (
     threshold,
     weigh,
 )
+from aqelyn.decision.postgres import PostgresModelVersionStore, PostgresRecommendationStore
+from aqelyn.decision.store import ModelVersionStore, RecommendationStore
 
 __all__ = [
     "DEFAULT_OPERATION_NAMES",
@@ -42,20 +51,30 @@ __all__ = [
     "DecisionRecord",
     "Derivation",
     "DerivationStep",
+    "InMemoryModelVersionStore",
+    "InMemoryRecommendationStore",
     "JsonMap",
     "JsonMapping",
     "LearningRecord",
     "ModelVersion",
+    "ModelVersionStore",
     "OperationRegistry",
+    "PostgresModelVersionStore",
+    "PostgresRecommendationStore",
     "PureOp",
     "Recommendation",
+    "RecommendationStore",
     "SimilarityHit",
+    "build_derivation",
     "default_operation_registry",
+    "explain",
     "filter_items",
     "mission_weight",
     "rank",
+    "replay",
     "select_claims",
     "similarity",
     "threshold",
+    "validate_replayable_recommendation",
     "weigh",
 ]
