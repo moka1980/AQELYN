@@ -14,6 +14,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0007 | cross-cutting (verification method) | Accepted | Grep-based enforcement is insufficient; require behavioural/structural proof. |
 | ECR-0008 | EA-0017 Threat Detection | Accepted | `project()` superseded by EA-0021; EA-0017 keeps its S4 stance. |
 | ECR-0009 | EA-0022 / IS-022 | Accepted | Override master §28.2/§28.3: a missing/failed executive figure is omitted + recorded, never backfilled with a stale value. |
+| ECR-0010 | EA-0022 / IS-022 | Accepted | Composite `Figure.as_of` uses the **stalest** input (`min`), not the newest — a single timestamp must not overstate freshness. |
+| ECR-0011 | EA-0023 / IS-023 | Accepted | Exposure is derived from known data; **no `scan()`/`probe()`/`connect()`**. Active scanning is an EA-0008 `scan.active` ActionSpec. Overrides master §20.3 scan endpoint + §28.2/§28.3. |
 
 ---
 
@@ -293,3 +295,65 @@ Captured as EA-0022 **FR-9**, **NFR-2**, **§12**, and **AC-9**
 `modules/README.md`, the spec governs). No prior module behaviour changes. This
 is the executive-layer application of the same discipline EA-0021 used for
 `unscoreable` outcomes (record + exclude, never flatter the number).
+
+---
+
+## ECR-0010 - EA-0022 composite `Figure.as_of` uses the stalest input (min)
+
+**Raised by:** owner (post-EA-0022 as_of review), pushing back on the reviewer's
+"arguable, not wrong" call.
+**Severity:** honesty correctness (small), on shipped EA-0022 code.
+
+**Problem.** EA-0022 X2 set a composed KPI's `Figure.as_of` to
+`max(input.as_of)` - the **newest** contributing timestamp. A composite is only as
+fresh as its **stalest** input; reporting the newest timestamp overstates
+freshness in exactly the way EA-0022 §1 exists to prevent (a single number
+implying more currency than the data supports). The reviewer had called `max`
+"arguable, not wrong"; the owner's position is that it is wrong.
+
+**Resolution.** A composed `Figure.as_of` SHALL be the **minimum** (stalest) of
+its inputs' `as_of`. "When was this calculated" is a distinct fact already carried
+by `computed_at`, so both stay separable. (Acceptable alternative, if ever
+preferred: surface **both** bounds; what SHALL NOT stand is a single timestamp
+implying more freshness than the data supports.) `min` costs nothing.
+
+**Impact.** One-line change in `executive/kpi.py` (`max(...)` -> `min(...)`) plus a
+test asserting a composite of differently-dated inputs takes the **oldest**
+`as_of`. Existing X2 tests use a single timestamp per case, so they are unaffected.
+No other module changes.
+
+---
+
+## ECR-0011 - EA-0023 derives exposure from known data; no scanning
+
+**Raised by:** planning (EA-0023 spec pass).
+**Severity:** architectural - the master specifies an active-scan surface that
+would make this engine touch systems it does not own.
+
+**Problem.** The EA-0023 archive master specifies **active scanning as a native
+capability**: §20.3 lists `POST /attack-surface/scan`, §12.1/§24 describe
+"continuous discovery", and §28.2/§28.3 permit a "fallback assessment" and a
+"previous score retained" on failure. A scan is **not read-only from the target's
+point of view**: it touches a machine the platform does not own, can disrupt
+fragile services, trips other parties' detection, and pointed at the wrong netblock
+may be unlawful. A native `scan()` inside a detection engine is exactly the
+uncontrolled acting path the platform's §0 discipline rejects. The fallback/retained
+clauses repeat the EA-0022 §28.2/§28.3 hazard (ECR-0009): a fabricated or stale
+exposure verdict presented as current.
+
+**Resolution.** EA-0023 has **no `scan()`/`probe()`/`connect()` method**. The
+attack surface is **derived from data the platform already holds** (EA-0012
+inventory, EA-0019 telemetry, EA-0011 access, EA-0005 KG). Active scanning, when it
+arrives, is **not** a method here - it is an **EA-0008 `ActionSpec`**: capability
+**`scan.active`**, at minimum **reversible**, **Policy-authorized** (scope is the
+whole safety question), delivered by a **connector**, requested as a **proposed
+gated run**; this engine consumes the results as **stored data, unchanged**.
+Unmatched reachability is recorded **`unknown` and flagged, never defaulted to
+internal** (S2). Master §28.2/§28.3 are overridden as in ECR-0009: a failed
+analysis is `unknown`+flagged, a failed re-score is stale/unavailable - never faked.
+
+**Impact.** Governs implementation only; the archive master is unchanged (the spec
+governs). Captured as EA-0023 §0.1, **S1/S2/S9**, **FR-1/2/11/12**, **NFR-1**, and
+**AC-1/2/3/13/14**. The no-probing invariant is proven **structurally** (no scan
+method exists) and **behaviourally** (a network spy asserts zero outbound attempts),
+per ECR-0007.

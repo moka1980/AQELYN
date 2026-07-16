@@ -33,7 +33,8 @@ EA-0018 → `src/aqelyn/response/` + `tests/response/`;
 EA-0019 → `src/aqelyn/lake/` + `tests/lake/`;
 EA-0020 → `src/aqelyn/decision/` + `tests/decision/`;
 EA-0021 → `src/aqelyn/forecast/` + `tests/forecast/`;
-EA-0022 → `src/aqelyn/executive/` + `tests/executive/`.
+EA-0022 → `src/aqelyn/executive/` + `tests/executive/`;
+EA-0023 → `src/aqelyn/exposure/` + `tests/exposure/`.
 
 ## Rules for AI agents and developers
 
@@ -68,6 +69,7 @@ EA-0022 → `src/aqelyn/executive/` + `tests/executive/`.
 | [EA-0020 AI Decision Intelligence](EA-0020-ai-decision-intelligence.spec.md) | EA-0020 | **EA-0006**, EA-0008, EA-0013, EA-0015 | [C-017](C-017_Task_Bundle.md) | Accepted (see ECR-0007) |
 | [EA-0021 Predictive Analytics & Forecasting](EA-0021-predictive-analytics-forecasting.spec.md) | EA-0021 | **EA-0020**, **EA-0006**, EA-0019 | [C-018](C-018_Task_Bundle.md) | Accepted (see ECR-0008) |
 | [EA-0022 Executive Intelligence & Reporting](EA-0022-executive-intelligence-strategic-reporting.spec.md) | EA-0022 | EA-0007/0010/0013/0021, EA-0020, EA-0004 | [C-019](C-019_Task_Bundle.md) | Accepted |
+| [EA-0023 Threat Exposure & Attack Surface Mgmt](EA-0023-threat-exposure-attack-surface-management.spec.md) | EA-0023 | EA-0012, EA-0019, EA-0005, EA-0011, EA-0007/0006, EA-0013 | [C-020](C-020_Task_Bundle.md) | Accepted (see ECR-0011) |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
@@ -75,7 +77,7 @@ specs (currently ECR-0001 against EA-0005).
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0023 (Threat Exposure & Attack Surface Management) onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0024 (Vulnerability Intelligence & Prioritization) onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).
