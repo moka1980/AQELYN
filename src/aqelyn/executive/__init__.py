@@ -52,9 +52,17 @@ from aqelyn.executive.report import (
     forecast_summary_figure,
     issue_report,
 )
+from aqelyn.executive.service import (
+    EXECUTIVE_EVENTS,
+    EmptyExecutiveValueSource,
+    EmptyMaterialExceptionSource,
+    ExecutiveIntelligenceService,
+    register_executive_events,
+)
 from aqelyn.executive.store import ReportStore
 
 __all__ = [
+    "EXECUTIVE_EVENTS",
     "VALID_BANDS",
     "VALID_COMBINATORS",
     "VALID_INPUT_METRICS",
@@ -64,11 +72,14 @@ __all__ = [
     "BriefingTemplate",
     "Dashboard",
     "DrillDownRecord",
+    "EmptyExecutiveValueSource",
+    "EmptyMaterialExceptionSource",
     "EvidencePackager",
     "EvidenceRecorder",
     "ExceptionItem",
     "ExecutiveBriefing",
     "ExecutiveConfig",
+    "ExecutiveIntelligenceService",
     "ExecutiveKPIEngine",
     "ExecutiveReport",
     "ExecutiveReportEngine",
@@ -102,5 +113,6 @@ __all__ = [
     "issue_report",
     "kpi_operation_registry",
     "kpi_result",
+    "register_executive_events",
     "render_briefing",
 ]

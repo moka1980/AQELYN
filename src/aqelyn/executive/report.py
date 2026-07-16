@@ -336,10 +336,16 @@ def _report_content_hash(report: ExecutiveReport) -> str:
             "period": report.period,
             "sections": [section.model_dump(mode="json") for section in report.sections],
             "exceptions": [figure.model_dump(mode="json") for figure in report.exceptions],
-            "scope": report.scope,
+            "scope": _scope_for_content_hash(report.scope),
             "excludes": [exclude.model_dump(mode="json") for exclude in report.excludes],
         }
     )
+
+
+def _scope_for_content_hash(scope: Mapping[str, Any]) -> dict[str, Any]:
+    selected = dict(scope)
+    selected.pop("issue_evidence_id", None)
+    return selected
 
 
 def _input_snapshot_ids(report: ExecutiveReport) -> list[str]:

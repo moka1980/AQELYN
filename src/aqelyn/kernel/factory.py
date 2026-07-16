@@ -67,6 +67,13 @@ if TYPE_CHECKING:
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.service import ThreatDetectionService
     from aqelyn.detection.store import ProfileStore, RuleStore
+    from aqelyn.executive import (
+        ExecutiveIntelligenceService,
+        ExecutiveKPIEngine,
+        ExecutiveReportEngine,
+        KPIDefinitionStore,
+        ReportStore,
+    )
     from aqelyn.forecast.engine import ForecastingEngine
     from aqelyn.forecast.service import ForecastingService
     from aqelyn.forecast.store import ForecastStore, PredictionModelStore
@@ -156,6 +163,11 @@ class Runtime:
     forecast_model_store: PredictionModelStore
     forecast_engine: ForecastingEngine
     forecast_engine_service: ForecastingService
+    executive_definition_store: KPIDefinitionStore
+    executive_report_store: ReportStore
+    executive_kpi_engine: ExecutiveKPIEngine
+    executive_report_engine: ExecutiveReportEngine
+    executive_engine_service: ExecutiveIntelligenceService
 
 
 class _RuntimeService:
@@ -291,6 +303,10 @@ def _register_runtime_services(
     forecast_store: ForecastStore,
     forecast_model_store: PredictionModelStore,
     forecast_engine: ForecastingEngine,
+    executive_definition_store: KPIDefinitionStore,
+    executive_report_store: ReportStore,
+    executive_kpi_engine: ExecutiveKPIEngine,
+    executive_report_engine: ExecutiveReportEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -312,6 +328,8 @@ def _register_runtime_services(
     close_lake_record_store: Callable[[], Awaitable[None]] | None = None,
     close_forecast_store: Callable[[], Awaitable[None]] | None = None,
     close_forecast_model_store: Callable[[], Awaitable[None]] | None = None,
+    close_executive_definition_store: Callable[[], Awaitable[None]] | None = None,
+    close_executive_report_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -330,10 +348,12 @@ def _register_runtime_services(
     DigitalForensicsService,
     DataLakeService,
     ForecastingService,
+    ExecutiveIntelligenceService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.decision.service import DecisionIntelligenceService
     from aqelyn.detection.service import ThreatDetectionService
+    from aqelyn.executive.service import ExecutiveIntelligenceService
     from aqelyn.forecast.service import ForecastingService
     from aqelyn.forensics.service import DigitalForensicsService
     from aqelyn.governance.service import ComplianceGovernanceService
@@ -476,6 +496,18 @@ def _register_runtime_services(
         close_model_store=close_forecast_model_store,
     )
     kernel.register(forecast_service)
+    executive_service = ExecutiveIntelligenceService(
+        executive_report_engine,
+        kpi_engine=executive_kpi_engine,
+        definition_store=executive_definition_store,
+        report_store=executive_report_store,
+        evidence_store=evidence_store,
+        owner_sources=executive_kpi_engine.sources,
+        section_sources=executive_report_engine.section_sources,
+        close_definition_store=close_executive_definition_store,
+        close_report_store=close_executive_report_store,
+    )
+    kernel.register(executive_service)
     return (
         graph_service,
         trust_service,
@@ -494,6 +526,7 @@ def _register_runtime_services(
         forensics_service,
         lake_service,
         forecast_service,
+        executive_service,
     )
 
 
@@ -512,6 +545,15 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.memory import InMemoryProfileStore, InMemoryRuleStore
     from aqelyn.detection.service import register_detection_events
+    from aqelyn.executive import (
+        EmptyExecutiveValueSource,
+        EmptyMaterialExceptionSource,
+        ExecutiveKPIEngine,
+        ExecutiveReportEngine,
+        InMemoryKPIDefinitionStore,
+        InMemoryReportStore,
+        register_executive_events,
+    )
     from aqelyn.forecast import (
         EmptyActualValueSource,
         EmptyMetricHistorySource,
@@ -564,6 +606,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_lake_events(registry)
     register_decision_events(registry)
     register_forecast_events(registry)
+    register_executive_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -709,6 +752,22 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         evidence_recorder=evidence_store,
         trust_engine=trust_engine,
     )
+    executive_definition_store = InMemoryKPIDefinitionStore()
+    executive_report_store = InMemoryReportStore(mode=cfg.tenant_mode)
+    executive_kpi_sources = {
+        source_engine: EmptyExecutiveValueSource(source_engine)
+        for source_engine in ("compliance", "risk", "forecast", "mission")
+    }
+    executive_kpi_engine = ExecutiveKPIEngine(
+        executive_definition_store,
+        executive_kpi_sources,
+    )
+    executive_report_engine = ExecutiveReportEngine(
+        report_store=executive_report_store,
+        exception_source=EmptyMaterialExceptionSource(),
+        kpi_engine=executive_kpi_engine,
+        evidence_store=evidence_store,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -728,6 +787,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forensics_engine_service,
         lake_service,
         forecast_engine_service,
+        executive_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -771,6 +831,10 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forecast_store=forecast_store,
         forecast_model_store=forecast_model_store,
         forecast_engine=forecast_engine,
+        executive_definition_store=executive_definition_store,
+        executive_report_store=executive_report_store,
+        executive_kpi_engine=executive_kpi_engine,
+        executive_report_engine=executive_report_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -834,6 +898,11 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forecast_model_store=forecast_model_store,
         forecast_engine=forecast_engine,
         forecast_engine_service=forecast_engine_service,
+        executive_definition_store=executive_definition_store,
+        executive_report_store=executive_report_store,
+        executive_kpi_engine=executive_kpi_engine,
+        executive_report_engine=executive_report_engine,
+        executive_engine_service=executive_engine_service,
     )
 
 
@@ -854,6 +923,15 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.postgres import PostgresProfileStore, PostgresRuleStore
     from aqelyn.detection.service import register_detection_events
+    from aqelyn.executive import (
+        EmptyExecutiveValueSource,
+        EmptyMaterialExceptionSource,
+        ExecutiveKPIEngine,
+        ExecutiveReportEngine,
+        PostgresKPIDefinitionStore,
+        PostgresReportStore,
+        register_executive_events,
+    )
     from aqelyn.forecast import (
         EmptyActualValueSource,
         EmptyMetricHistorySource,
@@ -911,6 +989,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_lake_events(registry)
     register_decision_events(registry)
     register_forecast_events(registry)
+    register_executive_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -1091,6 +1170,25 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         evidence_recorder=evidence_store,
         trust_engine=trust_engine,
     )
+    executive_definition_store = await PostgresKPIDefinitionStore.connect(cfg.database_url)
+    executive_report_store = await PostgresReportStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    executive_kpi_sources = {
+        source_engine: EmptyExecutiveValueSource(source_engine)
+        for source_engine in ("compliance", "risk", "forecast", "mission")
+    }
+    executive_kpi_engine = ExecutiveKPIEngine(
+        executive_definition_store,
+        executive_kpi_sources,
+    )
+    executive_report_engine = ExecutiveReportEngine(
+        report_store=executive_report_store,
+        exception_source=EmptyMaterialExceptionSource(),
+        kpi_engine=executive_kpi_engine,
+        evidence_store=evidence_store,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -1110,6 +1208,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forensics_engine_service,
         lake_service,
         forecast_engine_service,
+        executive_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1153,6 +1252,10 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forecast_store=forecast_store,
         forecast_model_store=forecast_model_store,
         forecast_engine=forecast_engine,
+        executive_definition_store=executive_definition_store,
+        executive_report_store=executive_report_store,
+        executive_kpi_engine=executive_kpi_engine,
+        executive_report_engine=executive_report_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -1174,6 +1277,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_lake_record_store=lake_record_store.close,
         close_forecast_store=forecast_store.close,
         close_forecast_model_store=forecast_model_store.close,
+        close_executive_definition_store=executive_definition_store.close,
+        close_executive_report_store=executive_report_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -1237,4 +1342,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forecast_model_store=forecast_model_store,
         forecast_engine=forecast_engine,
         forecast_engine_service=forecast_engine_service,
+        executive_definition_store=executive_definition_store,
+        executive_report_store=executive_report_store,
+        executive_kpi_engine=executive_kpi_engine,
+        executive_report_engine=executive_report_engine,
+        executive_engine_service=executive_engine_service,
     )
