@@ -1,5 +1,6 @@
 """Predictive Analytics & Forecasting Engine (EA-0021)."""
 
+from aqelyn.forecast.memory import InMemoryForecastStore, InMemoryPredictionModelStore
 from aqelyn.forecast.methods import (
     MethodRegistry,
     MethodResult,
@@ -28,6 +29,13 @@ from aqelyn.forecast.models import (
     TrendDirection,
     TrendRecord,
 )
+from aqelyn.forecast.postgres import PostgresForecastStore, PostgresPredictionModelStore
+from aqelyn.forecast.store import (
+    ForecastStore,
+    PredictionModelStore,
+    forecast_operation_registry,
+    validate_replayable_forecast,
+)
 
 __all__ = [
     "VALID_BASIS_KINDS",
@@ -38,20 +46,28 @@ __all__ = [
     "BasisRef",
     "Forecast",
     "ForecastConfig",
+    "ForecastStore",
+    "InMemoryForecastStore",
+    "InMemoryPredictionModelStore",
     "Interval",
     "Method",
     "MethodRegistry",
     "MethodResult",
     "Outcome",
+    "PostgresForecastStore",
+    "PostgresPredictionModelStore",
     "PredictionModel",
+    "PredictionModelStore",
     "PureForecastFn",
     "Scenario",
     "TrendDirection",
     "TrendRecord",
     "default_method_registry",
+    "forecast_operation_registry",
     "holt_winters",
     "linear_trend",
     "moving_average",
     "rate_extrapolation",
     "seasonal_naive",
+    "validate_replayable_forecast",
 ]
