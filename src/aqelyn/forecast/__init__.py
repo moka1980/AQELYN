@@ -1,5 +1,13 @@
 """Predictive Analytics & Forecasting Engine (EA-0021)."""
 
+from aqelyn.forecast.engine import (
+    EvidenceLookup,
+    ForecastingEngine,
+    MetricHistorySource,
+    TrustAssessor,
+    statement_from_derivation,
+    validate_forecast_subject_ref,
+)
 from aqelyn.forecast.memory import InMemoryForecastStore, InMemoryPredictionModelStore
 from aqelyn.forecast.methods import (
     MethodRegistry,
@@ -36,6 +44,7 @@ from aqelyn.forecast.store import (
     forecast_operation_registry,
     validate_replayable_forecast,
 )
+from aqelyn.forecast.trend import MetricObservation, build_trend_record
 
 __all__ = [
     "VALID_BASIS_KINDS",
@@ -44,15 +53,19 @@ __all__ = [
     "AccuracyRecord",
     "BasisKind",
     "BasisRef",
+    "EvidenceLookup",
     "Forecast",
     "ForecastConfig",
     "ForecastStore",
+    "ForecastingEngine",
     "InMemoryForecastStore",
     "InMemoryPredictionModelStore",
     "Interval",
     "Method",
     "MethodRegistry",
     "MethodResult",
+    "MetricHistorySource",
+    "MetricObservation",
     "Outcome",
     "PostgresForecastStore",
     "PostgresPredictionModelStore",
@@ -62,6 +75,8 @@ __all__ = [
     "Scenario",
     "TrendDirection",
     "TrendRecord",
+    "TrustAssessor",
+    "build_trend_record",
     "default_method_registry",
     "forecast_operation_registry",
     "holt_winters",
@@ -69,5 +84,7 @@ __all__ = [
     "moving_average",
     "rate_extrapolation",
     "seasonal_naive",
+    "statement_from_derivation",
+    "validate_forecast_subject_ref",
     "validate_replayable_forecast",
 ]
