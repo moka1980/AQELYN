@@ -1,6 +1,7 @@
 """Executive Intelligence & Strategic Reporting Engine (EA-0022)."""
 
 from aqelyn.executive.definitions import KPIDefinitionStore
+from aqelyn.executive.exceptions import MaterialExceptionSource, collect_material_exceptions
 from aqelyn.executive.kpi import (
     DrillDownRecord,
     ExecutiveKPIEngine,
@@ -35,6 +36,15 @@ from aqelyn.executive.models import (
     SourceRef,
 )
 from aqelyn.executive.postgres import PostgresKPIDefinitionStore, PostgresReportStore
+from aqelyn.executive.report import (
+    EvidenceRecorder,
+    ExecutiveReportEngine,
+    SectionFigureSource,
+    assemble_report,
+    content_hash_for_report,
+    forecast_summary_figure,
+    issue_report,
+)
 from aqelyn.executive.store import ReportStore
 
 __all__ = [
@@ -46,11 +56,13 @@ __all__ = [
     "ApprovalStatus",
     "Dashboard",
     "DrillDownRecord",
+    "EvidenceRecorder",
     "ExceptionItem",
     "ExecutiveBriefing",
     "ExecutiveConfig",
     "ExecutiveKPIEngine",
     "ExecutiveReport",
+    "ExecutiveReportEngine",
     "Figure",
     "InMemoryKPIDefinitionStore",
     "InMemoryReportStore",
@@ -59,6 +71,7 @@ __all__ = [
     "KPIInput",
     "KPIRecord",
     "KPIValueSource",
+    "MaterialExceptionSource",
     "OwnerMetric",
     "PostgresKPIDefinitionStore",
     "PostgresReportStore",
@@ -66,10 +79,16 @@ __all__ = [
     "ReportExclude",
     "ReportSection",
     "ReportStore",
+    "SectionFigureSource",
     "SourceKind",
     "SourceRef",
+    "assemble_report",
+    "collect_material_exceptions",
     "compute_kpi",
+    "content_hash_for_report",
     "drill_down",
+    "forecast_summary_figure",
+    "issue_report",
     "kpi_operation_registry",
     "kpi_result",
 ]
