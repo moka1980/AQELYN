@@ -124,7 +124,7 @@ class ExecutiveKPIEngine:
             unit=definition.unit,
             source_refs=source_refs,
             confidence=_combined_confidence(owner_values),
-            as_of=max(item.as_of for item in owner_values),
+            as_of=min(item.as_of for item in owner_values),
         )
         return KPIRecord(
             tenant_id=tenant_id,
