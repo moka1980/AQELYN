@@ -53,6 +53,13 @@ from aqelyn.forecast.scoring import (
     scored_outcome,
     unscoreable_outcome,
 )
+from aqelyn.forecast.service import (
+    FORECAST_EVENTS,
+    EmptyActualValueSource,
+    EmptyMetricHistorySource,
+    ForecastingService,
+    register_forecast_events,
+)
 from aqelyn.forecast.store import (
     ForecastStore,
     PredictionModelStore,
@@ -62,6 +69,7 @@ from aqelyn.forecast.store import (
 from aqelyn.forecast.trend import MetricObservation, build_trend_record
 
 __all__ = [
+    "FORECAST_EVENTS",
     "VALID_BASIS_KINDS",
     "VALID_FORECAST_SUBJECT_PREFIXES",
     "VALID_METHODS",
@@ -70,6 +78,8 @@ __all__ = [
     "ActualValueSource",
     "BasisKind",
     "BasisRef",
+    "EmptyActualValueSource",
+    "EmptyMetricHistorySource",
     "EvidenceLookup",
     "EvidenceRecorder",
     "Forecast",
@@ -77,6 +87,7 @@ __all__ = [
     "ForecastPublication",
     "ForecastStore",
     "ForecastingEngine",
+    "ForecastingService",
     "InMemoryForecastStore",
     "InMemoryPredictionModelStore",
     "Interval",
@@ -104,6 +115,7 @@ __all__ = [
     "moving_average",
     "publish_forecasts",
     "rate_extrapolation",
+    "register_forecast_events",
     "scenario_operation_registry",
     "scenario_result",
     "scored_outcome",
