@@ -24,8 +24,10 @@ from aqelyn.forecast.models import (
     Method,
     Outcome,
     PredictionModel,
+    Scenario,
     TrendRecord,
 )
+from aqelyn.forecast.scenario import simulate_scenario
 from aqelyn.forecast.scoring import (
     ActualValueSource,
     EvidenceRecorder,
@@ -290,6 +292,9 @@ class ForecastingEngine:
             limit=limit or self.config.batch_size,
         )
         return publish_forecasts(forecasts, now=self._clock())
+
+    async def simulate(self, *, scenario: Scenario) -> Scenario:
+        return simulate_scenario(scenario)
 
     async def _history(
         self, *, metric: str, window_days: int, tenant_id: str | None
