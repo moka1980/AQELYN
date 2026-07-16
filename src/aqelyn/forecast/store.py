@@ -21,7 +21,14 @@ from aqelyn.decision.operations import (
     OperationRegistry,
     default_operation_registry,
 )
-from aqelyn.forecast.models import VALID_METHODS, Forecast, Interval, Method, PredictionModel
+from aqelyn.forecast.models import (
+    VALID_METHODS,
+    Forecast,
+    Interval,
+    Method,
+    Outcome,
+    PredictionModel,
+)
 
 _FORECAST_RESULT_OP = "forecast_result"
 
@@ -30,6 +37,14 @@ class ForecastStore(Protocol):
     async def put(self, forecast: Forecast) -> Forecast: ...
 
     async def get(self, forecast_id: str, *, tenant_id: str | None = None) -> Forecast | None: ...
+
+    async def record_outcome(
+        self,
+        forecast_id: str,
+        outcome: Outcome,
+        *,
+        tenant_id: str | None = None,
+    ) -> Forecast: ...
 
     async def due_for_scoring(self, *, tenant_id: str | None, now: datetime) -> list[Forecast]: ...
 
@@ -106,6 +121,10 @@ def validate_replayable_forecast(forecast: Forecast) -> Forecast:
     if canonical_json(result) != canonical_json(expected):
         raise ForecastNotReplayable("forecast derivation result does not match point/interval")
     return stored
+
+
+def validate_outcome(outcome: Outcome) -> Outcome:
+    return Outcome.model_validate(outcome.model_dump(mode="json"))
 
 
 def validate_prediction_model(model: PredictionModel) -> PredictionModel:

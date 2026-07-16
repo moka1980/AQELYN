@@ -11,13 +11,14 @@ from aqelyn.conventions.errors import (
     OptimisticConcurrencyConflict,
     TenantScopeRequired,
 )
-from aqelyn.forecast.models import Forecast, Method, PredictionModel
+from aqelyn.forecast.models import Forecast, Method, Outcome, PredictionModel
 from aqelyn.forecast.store import (
     validate_forecast_id,
     validate_inactive_prediction_model,
     validate_limit,
     validate_method,
     validate_model_id,
+    validate_outcome,
     validate_prediction_model,
     validate_promotion_actor,
     validate_promotion_evidence_id,
@@ -46,6 +47,25 @@ class InMemoryForecastStore:
         if forecast is None or not self._visible(forecast.tenant_id, tenant_id):
             return None
         return copy.deepcopy(forecast)
+
+    async def record_outcome(
+        self,
+        forecast_id: str,
+        outcome: Outcome,
+        *,
+        tenant_id: str | None = None,
+    ) -> Forecast:
+        validate_forecast_id(forecast_id)
+        tenant_id = validate_tenant(tenant_id)
+        stored_outcome = validate_outcome(outcome)
+        existing = self._forecasts.get(forecast_id)
+        if existing is None or not self._visible(existing.tenant_id, tenant_id):
+            raise ForecastNotFound(f"forecast not found: {forecast_id}")
+        if existing.outcome is not None:
+            raise OptimisticConcurrencyConflict(f"forecast already scored: {forecast_id}")
+        updated = existing.model_copy(update={"outcome": stored_outcome}, deep=True)
+        self._forecasts[forecast_id] = validate_replayable_forecast(updated)
+        return copy.deepcopy(self._forecasts[forecast_id])
 
     async def due_for_scoring(self, *, tenant_id: str | None, now: datetime) -> list[Forecast]:
         tenant_id = validate_tenant(tenant_id)

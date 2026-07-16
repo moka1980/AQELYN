@@ -16,13 +16,14 @@ from aqelyn.conventions.errors import (
     TenantScopeRequired,
 )
 from aqelyn.forecast.ddl import DDL
-from aqelyn.forecast.models import Forecast, Method, PredictionModel
+from aqelyn.forecast.models import Forecast, Method, Outcome, PredictionModel
 from aqelyn.forecast.store import (
     validate_forecast_id,
     validate_inactive_prediction_model,
     validate_limit,
     validate_method,
     validate_model_id,
+    validate_outcome,
     validate_prediction_model,
     validate_promotion_actor,
     validate_promotion_evidence_id,
@@ -99,6 +100,46 @@ class PostgresForecastStore:
                 *args,
             )
         return None if row is None else _row_to_forecast(row)
+
+    async def record_outcome(
+        self,
+        forecast_id: str,
+        outcome: Outcome,
+        *,
+        tenant_id: str | None = None,
+    ) -> Forecast:
+        validate_forecast_id(forecast_id)
+        tenant_id = validate_tenant(tenant_id)
+        stored_outcome = validate_outcome(outcome)
+        clauses = ["id=$1", "outcome IS NULL"]
+        args: list[Any] = [forecast_id, json.dumps(stored_outcome.model_dump(mode="json"))]
+        if self.mode == "local":
+            clauses.append("tenant_id IS NULL")
+        if tenant_id is not None:
+            args.append(tenant_id)
+            clauses.append(f"tenant_id = ${len(args)}")
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"UPDATE aq_forecast SET outcome=$2 WHERE {' AND '.join(clauses)} "
+                f"RETURNING {_FORECAST_COLS}",
+                *args,
+            )
+            if row is not None:
+                return _row_to_forecast(row)
+            lookup_clauses = ["id=$1"]
+            lookup_args: list[Any] = [forecast_id]
+            if self.mode == "local":
+                lookup_clauses.append("tenant_id IS NULL")
+            if tenant_id is not None:
+                lookup_args.append(tenant_id)
+                lookup_clauses.append(f"tenant_id = ${len(lookup_args)}")
+            existing = await conn.fetchrow(
+                f"SELECT {_FORECAST_COLS} FROM aq_forecast WHERE {' AND '.join(lookup_clauses)}",
+                *lookup_args,
+            )
+        if existing is not None and _row_to_forecast(existing).outcome is not None:
+            raise OptimisticConcurrencyConflict(f"forecast already scored: {forecast_id}")
+        raise ForecastNotFound(f"forecast not found: {forecast_id}")
 
     async def due_for_scoring(self, *, tenant_id: str | None, now: datetime) -> list[Forecast]:
         tenant_id = validate_tenant(tenant_id)
