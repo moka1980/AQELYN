@@ -1,5 +1,12 @@
 """Executive Intelligence & Strategic Reporting Engine (EA-0022)."""
 
+from aqelyn.executive.briefing import (
+    BriefingTemplate,
+    EvidencePackager,
+    brief,
+    export_report,
+    render_briefing,
+)
 from aqelyn.executive.definitions import KPIDefinitionStore
 from aqelyn.executive.exceptions import MaterialExceptionSource, collect_material_exceptions
 from aqelyn.executive.kpi import (
@@ -54,8 +61,10 @@ __all__ = [
     "VALID_REPORT_SECTIONS",
     "VALID_SOURCE_KINDS",
     "ApprovalStatus",
+    "BriefingTemplate",
     "Dashboard",
     "DrillDownRecord",
+    "EvidencePackager",
     "EvidenceRecorder",
     "ExceptionItem",
     "ExecutiveBriefing",
@@ -83,12 +92,15 @@ __all__ = [
     "SourceKind",
     "SourceRef",
     "assemble_report",
+    "brief",
     "collect_material_exceptions",
     "compute_kpi",
     "content_hash_for_report",
     "drill_down",
+    "export_report",
     "forecast_summary_figure",
     "issue_report",
     "kpi_operation_registry",
     "kpi_result",
+    "render_briefing",
 ]
