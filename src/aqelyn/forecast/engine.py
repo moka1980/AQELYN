@@ -7,20 +7,32 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from typing import Protocol
 
-from aqelyn.conventions import ActorRef, utc_now
+from aqelyn.conventions import ActorRef, new_id, utc_now
 from aqelyn.conventions.errors import ForecastConfigInvalid, InsufficientHistory
 from aqelyn.decision import ClaimRef, Derivation, DerivationStep, build_derivation, replay
+from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord
 from aqelyn.forecast.methods import MethodRegistry, default_method_registry
 from aqelyn.forecast.models import (
     VALID_FORECAST_SUBJECT_PREFIXES,
+    AccuracyRecord,
     BasisRef,
     Forecast,
     ForecastConfig,
+    ForecastPublication,
     Interval,
     Method,
+    Outcome,
     PredictionModel,
     TrendRecord,
+)
+from aqelyn.forecast.scoring import (
+    ActualValueSource,
+    EvidenceRecorder,
+    accuracy_records,
+    publish_forecasts,
+    scored_outcome,
+    unscoreable_outcome,
 )
 from aqelyn.forecast.store import (
     ForecastStore,
@@ -74,18 +86,24 @@ class ForecastingEngine:
         *,
         history_source: MetricHistorySource,
         evidence_store: EvidenceLookup,
+        actual_source: ActualValueSource | None = None,
+        evidence_recorder: EvidenceRecorder | None = None,
         trust_engine: TrustAssessor | None = None,
         method_registry: MethodRegistry | None = None,
         config: ForecastConfig | None = None,
+        source_id: str | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.forecast_store = forecast_store
         self.model_store = model_store
         self.history_source = history_source
         self.evidence_store = evidence_store
+        self.actual_source = actual_source
+        self.evidence_recorder = evidence_recorder
         self.trust_engine = trust_engine or TrustEngine()
         self.method_registry = method_registry or default_method_registry()
         self.config = config or ForecastConfig()
+        self.source_id = source_id or new_id("src")
         self._clock = clock or utc_now
 
     async def analyze_trend(
@@ -187,6 +205,92 @@ class ForecastingEngine:
             "result": stored.derivation.result,
         }
 
+    async def score_due(self, *, tenant_id: str | None) -> list[Outcome]:
+        if self.actual_source is None:
+            raise ForecastConfigInvalid("actual_source is required to score forecasts")
+        if self.evidence_recorder is None:
+            raise ForecastConfigInvalid("evidence_recorder is required to score forecasts")
+        tenant_id = validate_tenant(tenant_id)
+        now = self._clock()
+        due = await self.forecast_store.due_for_scoring(tenant_id=tenant_id, now=now)
+        outcomes: list[Outcome] = []
+        for forecast in due:
+            actual = await self.actual_source.actual(
+                metric=forecast.metric,
+                at=forecast.resolves_at,
+                tenant_id=forecast.tenant_id,
+            )
+            if actual is None:
+                reason = "actual value unavailable for forecast resolution"
+                evidence = await self._record_scoring_evidence(
+                    forecast,
+                    actual=None,
+                    scored_at=now,
+                    reason=reason,
+                )
+                outcome = unscoreable_outcome(
+                    reason=reason,
+                    evidence_id=evidence.id,
+                    scored_at=now,
+                )
+            else:
+                evidence = await self._record_scoring_evidence(
+                    forecast,
+                    actual=actual,
+                    scored_at=now,
+                    reason=None,
+                )
+                outcome = scored_outcome(
+                    forecast,
+                    actual=actual,
+                    evidence_id=evidence.id,
+                    scored_at=now,
+                )
+            updated = await self.forecast_store.record_outcome(
+                forecast.id,
+                outcome,
+                tenant_id=forecast.tenant_id,
+            )
+            assert updated.outcome is not None
+            outcomes.append(updated.outcome)
+        return outcomes
+
+    async def accuracy(
+        self,
+        *,
+        tenant_id: str | None,
+        method: Method | None = None,
+        metric: str | None = None,
+    ) -> list[AccuracyRecord]:
+        tenant_id = validate_tenant(tenant_id)
+        selected_method = None if method is None else self._validate_method_allowed(method)
+        forecasts = await self.forecast_store.query(
+            tenant_id=tenant_id,
+            metric=metric,
+            limit=self.config.batch_size,
+        )
+        return accuracy_records(
+            forecasts,
+            method=selected_method,
+            metric=metric,
+            now=self._clock(),
+        )
+
+    async def published_forecasts(
+        self,
+        *,
+        tenant_id: str | None,
+        metric: str | None = None,
+        limit: int | None = None,
+    ) -> list[ForecastPublication]:
+        tenant_id = validate_tenant(tenant_id)
+        forecasts = await self.forecast_store.query(
+            tenant_id=tenant_id,
+            metric=metric,
+            limit=limit or self.config.batch_size,
+        )
+        return publish_forecasts(forecasts, now=self._clock())
+
     async def _history(
         self, *, metric: str, window_days: int, tenant_id: str | None
     ) -> list[MetricObservation]:
@@ -207,6 +311,55 @@ class ForecastingEngine:
             records.append(await self.evidence_store.get(ref.evidence_id, actor=_SYSTEM_ACTOR))
         records.sort(key=lambda record: record.id)
         return records
+
+    async def _record_scoring_evidence(
+        self,
+        forecast: Forecast,
+        *,
+        actual: MetricObservation | None,
+        scored_at: datetime,
+        reason: str | None,
+    ) -> EvidenceRecord:
+        assert self.evidence_recorder is not None
+        content: dict[str, object] = {
+            "forecast_id": forecast.id,
+            "metric": forecast.metric,
+            "method": forecast.method,
+            "model_version": forecast.model_version,
+            "point": forecast.point,
+            "interval": forecast.interval.model_dump(mode="json"),
+            "resolves_at": forecast.resolves_at.isoformat(),
+        }
+        if actual is None:
+            content["unscoreable"] = True
+            content["reason"] = reason or "actual value unavailable"
+        else:
+            content["actual"] = actual.value
+            content["actual_basis"] = actual.basis.model_dump(mode="json")
+            content["error"] = abs(actual.value - forecast.point)
+            content["within_interval"] = (
+                forecast.interval.low <= actual.value <= forecast.interval.high
+            )
+        record = EvidenceRecord(
+            id="",
+            tenant_id=forecast.tenant_id,
+            evidence_type="forecast.outcome",
+            schema_version=1,
+            subject=Subject(),
+            collected_at=scored_at,
+            recorded_at=scored_at,
+            collector=_SYSTEM_ACTOR,
+            source_id=self.source_id,
+            method="forecast.score/v1",
+            content=content,
+            content_hash="",
+            confidence=1.0,
+            labels={"module": "EA-0021", "kind": "forecast_outcome"},
+            seq=0,
+            prev_hash=None,
+            record_hash="",
+        )
+        return await self.evidence_recorder.add(record)
 
     def _validate_method_allowed(self, method: str) -> Method:
         selected = validate_method(method)

@@ -203,21 +203,42 @@ class TrendRecord(BaseModel):
 class Outcome(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    actual: float
-    error: float
-    within_interval: bool
+    actual: float | None = None
+    error: float | None = None
+    within_interval: bool = False
     scored_at: datetime
     evidence_id: str
+    unscoreable: bool = False
+    reason: str | None = None
 
     @field_validator("actual", "error", mode="before")
     @classmethod
-    def _number(cls, value: object) -> float:
+    def _number(cls, value: object) -> float | None:
+        if value is None:
+            return None
         return _finite(value, field="outcome number")
 
     @field_validator("evidence_id")
     @classmethod
     def _evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _nonempty(value, field="outcome reason")
+
+    @model_validator(mode="after")
+    def _scored_or_flagged(self) -> Outcome:
+        if self.unscoreable:
+            if self.reason is None:
+                raise ForecastConfigInvalid("unscoreable outcome requires a reason")
+            return self
+        if self.actual is None or self.error is None:
+            raise ForecastConfigInvalid("scoreable outcome requires actual and error")
+        return self
 
 
 class Forecast(BaseModel):
@@ -352,6 +373,13 @@ class AccuracyRecord(BaseModel):
     @classmethod
     def _within_interval_pct(cls, value: object) -> float:
         return _unit_closed(value, field="within_interval_pct")
+
+
+class ForecastPublication(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    forecast: Forecast
+    accuracy: AccuracyRecord
 
 
 class PredictionModel(BaseModel):

@@ -22,6 +22,7 @@ from aqelyn.forecast.methods import (
 )
 from aqelyn.forecast.models import (
     VALID_BASIS_KINDS,
+    VALID_FORECAST_SUBJECT_PREFIXES,
     VALID_METHODS,
     VALID_TREND_DIRECTIONS,
     AccuracyRecord,
@@ -29,6 +30,7 @@ from aqelyn.forecast.models import (
     BasisRef,
     Forecast,
     ForecastConfig,
+    ForecastPublication,
     Interval,
     Method,
     Outcome,
@@ -38,6 +40,14 @@ from aqelyn.forecast.models import (
     TrendRecord,
 )
 from aqelyn.forecast.postgres import PostgresForecastStore, PostgresPredictionModelStore
+from aqelyn.forecast.scoring import (
+    ActualValueSource,
+    EvidenceRecorder,
+    accuracy_records,
+    publish_forecasts,
+    scored_outcome,
+    unscoreable_outcome,
+)
 from aqelyn.forecast.store import (
     ForecastStore,
     PredictionModelStore,
@@ -48,14 +58,18 @@ from aqelyn.forecast.trend import MetricObservation, build_trend_record
 
 __all__ = [
     "VALID_BASIS_KINDS",
+    "VALID_FORECAST_SUBJECT_PREFIXES",
     "VALID_METHODS",
     "VALID_TREND_DIRECTIONS",
     "AccuracyRecord",
+    "ActualValueSource",
     "BasisKind",
     "BasisRef",
     "EvidenceLookup",
+    "EvidenceRecorder",
     "Forecast",
     "ForecastConfig",
+    "ForecastPublication",
     "ForecastStore",
     "ForecastingEngine",
     "InMemoryForecastStore",
@@ -76,15 +90,19 @@ __all__ = [
     "TrendDirection",
     "TrendRecord",
     "TrustAssessor",
+    "accuracy_records",
     "build_trend_record",
     "default_method_registry",
     "forecast_operation_registry",
     "holt_winters",
     "linear_trend",
     "moving_average",
+    "publish_forecasts",
     "rate_extrapolation",
+    "scored_outcome",
     "seasonal_naive",
     "statement_from_derivation",
+    "unscoreable_outcome",
     "validate_forecast_subject_ref",
     "validate_replayable_forecast",
 ]
