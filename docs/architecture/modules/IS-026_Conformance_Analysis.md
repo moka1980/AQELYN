@@ -37,6 +37,40 @@ Major Engineering Decisions (IS-026 §36) map one-for-one onto EA-0012's shipped
 decisions (evidence-backed drift, baseline as first-class object, event-driven
 lifecycle, findings-path remediation). None is new.
 
+## C-023 K1 shipped-code verification
+
+**Status:** Accepted at `main` commit `44f2539`.
+**Verifier:** Codex.
+**Result:** every ✅ row above holds against shipped code; no new EA-0026 module or
+follow-up repair ticket is required.
+
+Verified evidence:
+
+- `src/aqelyn/assetconfig/models.py` ships `Baseline`, `DriftItem`, `AssetDrift`,
+  and `DriftSnapshot`.
+- `src/aqelyn/assetconfig/store.py` ships `BaselineStore` and
+  `DriftSnapshotStore`.
+- `src/aqelyn/assetconfig/drift.py` ships `AssetConfigAnalyzer.assess_asset`,
+  `AssetConfigAnalyzer.assess`, and `AssetConfigAnalyzer.drift_to_findings`;
+  `drift_to_findings` raises findings and proposes remediation through the existing
+  workflow path when configured.
+- `src/aqelyn/assetconfig/classify.py` ships `classify`, backed by the EA-0009
+  structured `Condition` interpreter.
+- `src/aqelyn/assetconfig/service.py` ships `aqelyn.config.drift_detected` and
+  `register_acg_events`.
+- `src/aqelyn/configcompliance/` is absent, so no second config engine/package was
+  introduced.
+
+Verification command:
+
+```bash
+AQELYN_ENV=ci AQELYN_TENANT_MODE=local AQELYN_BACKEND=postgres \
+AQELYN_DATABASE_URL=postgresql+asyncpg://aqelyn:aqelyn@localhost:5432/aqelyn \
+AQELYN_REDIS_URL=redis://localhost:6379/0 pytest tests/assetconfig -q
+```
+
+Result: `22 passed`.
+
 ## The three honest gaps (not "already done")
 
 1. **Drift trend is not delegated to EA-0021.** EA-0012 emits drift but does not
