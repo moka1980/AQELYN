@@ -5,10 +5,17 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
-from aqelyn.conventions import new_id, require_tenant_id
-from aqelyn.conventions.errors import AssetNotFound, InventoryConfigInvalid
+from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id, utc_now
+from aqelyn.conventions.errors import (
+    AssetNotFound,
+    DecommissionRequiresEvidence,
+    InventoryConfigInvalid,
+    InventoryUnavailable,
+    SourceHealthUnknown,
+)
 from aqelyn.inventory.models import (
     AssetBasis,
     AssetRecord,
@@ -16,11 +23,13 @@ from aqelyn.inventory.models import (
     DiscoverySource,
     FieldConflict,
     InventoryConfig,
+    InventoryReport,
     Ownership,
 )
 from aqelyn.inventory.store import AssetStore, validate_asset_id
 
 _RECONCILED_FIELDS = ("asset_type", "classification", "owner")
+_INVENTORY_STATES = frozenset(("provisioned", "active", "modified", "unreported"))
 
 
 @dataclass(frozen=True)
@@ -81,6 +90,120 @@ class InventoryIntelligenceEngine:
                 updates[field] = None
         updates["conflicts"] = conflicts
         return await self.store.put(current.model_copy(update=updates, deep=True))
+
+    async def mark_unreported(self, asset_id: str, *, tenant_id: str | None) -> AssetRecord:
+        selected_id = validate_asset_id(asset_id)
+        selected_tenant = require_tenant_id(tenant_id)
+        current = await self.store.get(selected_id, tenant_id=selected_tenant)
+        if current is None:
+            raise AssetNotFound(selected_id)
+        now = utc_now()
+        return await self.store.put(
+            current.model_copy(
+                update={
+                    "lifecycle_state": "unreported",
+                    "unreported_since": current.unreported_since or now,
+                },
+                deep=True,
+            )
+        )
+
+    async def sweep_unreported(
+        self, *, source: DiscoverySource, tenant_id: str | None
+    ) -> list[AssetRecord]:
+        if source.health == "unknown":
+            raise SourceHealthUnknown("cannot sweep unreported assets for unknown source health")
+        selected_tenant = require_tenant_id(tenant_id)
+        try:
+            rows = await self.store.query(tenant_id=selected_tenant, limit=10_000)
+        except Exception as exc:
+            raise InventoryUnavailable("asset inventory store unavailable") from exc
+        changed: list[AssetRecord] = []
+        for row in rows:
+            if (
+                row.discovery_source == source.source_id
+                and row.lifecycle_state not in {"decommissioned", "archived", "unreported"}
+                and row.last_reported_at < source.as_of
+            ):
+                changed.append(
+                    await self.store.put(
+                        row.model_copy(
+                            update={
+                                "lifecycle_state": "unreported",
+                                "unreported_since": source.as_of,
+                            },
+                            deep=True,
+                        )
+                    )
+                )
+        return changed
+
+    async def decommission(
+        self,
+        asset_id: str,
+        *,
+        by: ActorRef,
+        evidence_id: str | None,
+        tenant_id: str | None,
+        decision_ref: str | None = None,
+    ) -> AssetRecord:
+        selected_id = validate_asset_id(asset_id)
+        selected_tenant = require_tenant_id(tenant_id)
+        if evidence_id is None and decision_ref is None:
+            raise DecommissionRequiresEvidence(
+                "decommission requires positive evidence or an attributed gated decision"
+            )
+        selected_evidence_id = (
+            None
+            if evidence_id is None
+            else require_typed_id(evidence_id, "evd", field="evidence_id")
+        )
+        selected_decision_ref = (
+            None
+            if decision_ref is None
+            else require_typed_id(decision_ref, "run", field="decision_ref")
+        )
+        current = await self.store.get(selected_id, tenant_id=selected_tenant)
+        if current is None:
+            raise AssetNotFound(selected_id)
+        basis = list(current.basis)
+        basis.append(
+            AssetBasis(
+                kind="discovery",
+                ref=_decommission_ref(
+                    by=by, evidence_id=selected_evidence_id, decision_ref=selected_decision_ref
+                ),
+                as_of=utc_now(),
+                evidence_id=selected_evidence_id,
+            )
+        )
+        return await self.store.put(
+            current.model_copy(
+                update={
+                    "lifecycle_state": "decommissioned",
+                    "unreported_since": current.unreported_since,
+                    "basis": basis,
+                },
+                deep=True,
+            )
+        )
+
+    async def inventory(self, *, tenant_id: str | None) -> InventoryReport:
+        selected_tenant = require_tenant_id(tenant_id)
+        try:
+            rows = await self.store.query(tenant_id=selected_tenant, limit=10_000)
+        except Exception as exc:
+            raise InventoryUnavailable("asset inventory store unavailable") from exc
+        included = [row for row in rows if row.lifecycle_state in _INVENTORY_STATES]
+        freshness = _source_freshness(included)
+        as_of = min(freshness.values()) if freshness else utc_now()
+        return InventoryReport(
+            assets=sorted(row.id for row in included),
+            total=len(included),
+            as_of=as_of,
+            source_freshness=freshness,
+            degraded=False,
+        )
 
     async def _asset_from_report(
         self,
@@ -215,3 +338,19 @@ def _optional_string(value: object, *, field: str) -> str | None:
     if value is None:
         return None
     return _string(value, field=field)
+
+
+def _source_freshness(records: Sequence[AssetRecord]) -> dict[str, datetime]:
+    freshness: dict[str, datetime] = {}
+    for record in records:
+        current = freshness.get(record.discovery_source)
+        if current is None or record.last_reported_at > current:
+            freshness[record.discovery_source] = record.last_reported_at
+    return dict(sorted(freshness.items()))
+
+
+def _decommission_ref(*, by: ActorRef, evidence_id: str | None, decision_ref: str | None) -> str:
+    if evidence_id is not None:
+        return f"decommission:evidence:{evidence_id}:by:{by.actor_type}:{by.actor_id}"
+    assert decision_ref is not None
+    return f"decommission:decision:{decision_ref}:by:{by.actor_type}:{by.actor_id}"
