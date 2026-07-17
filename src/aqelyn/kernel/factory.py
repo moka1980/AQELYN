@@ -82,6 +82,11 @@ if TYPE_CHECKING:
     from aqelyn.forensics.store import ArtifactStore
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
+    from aqelyn.inventory import (
+        AssetStore,
+        InventoryIntelligenceEngine,
+        InventoryIntelligenceService,
+    )
     from aqelyn.lake.retention import RetentionEngine
     from aqelyn.lake.service import DataLakeService
     from aqelyn.lake.store import DatasetCatalogStore, TelemetryRecordStore
@@ -174,6 +179,9 @@ class Runtime:
     executive_kpi_engine: ExecutiveKPIEngine
     executive_report_engine: ExecutiveReportEngine
     executive_engine_service: ExecutiveIntelligenceService
+    inventory_store: AssetStore
+    inventory_engine: InventoryIntelligenceEngine
+    inventory_engine_service: InventoryIntelligenceService
     exposure_store: ExposureStore
     exposure_engine: KnownDataExposureEngine
     exposure_engine_service: ExposureManagementService
@@ -319,6 +327,8 @@ def _register_runtime_services(
     executive_report_store: ReportStore,
     executive_kpi_engine: ExecutiveKPIEngine,
     executive_report_engine: ExecutiveReportEngine,
+    inventory_store: AssetStore,
+    inventory_engine: InventoryIntelligenceEngine,
     exposure_store: ExposureStore,
     exposure_engine: KnownDataExposureEngine,
     vuln_store: VulnerabilityStore,
@@ -346,6 +356,7 @@ def _register_runtime_services(
     close_forecast_model_store: Callable[[], Awaitable[None]] | None = None,
     close_executive_definition_store: Callable[[], Awaitable[None]] | None = None,
     close_executive_report_store: Callable[[], Awaitable[None]] | None = None,
+    close_inventory_store: Callable[[], Awaitable[None]] | None = None,
     close_exposure_store: Callable[[], Awaitable[None]] | None = None,
     close_vuln_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
@@ -367,6 +378,7 @@ def _register_runtime_services(
     DataLakeService,
     ForecastingService,
     ExecutiveIntelligenceService,
+    InventoryIntelligenceService,
     ExposureManagementService,
     VulnerabilityIntelligenceService,
 ]:
@@ -379,6 +391,7 @@ def _register_runtime_services(
     from aqelyn.forensics.service import DigitalForensicsService
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
+    from aqelyn.inventory.service import InventoryIntelligenceService
     from aqelyn.lake.service import DataLakeService
     from aqelyn.response.service import ResponseOrchestrationService
     from aqelyn.risk.service import RiskIntelligenceService
@@ -530,6 +543,16 @@ def _register_runtime_services(
         close_report_store=close_executive_report_store,
     )
     kernel.register(executive_service)
+    inventory_service = InventoryIntelligenceService(
+        inventory_engine,
+        store=inventory_store,
+        object_store=object_store,
+        trust_engine=trust_engine,
+        mission_engine=mission_engine,
+        evidence_store=evidence_store,
+        close_store=close_inventory_store,
+    )
+    kernel.register(inventory_service)
     exposure_service = ExposureManagementService(
         exposure_engine,
         store=exposure_store,
@@ -562,6 +585,7 @@ def _register_runtime_services(
         lake_service,
         forecast_service,
         executive_service,
+        inventory_service,
         exposure_service,
         vuln_service,
     )
@@ -612,6 +636,11 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.inventory import (
+        InMemoryAssetStore,
+        InventoryIntelligenceEngine,
+        register_inventory_events,
+    )
     from aqelyn.lake.memory import InMemoryDatasetCatalog, InMemoryTelemetryRecordStore
     from aqelyn.lake.retention import ReferenceCheckers, RetentionEngine
     from aqelyn.lake.service import register_lake_events
@@ -659,6 +688,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_decision_events(registry)
     register_forecast_events(registry)
     register_executive_events(registry)
+    register_inventory_events(registry)
     register_exposure_events(registry)
     register_vuln_events(registry)
     bus = InMemoryEventBus(registry=registry)
@@ -822,6 +852,13 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         kpi_engine=executive_kpi_engine,
         evidence_store=evidence_store,
     )
+    inventory_store = InMemoryAssetStore(mode=cfg.tenant_mode)
+    inventory_engine = InventoryIntelligenceEngine(
+        inventory_store,
+        classifier=acg_engine,
+        relationship_store=object_store,
+        graph=knowledge_graph,
+    )
     exposure_store = InMemoryExposureStore(mode=cfg.tenant_mode)
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
@@ -865,6 +902,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         lake_service,
         forecast_engine_service,
         executive_engine_service,
+        inventory_engine_service,
         exposure_engine_service,
         vuln_engine_service,
     ) = _register_runtime_services(
@@ -914,6 +952,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_report_store=executive_report_store,
         executive_kpi_engine=executive_kpi_engine,
         executive_report_engine=executive_report_engine,
+        inventory_store=inventory_store,
+        inventory_engine=inventory_engine,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         vuln_store=vuln_store,
@@ -986,6 +1026,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_kpi_engine=executive_kpi_engine,
         executive_report_engine=executive_report_engine,
         executive_engine_service=executive_engine_service,
+        inventory_store=inventory_store,
+        inventory_engine=inventory_engine,
+        inventory_engine_service=inventory_engine_service,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,
@@ -1042,6 +1085,11 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.inventory import (
+        InventoryIntelligenceEngine,
+        PostgresAssetStore,
+        register_inventory_events,
+    )
     from aqelyn.lake.postgres import PostgresDatasetCatalog, PostgresTelemetryRecordStore
     from aqelyn.lake.retention import ReferenceCheckers, RetentionEngine
     from aqelyn.lake.service import register_lake_events
@@ -1094,6 +1142,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_decision_events(registry)
     register_forecast_events(registry)
     register_executive_events(registry)
+    register_inventory_events(registry)
     register_exposure_events(registry)
     register_vuln_events(registry)
     bus = InMemoryEventBus(registry=registry)
@@ -1295,6 +1344,16 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         kpi_engine=executive_kpi_engine,
         evidence_store=evidence_store,
     )
+    inventory_store = await PostgresAssetStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    inventory_engine = InventoryIntelligenceEngine(
+        inventory_store,
+        classifier=acg_engine,
+        relationship_store=object_store,
+        graph=knowledge_graph,
+    )
     exposure_store = await PostgresExposureStore.connect(
         cfg.database_url,
         mode=cfg.tenant_mode,
@@ -1344,6 +1403,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         lake_service,
         forecast_engine_service,
         executive_engine_service,
+        inventory_engine_service,
         exposure_engine_service,
         vuln_engine_service,
     ) = _register_runtime_services(
@@ -1393,6 +1453,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_report_store=executive_report_store,
         executive_kpi_engine=executive_kpi_engine,
         executive_report_engine=executive_report_engine,
+        inventory_store=inventory_store,
+        inventory_engine=inventory_engine,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         vuln_store=vuln_store,
@@ -1420,6 +1482,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_forecast_model_store=forecast_model_store.close,
         close_executive_definition_store=executive_definition_store.close,
         close_executive_report_store=executive_report_store.close,
+        close_inventory_store=inventory_store.close,
         close_exposure_store=exposure_store.close,
         close_vuln_store=vuln_store.close,
     )
@@ -1490,6 +1553,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_kpi_engine=executive_kpi_engine,
         executive_report_engine=executive_report_engine,
         executive_engine_service=executive_engine_service,
+        inventory_store=inventory_store,
+        inventory_engine=inventory_engine,
+        inventory_engine_service=inventory_engine_service,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,

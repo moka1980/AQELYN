@@ -26,9 +26,15 @@ from aqelyn.inventory.models import (
     SourceHealth,
 )
 from aqelyn.inventory.postgres import PostgresAssetStore
+from aqelyn.inventory.service import (
+    INVENTORY_EVENTS,
+    InventoryIntelligenceService,
+    register_inventory_events,
+)
 from aqelyn.inventory.store import AssetStore
 
 __all__ = [
+    "INVENTORY_EVENTS",
     "VALID_ASSET_BASIS_KINDS",
     "VALID_LIFECYCLE_STATES",
     "VALID_MIN_SOURCE_HEALTH",
@@ -45,6 +51,7 @@ __all__ = [
     "InMemoryAssetStore",
     "InventoryConfig",
     "InventoryIntelligenceEngine",
+    "InventoryIntelligenceService",
     "InventoryRelationshipGraph",
     "InventoryRelationshipStore",
     "InventoryReport",
@@ -52,4 +59,5 @@ __all__ = [
     "Ownership",
     "PostgresAssetStore",
     "SourceHealth",
+    "register_inventory_events",
 ]
