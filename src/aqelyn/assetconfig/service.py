@@ -91,6 +91,8 @@ class AssetConfigGovernanceService:
             dependencies["mission_engine"] = "healthy"
             self._check_workflow_engine()
             dependencies["workflow_engine"] = "healthy"
+            self._check_forecast_engine()
+            dependencies["forecast_engine"] = "healthy"
         except BaselineConfigInvalid as exc:
             return HealthStatus(status="unavailable", ready=False, detail=exc.message)
         except StoreUnavailable as exc:
@@ -119,6 +121,7 @@ class AssetConfigGovernanceService:
         await self._check_finding_store()
         self._check_mission_engine()
         self._check_workflow_engine()
+        self._check_forecast_engine()
 
     def _check_config(self) -> None:
         ACGConfig.model_validate(self.engine.config.model_dump(mode="json"))
@@ -166,3 +169,8 @@ class AssetConfigGovernanceService:
     def _check_workflow_engine(self) -> None:
         if self.engine.workflow_engine is None:
             raise StoreUnavailable("acg workflow engine unavailable")
+
+    def _check_forecast_engine(self) -> None:
+        provider = self.engine.trend_provider
+        if provider is None or not callable(getattr(provider, "analyze_trend", None)):
+            raise StoreUnavailable("acg forecast trend provider unavailable")

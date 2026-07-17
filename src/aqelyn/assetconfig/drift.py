@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
-from datetime import datetime
 from typing import Any, Protocol
 
 from aqelyn.assetconfig.classify import classify
@@ -26,6 +25,7 @@ from aqelyn.conventions.errors import EvidenceRequired, ObjectNotFound, StoreUna
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
 from aqelyn.findings import Automation, Finding, FindingStore, Remediation
+from aqelyn.forecast.models import TrendRecord
 from aqelyn.objects import AQObject, ObjectQuery, ObjectStore
 from aqelyn.workflow import Playbook, Run, Step
 
@@ -59,6 +59,12 @@ class WorkflowProposer(Protocol):
     ) -> Run: ...
 
 
+class DriftTrendProvider(Protocol):
+    async def analyze_trend(
+        self, *, metric: str, window_days: int, tenant_id: str | None
+    ) -> TrendRecord: ...
+
+
 class AssetConfigAnalyzer:
     def __init__(
         self,
@@ -71,6 +77,7 @@ class AssetConfigAnalyzer:
         finding_store: FindingStore | None = None,
         workflow_engine: WorkflowProposer | None = None,
         mission_engine: MissionPrioritizer | None = None,
+        trend_provider: DriftTrendProvider | None = None,
         actor: ActorRef | None = None,
         source_id: str | None = None,
         config: ACGConfig | None = None,
@@ -83,6 +90,7 @@ class AssetConfigAnalyzer:
         self.finding_store = finding_store
         self.workflow_engine = workflow_engine
         self.mission_engine = mission_engine
+        self.trend_provider = trend_provider
         self.actor = actor or _ACG_ACTOR
         self.source_id = source_id or new_id("src")
         self.config = config or ACGConfig()
@@ -134,11 +142,20 @@ class AssetConfigAnalyzer:
             return snapshot
         return await self.snapshot_store.put(snapshot)
 
-    async def trend(self, *, tenant_id: str | None, since: datetime) -> list[dict[str, object]]:
-        if self.snapshot_store is None:
-            return []
-        snapshots = await self.snapshot_store.history(tenant_id=tenant_id, since=since)
-        return [_trend_point(snapshot) for snapshot in snapshots]
+    async def trend(
+        self,
+        *,
+        metric: str = "assetconfig.drift.overall_score",
+        window_days: int = 30,
+        tenant_id: str | None,
+    ) -> TrendRecord:
+        if self.trend_provider is None:
+            raise StoreUnavailable("asset configuration trend provider unavailable")
+        return await self.trend_provider.analyze_trend(
+            metric=metric,
+            window_days=window_days,
+            tenant_id=tenant_id,
+        )
 
     def explain(self, item: DriftItem) -> dict[str, object]:
         return explain(item)
@@ -438,18 +455,6 @@ def _mean(values: Sequence[float], *, default: float) -> float:
     if not values:
         return default
     return sum(values) / len(values)
-
-
-def _trend_point(snapshot: DriftSnapshot) -> dict[str, object]:
-    return {
-        "snapshot_id": snapshot.id,
-        "run_at": snapshot.run_at,
-        "overall_score": snapshot.overall_score,
-        "asset_scores": {
-            drift.asset_id: drift.score
-            for drift in sorted(snapshot.asset_drifts, key=lambda item: item.asset_id)
-        },
-    }
 
 
 def _finding_for_drift(

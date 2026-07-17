@@ -46,7 +46,11 @@ async def test_acg_service_health(backend: str) -> None:
 
     service = runtime.kernel.get_service("acg_engine")
     assert service.name == "acg_engine"
-    assert tuple(service.dependencies) == ("object_store", "mission_engine", "workflow_engine")
+    assert tuple(service.dependencies) == (
+        "object_store",
+        "mission_engine",
+        "workflow_engine",
+    )
     assert isinstance(runtime.acg_engine, AssetConfigAnalyzer)
     assert isinstance(runtime.acg_engine_service, AssetConfigGovernanceService)
     assert runtime.acg_engine_service.engine is runtime.acg_engine
@@ -56,6 +60,7 @@ async def test_acg_service_health(backend: str) -> None:
     assert runtime.acg_engine.finding_store is runtime.finding_store
     assert runtime.acg_engine.workflow_engine is runtime.workflow_engine
     assert runtime.acg_engine.mission_engine is runtime.mission_engine
+    assert runtime.acg_engine.trend_provider is runtime.forecast_engine
     for event_type in ACG_EVENT_TYPES:
         assert runtime.event_bus.registry.is_registered(event_type)
 
@@ -69,6 +74,7 @@ async def test_acg_service_health(backend: str) -> None:
     assert pre_start.dependencies["finding_store"] == "healthy"
     assert pre_start.dependencies["mission_engine"] == "healthy"
     assert pre_start.dependencies["workflow_engine"] == "healthy"
+    assert pre_start.dependencies["forecast_engine"] == "healthy"
 
     await runtime.kernel.start()
     try:
@@ -84,9 +90,11 @@ async def test_acg_service_health(backend: str) -> None:
         assert acg_health.dependencies["finding_store"] == "healthy"
         assert acg_health.dependencies["mission_engine"] == "healthy"
         assert acg_health.dependencies["workflow_engine"] == "healthy"
+        assert acg_health.dependencies["forecast_engine"] == "healthy"
         assert state.services["object_store"].ready is True
         assert state.services["mission_engine"].ready is True
         assert state.services["workflow_engine"].ready is True
+        assert state.services["forecast_engine"].ready is True
         assert state.services["_kernel"].ready is True
     finally:
         await runtime.kernel.stop()
