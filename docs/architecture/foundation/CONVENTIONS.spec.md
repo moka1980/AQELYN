@@ -59,6 +59,10 @@ relies on. Other specs reference this rather than restating it.
 | `brf` | Executive briefing | EA-0022 |
 | `exp` | Exposure record | EA-0023 |
 | `asa` | Attack surface asset | EA-0023 |
+| `vln` | Vulnerability record | EA-0024 |
+| `vpr` | Vulnerability priority | EA-0024 |
+| `vas` | Vulnerability assessment | EA-0024 |
+| `rem` | Remediation plan | EA-0024 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -231,6 +235,11 @@ Every created/changed record and every event carries the responsible actor.
 | `ExposureNotFound` | EA-0023 | no |
 | `ExposureNotReplayable` | EA-0023 | no |
 | `ScanNotPermitted` | EA-0023 | no |
+| `VulnConfigInvalid` | EA-0024 | no |
+| `VulnBasisMissing` | EA-0024 | no |
+| `CoverageUnavailable` | EA-0024 | no |
+| `VulnNotFound` | EA-0024 | no |
+| `VulnNotReplayable` | EA-0024 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

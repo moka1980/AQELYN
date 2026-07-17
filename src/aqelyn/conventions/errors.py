@@ -384,6 +384,27 @@ class ScanNotPermitted(AQError):
     code = "ScanNotPermitted"
 
 
+# --- EA-0024 ---
+class VulnConfigInvalid(AQError):
+    code = "VulnConfigInvalid"
+
+
+class VulnBasisMissing(AQError):
+    code = "VulnBasisMissing"
+
+
+class CoverageUnavailable(AQError):
+    code = "CoverageUnavailable"
+
+
+class VulnNotFound(AQError):
+    code = "VulnNotFound"
+
+
+class VulnNotReplayable(AQError):
+    code = "VulnNotReplayable"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
