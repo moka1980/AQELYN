@@ -1,5 +1,7 @@
 """Cyber Asset Discovery & Inventory Intelligence package (EA-0025)."""
 
+from aqelyn.inventory.engine import InventoryIntelligenceEngine
+from aqelyn.inventory.memory import InMemoryAssetStore
 from aqelyn.inventory.models import (
     VALID_ASSET_BASIS_KINDS,
     VALID_LIFECYCLE_STATES,
@@ -18,6 +20,8 @@ from aqelyn.inventory.models import (
     Ownership,
     SourceHealth,
 )
+from aqelyn.inventory.postgres import PostgresAssetStore
+from aqelyn.inventory.store import AssetStore
 
 __all__ = [
     "VALID_ASSET_BASIS_KINDS",
@@ -28,12 +32,16 @@ __all__ = [
     "AssetBasisKind",
     "AssetRecord",
     "AssetRelationship",
+    "AssetStore",
     "ConflictCandidate",
     "DiscoverySource",
     "FieldConflict",
+    "InMemoryAssetStore",
     "InventoryConfig",
+    "InventoryIntelligenceEngine",
     "InventoryReport",
     "LifecycleState",
     "Ownership",
+    "PostgresAssetStore",
     "SourceHealth",
 ]
