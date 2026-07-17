@@ -6,8 +6,10 @@ from aqelyn.vuln.engine import (
     PriorityFactor,
     ScannerTrustProvider,
     ThreatExploitProvider,
+    VulnerabilityCoverageProvider,
     VulnerabilityIntelligenceEngine,
     VulnerabilityMissionProvider,
+    VulnerabilityTrendProvider,
     validate_replayable_priority,
 )
 from aqelyn.vuln.memory import InMemoryVulnerabilityStore
@@ -61,9 +63,11 @@ __all__ = [
     "VulnPriority",
     "VulnStatus",
     "VulnerabilityAssessment",
+    "VulnerabilityCoverageProvider",
     "VulnerabilityIntelligenceEngine",
     "VulnerabilityMissionProvider",
     "VulnerabilityRecord",
     "VulnerabilityStore",
+    "VulnerabilityTrendProvider",
     "validate_replayable_priority",
 ]
