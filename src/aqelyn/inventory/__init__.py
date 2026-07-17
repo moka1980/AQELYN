@@ -29,6 +29,9 @@ from aqelyn.inventory.postgres import PostgresAssetStore
 from aqelyn.inventory.service import (
     INVENTORY_EVENTS,
     InventoryIntelligenceService,
+    InventoryKnownSurfaceSource,
+    InventoryProvider,
+    InventoryVulnerabilityCoverageProvider,
     register_inventory_events,
 )
 from aqelyn.inventory.store import AssetStore
@@ -52,9 +55,12 @@ __all__ = [
     "InventoryConfig",
     "InventoryIntelligenceEngine",
     "InventoryIntelligenceService",
+    "InventoryKnownSurfaceSource",
+    "InventoryProvider",
     "InventoryRelationshipGraph",
     "InventoryRelationshipStore",
     "InventoryReport",
+    "InventoryVulnerabilityCoverageProvider",
     "LifecycleState",
     "Ownership",
     "PostgresAssetStore",

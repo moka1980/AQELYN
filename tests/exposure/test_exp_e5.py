@@ -16,6 +16,7 @@ from aqelyn.exposure import (
     PostgresExposureStore,
 )
 from aqelyn.exposure.service import register_exposure_events
+from aqelyn.inventory import InventoryKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime, create_runtime
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -44,6 +45,7 @@ async def test_exp_service_health(backend: str) -> None:
     service = runtime.kernel.get_service("exposure_engine")
     assert service.name == "exposure_engine"
     assert tuple(service.dependencies) == (
+        "inventory_engine",
         "acg_engine",
         "knowledge_graph",
         "iag_engine",
@@ -58,6 +60,8 @@ async def test_exp_service_health(backend: str) -> None:
     assert runtime.exposure_engine_service.engine is runtime.exposure_engine
     assert runtime.exposure_engine_service.store is runtime.exposure_store
     assert runtime.exposure_engine.store is runtime.exposure_store
+    assert isinstance(runtime.exposure_engine.source, InventoryKnownSurfaceSource)
+    assert runtime.exposure_engine.source.inventory is runtime.inventory_engine
     assert runtime.exposure_engine.graph is runtime.knowledge_graph
     assert runtime.exposure_engine.identity_provider is runtime.iag_engine
     assert runtime.exposure_engine.trend_provider is runtime.forecast_engine
