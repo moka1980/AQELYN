@@ -97,6 +97,11 @@ if TYPE_CHECKING:
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.registry import ThreatSourceRegistry
     from aqelyn.threat.service import ThreatFusionService
+    from aqelyn.vuln import (
+        VulnerabilityIntelligenceEngine,
+        VulnerabilityIntelligenceService,
+        VulnerabilityStore,
+    )
 
 
 @dataclass
@@ -172,6 +177,9 @@ class Runtime:
     exposure_store: ExposureStore
     exposure_engine: KnownDataExposureEngine
     exposure_engine_service: ExposureManagementService
+    vuln_store: VulnerabilityStore
+    vuln_engine: VulnerabilityIntelligenceEngine
+    vuln_engine_service: VulnerabilityIntelligenceService
 
 
 class _RuntimeService:
@@ -313,6 +321,8 @@ def _register_runtime_services(
     executive_report_engine: ExecutiveReportEngine,
     exposure_store: ExposureStore,
     exposure_engine: KnownDataExposureEngine,
+    vuln_store: VulnerabilityStore,
+    vuln_engine: VulnerabilityIntelligenceEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -337,6 +347,7 @@ def _register_runtime_services(
     close_executive_definition_store: Callable[[], Awaitable[None]] | None = None,
     close_executive_report_store: Callable[[], Awaitable[None]] | None = None,
     close_exposure_store: Callable[[], Awaitable[None]] | None = None,
+    close_vuln_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -357,6 +368,7 @@ def _register_runtime_services(
     ForecastingService,
     ExecutiveIntelligenceService,
     ExposureManagementService,
+    VulnerabilityIntelligenceService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.decision.service import DecisionIntelligenceService
@@ -372,6 +384,7 @@ def _register_runtime_services(
     from aqelyn.risk.service import RiskIntelligenceService
     from aqelyn.soc.service import SecurityOperationsService
     from aqelyn.threat.service import ThreatFusionService
+    from aqelyn.vuln.service import VulnerabilityIntelligenceService
 
     kernel.register(_RuntimeService("event_bus"))
     trust_service = TrustEngineService(trust_engine)
@@ -524,6 +537,12 @@ def _register_runtime_services(
         close_store=close_exposure_store,
     )
     kernel.register(exposure_service)
+    vuln_service = VulnerabilityIntelligenceService(
+        vuln_engine,
+        store=vuln_store,
+        close_store=close_vuln_store,
+    )
+    kernel.register(vuln_service)
     return (
         graph_service,
         trust_service,
@@ -544,6 +563,7 @@ def _register_runtime_services(
         forecast_service,
         executive_service,
         exposure_service,
+        vuln_service,
     )
 
 
@@ -610,6 +630,15 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.registry import InMemoryThreatSourceRegistry
     from aqelyn.threat.service import register_threat_events
+    from aqelyn.vuln import (
+        DriftSnapshotBlockingProvider,
+        ExposureStoreReachabilityProvider,
+        InMemoryVulnerabilityStore,
+        StoreBackedVulnerabilityCoverageProvider,
+        ThreatSignalFactorProvider,
+        VulnerabilityIntelligenceEngine,
+        register_vuln_events,
+    )
 
     cfg = config or AQELYNConfig(backend="memory")
     registry = EventTypeRegistry()
@@ -631,6 +660,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_forecast_events(registry)
     register_executive_events(registry)
     register_exposure_events(registry)
+    register_vuln_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -804,6 +834,17 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         mission_provider=mission_engine,
         finding_store=finding_store,
     )
+    vuln_store = InMemoryVulnerabilityStore(mode=cfg.tenant_mode)
+    vuln_engine = VulnerabilityIntelligenceEngine(
+        vuln_store,
+        threat_provider=ThreatSignalFactorProvider(threat_engine),
+        exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
+        mission_provider=mission_engine,
+        baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
+        coverage_provider=StoreBackedVulnerabilityCoverageProvider(vuln_store),
+        trend_provider=forecast_engine,
+        finding_store=finding_store,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -825,6 +866,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forecast_engine_service,
         executive_engine_service,
         exposure_engine_service,
+        vuln_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -874,6 +916,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_report_engine=executive_report_engine,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
+        vuln_store=vuln_store,
+        vuln_engine=vuln_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -945,6 +989,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,
+        vuln_store=vuln_store,
+        vuln_engine=vuln_engine,
+        vuln_engine_service=vuln_engine_service,
     )
 
 
@@ -1013,6 +1060,15 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.postgres import PostgresThreatSourceRegistry
     from aqelyn.threat.service import register_threat_events
+    from aqelyn.vuln import (
+        DriftSnapshotBlockingProvider,
+        ExposureStoreReachabilityProvider,
+        PostgresVulnerabilityStore,
+        StoreBackedVulnerabilityCoverageProvider,
+        ThreatSignalFactorProvider,
+        VulnerabilityIntelligenceEngine,
+        register_vuln_events,
+    )
 
     cfg = config or AQELYNConfig.load()
     if cfg.backend == "memory":
@@ -1039,6 +1095,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_forecast_events(registry)
     register_executive_events(registry)
     register_exposure_events(registry)
+    register_vuln_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -1253,6 +1310,20 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         mission_provider=mission_engine,
         finding_store=finding_store,
     )
+    vuln_store = await PostgresVulnerabilityStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    vuln_engine = VulnerabilityIntelligenceEngine(
+        vuln_store,
+        threat_provider=ThreatSignalFactorProvider(threat_engine),
+        exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
+        mission_provider=mission_engine,
+        baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
+        coverage_provider=StoreBackedVulnerabilityCoverageProvider(vuln_store),
+        trend_provider=forecast_engine,
+        finding_store=finding_store,
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -1274,6 +1345,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         forecast_engine_service,
         executive_engine_service,
         exposure_engine_service,
+        vuln_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1323,6 +1395,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_report_engine=executive_report_engine,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
+        vuln_store=vuln_store,
+        vuln_engine=vuln_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -1347,6 +1421,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_executive_definition_store=executive_definition_store.close,
         close_executive_report_store=executive_report_store.close,
         close_exposure_store=exposure_store.close,
+        close_vuln_store=vuln_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -1418,4 +1493,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,
+        vuln_store=vuln_store,
+        vuln_engine=vuln_engine,
+        vuln_engine_service=vuln_engine_service,
     )
