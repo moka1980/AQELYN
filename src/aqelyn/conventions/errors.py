@@ -405,6 +405,32 @@ class VulnNotReplayable(AQError):
     code = "VulnNotReplayable"
 
 
+# --- EA-0025 ---
+class InventoryConfigInvalid(AQError):
+    code = "InventoryConfigInvalid"
+
+
+class AssetBasisMissing(AQError):
+    code = "AssetBasisMissing"
+
+
+class AssetNotFound(AQError):
+    code = "AssetNotFound"
+
+
+class InventoryUnavailable(AQError):
+    code = "InventoryUnavailable"
+    retriable = True
+
+
+class SourceHealthUnknown(AQError):
+    code = "SourceHealthUnknown"
+
+
+class DecommissionRequiresEvidence(AQError):
+    code = "DecommissionRequiresEvidence"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

@@ -57,6 +57,8 @@ PREFIXES: dict[str, str] = {
     "vpr": "vuln_priority",
     "vas": "vuln_assessment",
     "rem": "remediation_plan",
+    "ast": "asset_record",
+    "arl": "asset_relationship",
     "svc": "service",
 }
 
