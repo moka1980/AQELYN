@@ -144,6 +144,7 @@ class VulnerabilityIntelligenceService:
         store: VulnerabilityStore,
         close_store: Callable[[], Awaitable[None]] | None = None,
         dependencies: Sequence[str] = (
+            "inventory_engine",
             "threat_fusion_engine",
             "exposure_engine",
             "mission_engine",

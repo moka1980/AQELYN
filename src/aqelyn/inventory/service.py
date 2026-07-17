@@ -1,18 +1,23 @@
-"""Inventory AQService wrapper and events (EA-0025 N5)."""
+"""Inventory AQService wrapper, seam adapters, and events (EA-0025 N5-N6)."""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from typing import Protocol
 
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import (
     AssetNotFound,
+    CoverageUnavailable,
     EvidenceNotFound,
+    ExposureConfigInvalid,
     InventoryConfigInvalid,
+    InventoryUnavailable,
     ObjectNotFound,
     StoreUnavailable,
 )
 from aqelyn.events.registry import EventTypeRegistry
+from aqelyn.exposure import AssetRef, ExposureBasis, KnownSurfaceRecord
 from aqelyn.inventory.engine import InventoryIntelligenceEngine
 from aqelyn.inventory.models import (
     AssetRecord,
@@ -26,6 +31,8 @@ from aqelyn.inventory.store import AssetStore
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.objects.store import ObjectStore
 from aqelyn.trust.models import TrustConfig
+from aqelyn.vuln.models import CoverageReport
+from aqelyn.vuln.store import VulnerabilityStore
 
 INVENTORY_EVENTS: dict[str, int] = {
     "aqelyn.inventory.asset_discovered": 1,
@@ -39,6 +46,90 @@ INVENTORY_EVENTS: dict[str, int] = {
 def register_inventory_events(registry: EventTypeRegistry) -> None:
     for event_type, schema_version in INVENTORY_EVENTS.items():
         registry.register(event_type, schema_version, None)
+
+
+class InventoryProvider(Protocol):
+    async def inventory(self, *, tenant_id: str | None) -> InventoryReport: ...
+
+
+class InventoryKnownSurfaceSource:
+    """Expose EA-0025 inventory as EA-0023's known asset set."""
+
+    def __init__(self, inventory: InventoryProvider) -> None:
+        self.inventory = inventory
+
+    async def list_known_surface(self, *, tenant_id: str | None) -> Sequence[KnownSurfaceRecord]:
+        try:
+            report = await self.inventory.inventory(tenant_id=tenant_id)
+        except InventoryUnavailable:
+            raise
+        except Exception as exc:
+            raise ExposureConfigInvalid("inventory source unavailable") from exc
+        if report.degraded:
+            raise ExposureConfigInvalid("inventory source is degraded")
+        return [
+            KnownSurfaceRecord(
+                asset_ref=AssetRef(kind="asset", ref_id=asset_id),
+                classification="inventory_asset",
+                exposure_type="inventory_surface",
+                reachability=None,
+                basis=[
+                    ExposureBasis(
+                        kind="inventory",
+                        ref=f"inventory:{asset_id}",
+                        as_of=report.as_of,
+                    )
+                ],
+                observed_at=report.as_of,
+                rationale=(
+                    "Asset is present in EA-0025 inventory; reachability remains "
+                    "unknown until supported by evidence."
+                ),
+            )
+            for asset_id in report.assets
+        ]
+
+
+class InventoryVulnerabilityCoverageProvider:
+    """Use EA-0025 inventory as EA-0024's authoritative coverage denominator."""
+
+    def __init__(
+        self,
+        inventory: InventoryProvider,
+        vulnerability_store: VulnerabilityStore,
+    ) -> None:
+        self.inventory = inventory
+        self.vulnerability_store = vulnerability_store
+
+    async def coverage(self, *, tenant_id: str | None) -> CoverageReport:
+        try:
+            report = await self.inventory.inventory(tenant_id=tenant_id)
+        except CoverageUnavailable:
+            raise
+        except Exception as exc:
+            raise CoverageUnavailable("inventory unavailable for vulnerability coverage") from exc
+        if report.degraded:
+            raise CoverageUnavailable("inventory degraded for vulnerability coverage")
+        try:
+            vulnerabilities = await self.vulnerability_store.query(
+                tenant_id=tenant_id,
+                limit=10_000,
+            )
+        except Exception as exc:
+            raise CoverageUnavailable("vulnerability records unavailable for coverage") from exc
+
+        inventory_assets = set(report.assets)
+        scanned = {
+            vulnerability.asset_ref.ref_id
+            for vulnerability in vulnerabilities
+            if vulnerability.asset_ref.ref_id in inventory_assets
+        }
+        return CoverageReport(
+            scanned=sorted(scanned),
+            unscanned=sorted(inventory_assets - scanned),
+            stale=[],
+            computed_at=report.as_of,
+        )
 
 
 class InventoryIntelligenceService:

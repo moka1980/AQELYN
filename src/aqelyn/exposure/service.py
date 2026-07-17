@@ -41,6 +41,7 @@ class ExposureManagementService:
         risk_engine: object | None = None,
         close_store: Callable[[], Awaitable[None]] | None = None,
         dependencies: Sequence[str] = (
+            "inventory_engine",
             "acg_engine",
             "knowledge_graph",
             "iag_engine",

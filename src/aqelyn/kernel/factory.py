@@ -618,7 +618,6 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.exposure import (
         InMemoryExposureStore,
         KnownDataExposureEngine,
-        StaticKnownSurfaceSource,
         register_exposure_events,
     )
     from aqelyn.forecast import (
@@ -639,6 +638,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.inventory import (
         InMemoryAssetStore,
         InventoryIntelligenceEngine,
+        InventoryKnownSurfaceSource,
+        InventoryVulnerabilityCoverageProvider,
         register_inventory_events,
     )
     from aqelyn.lake.memory import InMemoryDatasetCatalog, InMemoryTelemetryRecordStore
@@ -662,7 +663,6 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.vuln import (
         DriftSnapshotBlockingProvider,
         ExposureStoreReachabilityProvider,
-        InertVulnerabilityCoverageProvider,
         InMemoryVulnerabilityStore,
         ThreatSignalFactorProvider,
         VulnerabilityIntelligenceEngine,
@@ -862,7 +862,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     exposure_store = InMemoryExposureStore(mode=cfg.tenant_mode)
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
-        StaticKnownSurfaceSource([]),
+        InventoryKnownSurfaceSource(inventory_engine),
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -878,7 +878,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
         mission_provider=mission_engine,
         baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
-        coverage_provider=InertVulnerabilityCoverageProvider(),
+        coverage_provider=InventoryVulnerabilityCoverageProvider(inventory_engine, vuln_store),
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
@@ -1067,7 +1067,6 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.exposure import (
         KnownDataExposureEngine,
         PostgresExposureStore,
-        StaticKnownSurfaceSource,
         register_exposure_events,
     )
     from aqelyn.forecast import (
@@ -1087,6 +1086,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
     from aqelyn.inventory import (
         InventoryIntelligenceEngine,
+        InventoryKnownSurfaceSource,
+        InventoryVulnerabilityCoverageProvider,
         PostgresAssetStore,
         register_inventory_events,
     )
@@ -1111,7 +1112,6 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.vuln import (
         DriftSnapshotBlockingProvider,
         ExposureStoreReachabilityProvider,
-        InertVulnerabilityCoverageProvider,
         PostgresVulnerabilityStore,
         ThreatSignalFactorProvider,
         VulnerabilityIntelligenceEngine,
@@ -1360,7 +1360,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     )
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
-        StaticKnownSurfaceSource([]),
+        InventoryKnownSurfaceSource(inventory_engine),
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -1379,7 +1379,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
         mission_provider=mission_engine,
         baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
-        coverage_provider=InertVulnerabilityCoverageProvider(),
+        coverage_provider=InventoryVulnerabilityCoverageProvider(inventory_engine, vuln_store),
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
