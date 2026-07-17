@@ -13,9 +13,9 @@ from aqelyn.vuln import (
     VULN_EVENTS,
     DriftSnapshotBlockingProvider,
     ExposureStoreReachabilityProvider,
+    InertVulnerabilityCoverageProvider,
     InMemoryVulnerabilityStore,
     PostgresVulnerabilityStore,
-    StoreBackedVulnerabilityCoverageProvider,
     ThreatSignalFactorProvider,
     VulnerabilityIntelligenceEngine,
     VulnerabilityIntelligenceService,
@@ -67,7 +67,7 @@ async def test_vuln_service_health(backend: str) -> None:
     assert isinstance(runtime.vuln_engine.baseline_provider, DriftSnapshotBlockingProvider)
     assert isinstance(
         runtime.vuln_engine.coverage_provider,
-        StoreBackedVulnerabilityCoverageProvider,
+        InertVulnerabilityCoverageProvider,
     )
     assert runtime.vuln_engine.trend_provider is runtime.forecast_engine
     assert runtime.vuln_engine.finding_store is runtime.finding_store
@@ -78,7 +78,7 @@ async def test_vuln_service_health(backend: str) -> None:
     assert pre_start.status == "degraded"
     assert pre_start.ready is False
     assert pre_start.dependencies["vulnerability_store"] == "healthy"
-    assert pre_start.dependencies["coverage_provider"] == "healthy"
+    assert pre_start.dependencies["coverage_provider"] == "inert"
     assert pre_start.dependencies["threat_fusion_engine"] == "healthy"
     assert pre_start.dependencies["exposure_engine"] == "healthy"
     assert pre_start.dependencies["mission_engine"] == "healthy"
@@ -95,7 +95,7 @@ async def test_vuln_service_health(backend: str) -> None:
         assert vuln_health.status == "healthy"
         assert vuln_health.ready is True
         assert vuln_health.dependencies["vulnerability_store"] == "healthy"
-        assert vuln_health.dependencies["coverage_provider"] == "healthy"
+        assert vuln_health.dependencies["coverage_provider"] == "inert"
         assert vuln_health.dependencies["threat_fusion_engine"] == "healthy"
         assert vuln_health.dependencies["exposure_engine"] == "healthy"
         assert vuln_health.dependencies["mission_engine"] == "healthy"
@@ -130,3 +130,21 @@ def test_vuln_import_isolation() -> None:
 
     assert vuln.VulnerabilityIntelligenceService is VulnerabilityIntelligenceService
     assert hasattr(factory, "create_runtime")
+
+
+async def test_vuln_inert_coverage_refuses() -> None:
+    # ECR-0013: the unwired coverage default is inert/refusing, never optimistic.
+    # A wired runtime's assess() therefore refuses rather than reporting a fully
+    # covered ("not scanned = clean") assessment until inventory() is wired (N6).
+    from aqelyn.conventions.errors import CoverageUnavailable
+
+    runtime = create_inmemory_runtime()
+    service = runtime.vuln_engine_service
+    assert isinstance(runtime.vuln_engine.coverage_provider, InertVulnerabilityCoverageProvider)
+
+    await runtime.kernel.start()
+    try:
+        with pytest.raises(CoverageUnavailable):
+            await service.assess(tenant_id="018f0000-0000-7000-8000-0000002400aa")
+    finally:
+        await runtime.kernel.stop()
