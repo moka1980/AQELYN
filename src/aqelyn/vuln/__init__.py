@@ -1,5 +1,7 @@
 """Vulnerability Intelligence & Prioritization Engine (EA-0024)."""
 
+from aqelyn.vuln.engine import VulnerabilityIntelligenceEngine
+from aqelyn.vuln.memory import InMemoryVulnerabilityStore
 from aqelyn.vuln.models import (
     VALID_DISPOSITION_KINDS,
     VALID_PRIORITY_LEVELS,
@@ -21,6 +23,8 @@ from aqelyn.vuln.models import (
     VulnPriority,
     VulnStatus,
 )
+from aqelyn.vuln.postgres import PostgresVulnerabilityStore
+from aqelyn.vuln.store import VulnerabilityStore
 
 __all__ = [
     "VALID_DISPOSITION_KINDS",
@@ -32,6 +36,8 @@ __all__ = [
     "CoverageReport",
     "Disposition",
     "DispositionKind",
+    "InMemoryVulnerabilityStore",
+    "PostgresVulnerabilityStore",
     "PriorityLevel",
     "RemediationPlan",
     "Severity",
@@ -41,5 +47,7 @@ __all__ = [
     "VulnPriority",
     "VulnStatus",
     "VulnerabilityAssessment",
+    "VulnerabilityIntelligenceEngine",
     "VulnerabilityRecord",
+    "VulnerabilityStore",
 ]
