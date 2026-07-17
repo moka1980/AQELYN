@@ -17,6 +17,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0010 | EA-0022 / IS-022 | Accepted | Composite `Figure.as_of` uses the **stalest** input (`min`), not the newest — a single timestamp must not overstate freshness. |
 | ECR-0011 | EA-0023 / IS-023 | Accepted | Exposure is derived from known data; **no `scan()`/`probe()`/`connect()`**. Active scanning is an EA-0008 `scan.active` ActionSpec. Overrides master §20.3 scan endpoint + §28.2/§28.3. |
 | ECR-0012 | EA-0024 / IS-024 | Accepted | CVSS/EPSS carried, **never recomputed**; every assessment carries a mandatory `CoverageReport` and is **refused if coverage can't be computed** (not-scanned ≠ clean). Overrides master §12.2 severity-normalization + §28.2/§28.3. |
+| ECR-0013 | cross-cutting (unwired-dependency default) | Accepted | An unwired dependency's default implementation MUST be **inert or refusing, never optimistic**. Fixes EA-0024's coverage provider (reported `unscanned=[]`) to refuse. |
+| ECR-0014 | EA-0025 / IS-025 | Accepted | Absence ≠ decommission (asset → `unreported`, never retired from silence); `inventory()` declares freshness + fails rather than shrinks; reconciliation **records** conflicts (EA-0006 precedence). Overrides master §28.2. |
 
 ---
 
@@ -396,3 +398,73 @@ governs). Captured as EA-0024 **S1-S7**, **FR-2/4/5/6/7/11**, **NFR-1/2/3**, and
 **AC-2/4/5/6/7/8/9/14**. Proven **structurally** (priority unrepresentable without a
 replaying derivation; assessment refused without coverage) and **behaviourally** (a
 spy proves no severity recomputation), per ECR-0007.
+
+---
+
+## ECR-0013 - An unwired dependency defaults to inert/refusing, never optimistic
+
+**Raised by:** the C-021 V5 review, which found EA-0024's wired coverage provider
+reporting `unscanned=[]` (fully-covered) when it could not actually see the asset
+universe.
+**Severity:** correctness of the safety posture - an unwired control that reports
+"all good" is worse than one that reports nothing.
+
+**Problem.** EA-0024 V5 wired `StoreBackedVulnerabilityCoverageProvider`, whose
+`coverage()` returns `scanned = {ingested asset refs}` and **`unscanned = []`,
+`stale = []` always** - it knows only the ingested vulnerability store, not the
+full asset universe. So in the wired runtime every `assess()` looks fully-covered,
+which is exactly the *"not scanned = clean"* outcome EA-0024 S4 exists to prevent.
+The V4 *structure* is correct (assess refuses if coverage cannot be computed); the
+V5 *wiring* got the default backwards - optimistic instead of inert.
+
+**Resolution (binding, cross-cutting).** When a dependency is not yet wired to an
+authoritative source, its default implementation SHALL be **inert or refusing,
+never optimistic**. A coverage provider that cannot compute true coverage SHALL
+**refuse** (`CoverageUnavailable`) rather than report an empty `unscanned`. EA-0019
+established the pattern (inert reference checkers); EA-0024's wiring is corrected to
+match. The authoritative fix is EA-0025 `inventory()` as the coverage denominator,
+wired in C-022 **N6**; until then the default refuses.
+
+**Impact.** Small change to `aqelyn.vuln.service` (the default coverage provider
+refuses instead of reporting empty `unscanned`) plus the health/wiring semantics
+that follow, and the generalization above as a standing rule for every future
+"not-yet-wired dependency". No shipped invariant is weakened - the system becomes
+**more** honest (refuses rather than falsely reassures).
+
+---
+
+## ECR-0014 - EA-0025 inventory is the authoritative, freshness-declaring denominator
+
+**Raised by:** planning (EA-0025 spec pass).
+**Severity:** architectural - a silently shrinking inventory makes twenty engines
+report all-clear about a smaller world.
+
+**Problem.** The EA-0025 archive master (a) permits **§28.2 "previous inventory
+retained"** on failure - a silent stale/shrink - and (b) is **silent on how an
+asset leaves the inventory**, so a naive "continuous discovery" would let a feed
+that goes quiet retire assets. Both are the same failure: the inventory shrinks or
+staleds without anyone deciding it should, and every downstream engine
+(exposure coverage, vulnerability coverage, risk scope) then reports **all-clear of
+a smaller or older world** - cascading blindness that looks like good news.
+
+**Resolution.** (1) **Absence of evidence is not evidence of absence** - an asset
+absent from a feed becomes **`unreported`**, never `decommissioned`; decommissioning
+requires **positive evidence or an attributed EA-0008 decision**, and
+`sweep_unreported` **refuses** when source health is `unknown`. (2) **`inventory()`
+declares its own freshness** (`as_of` + per-source), and a **degraded store makes
+`inventory()` fail rather than shrink** (`InventoryUnavailable`) - overriding master
+§28.2. (3) **Reconciliation records conflicts** rather than smoothing them:
+precedence resolves via **EA-0006 source reliability** (not last-writer, not source
+order), every conflict stays on the record with each candidate's value + reliability,
+and ties land **unresolved and surfaced**.
+
+**Also recorded here:** `inventory()` is the authoritative "which assets exist" that
+EA-0023 (asset set) and EA-0024 (coverage denominator) were missing - **not** network
+access. C-022 **N6** wires both seams, and closes ECR-0013's coverage gap with a real
+inventory-backed denominator. This is **not** the connector turn (discovery is
+handed-in; no ADR-0001 refresh).
+
+**Impact.** Governs implementation only; the archive master is unchanged (the spec
+governs). Captured as EA-0025 **S2/S3/S4**, **FR-2/4/5/6/7**, **NFR-1/2**, and
+**AC-2/3/4/5/6/7/8/9/17**. Proven behaviourally (degraded store fails; sweep refuses
+on unknown health; conflicts + ties on the record), per ECR-0007.
