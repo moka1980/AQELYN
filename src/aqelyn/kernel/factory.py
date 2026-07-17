@@ -836,6 +836,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         evidence_recorder=evidence_store,
         trust_engine=trust_engine,
     )
+    acg_engine.trend_provider = forecast_engine
     executive_definition_store = InMemoryKPIDefinitionStore()
     executive_report_store = InMemoryReportStore(mode=cfg.tenant_mode)
     executive_kpi_sources = {
@@ -1325,6 +1326,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         evidence_recorder=evidence_store,
         trust_engine=trust_engine,
     )
+    acg_engine.trend_provider = forecast_engine
     executive_definition_store = await PostgresKPIDefinitionStore.connect(cfg.database_url)
     executive_report_store = await PostgresReportStore.connect(
         cfg.database_url,

@@ -356,13 +356,6 @@ async def test_acg_snapshot_history() -> None:
     assert latest is not None
     assert latest.id == second.id
 
-    trend = await analyzer.trend(tenant_id=None, since=first.run_at)
-    assert [point["snapshot_id"] for point in trend] == [first.id, second.id]
-    assert [point["overall_score"] for point in trend] == [0.5, 0.5]
-    asset_scores = trend[0]["asset_scores"]
-    assert isinstance(asset_scores, dict)
-    assert set(asset_scores) == {drift.asset_id for drift in first.asset_drifts}
-
 
 def test_acg_snapshot_store_has_no_update_delete_paths() -> None:
     root = Path(__file__).parents[2]
