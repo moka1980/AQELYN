@@ -7,8 +7,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from aqelyn.conventions import ActorRef, utc_now
+from aqelyn.conventions import ActorRef, new_id, require_typed_id, utc_now
 from aqelyn.conventions.errors import (
+    CoverageUnavailable,
     CrossTenantReference,
     DerivationNotReplayable,
     VulnConfigInvalid,
@@ -16,11 +17,16 @@ from aqelyn.conventions.errors import (
     VulnNotReplayable,
 )
 from aqelyn.decision import ClaimRef, Derivation, DerivationStep, build_derivation, replay
+from aqelyn.findings import Automation, Finding, FindingStore, Remediation
+from aqelyn.forecast import TrendRecord
 from aqelyn.mission import MissionImpactResult
 from aqelyn.vuln.models import (
+    CoverageReport,
     Disposition,
     DispositionKind,
+    RemediationPlan,
     VulnConfig,
+    VulnerabilityAssessment,
     VulnerabilityRecord,
     VulnPriority,
 )
@@ -64,6 +70,16 @@ class VulnerabilityMissionProvider(Protocol):
     async def mission_impact(self, object_id: str) -> MissionImpactResult: ...
 
 
+class VulnerabilityCoverageProvider(Protocol):
+    async def coverage(self, *, tenant_id: str | None) -> CoverageReport: ...
+
+
+class VulnerabilityTrendProvider(Protocol):
+    async def analyze_trend(
+        self, *, metric: str, window_days: int, tenant_id: str | None
+    ) -> TrendRecord: ...
+
+
 class VulnerabilityIntelligenceEngine:
     def __init__(
         self,
@@ -75,6 +91,9 @@ class VulnerabilityIntelligenceEngine:
         mission_provider: VulnerabilityMissionProvider | None = None,
         baseline_provider: BaselineBlockingProvider | None = None,
         trust_provider: ScannerTrustProvider | None = None,
+        coverage_provider: VulnerabilityCoverageProvider | None = None,
+        trend_provider: VulnerabilityTrendProvider | None = None,
+        finding_store: FindingStore | None = None,
     ) -> None:
         self.store = store
         self.config = config or VulnConfig()
@@ -83,6 +102,9 @@ class VulnerabilityIntelligenceEngine:
         self.mission_provider = mission_provider
         self.baseline_provider = baseline_provider
         self.trust_provider = trust_provider or _StoredScannerTrustProvider()
+        self.coverage_provider = coverage_provider
+        self.trend_provider = trend_provider
+        self.finding_store = finding_store
 
     async def ingest(
         self,
@@ -165,6 +187,93 @@ class VulnerabilityIntelligenceEngine:
             )
         )
 
+    async def assess(self, *, tenant_id: str | None) -> VulnerabilityAssessment:
+        coverage = await self._coverage(tenant_id=tenant_id)
+        records = await self.store.query(
+            tenant_id=tenant_id,
+            limit=max(self.config.max_priorities * 2, 100),
+        )
+        priorities: list[VulnPriority] = []
+        unavailable: list[dict[str, str]] = []
+        for record in _prioritizable(records):
+            if len(priorities) >= self.config.max_priorities:
+                break
+            try:
+                priorities.append(await self.prioritize(record.id, tenant_id=tenant_id))
+            except Exception as exc:
+                unavailable.append(
+                    {
+                        "vulnerability_id": record.id,
+                        "reason": str(exc) or exc.__class__.__name__,
+                    }
+                )
+        priorities.sort(key=lambda item: (-item.score, item.vulnerability_id))
+        return VulnerabilityAssessment(
+            tenant_id=tenant_id,
+            priorities=priorities,
+            coverage=coverage,
+            suppressed_count=_suppressed_count(records),
+            degraded=bool(unavailable),
+            unavailable=unavailable,
+            generated_at=utc_now(),
+        )
+
+    async def recommend(self, priority: VulnPriority, *, tenant_id: str | None) -> RemediationPlan:
+        selected = validate_replayable_priority(priority)
+        if selected.tenant_id != tenant_id:
+            raise CrossTenantReference("priority tenant_id does not match remediation request")
+        return RemediationPlan(
+            tenant_id=tenant_id,
+            vulnerability_id=selected.vulnerability_id,
+            priority=selected.priority,
+            proposed_campaign={
+                "source": "vuln_engine",
+                "kind": "ea0018_response_campaign_proposal",
+                "vulnerability_id": selected.vulnerability_id,
+                "priority_id": selected.id,
+                "phases": [
+                    {"name": "contain", "action": "validate_exposure"},
+                    {"name": "remediate", "action": "patch_or_mitigate"},
+                    {"name": "recover", "action": "verify_restored_state"},
+                ],
+                "requires_workflow": True,
+            },
+            owner=None,
+            target_date=None,
+            rationale=(
+                "Advisory remediation proposal only; execution must be planned and gated "
+                "through EA-0018/EA-0008."
+            ),
+        )
+
+    async def raise_vulnerability(self, priority: VulnPriority, *, by: ActorRef) -> Finding:
+        selected = validate_replayable_priority(priority)
+        if self.finding_store is None:
+            raise VulnConfigInvalid("finding store is unavailable")
+        vulnerability = await self.store.get(
+            selected.vulnerability_id,
+            tenant_id=selected.tenant_id,
+        )
+        if vulnerability is None:
+            raise VulnNotFound(selected.vulnerability_id)
+        finding = _finding_for_priority(selected, vulnerability, by=by)
+        return await self.finding_store.raise_finding(finding)
+
+    async def trend(
+        self,
+        *,
+        metric: str = "vulnerabilities.open",
+        window_days: int = 30,
+        tenant_id: str | None,
+    ) -> TrendRecord:
+        if self.trend_provider is None:
+            raise VulnConfigInvalid("forecast trend provider is unavailable")
+        return await self.trend_provider.analyze_trend(
+            metric=metric,
+            window_days=window_days,
+            tenant_id=tenant_id,
+        )
+
     async def _matching_record(
         self,
         candidate: VulnerabilityRecord,
@@ -235,6 +344,16 @@ class VulnerabilityIntelligenceEngine:
         selected = max(result.impacts, key=lambda impact: (impact.impact_score, impact.mission.id))
         return PriorityFactor(selected.impact_score, selected.mission.id, selected.reason)
 
+    async def _coverage(self, *, tenant_id: str | None) -> CoverageReport:
+        if self.coverage_provider is None:
+            raise CoverageUnavailable("coverage provider is unavailable")
+        try:
+            return await self.coverage_provider.coverage(tenant_id=tenant_id)
+        except CoverageUnavailable:
+            raise
+        except Exception as exc:
+            raise CoverageUnavailable("coverage provider is unavailable") from exc
+
 
 class _StoredScannerTrustProvider:
     async def scanner_trust(self, vulnerability: VulnerabilityRecord) -> PriorityFactor:
@@ -272,6 +391,134 @@ def _reasserted_disposition(record: VulnerabilityRecord) -> Disposition | None:
     if record.disposition is None:
         return None
     return record.disposition.model_copy(update={"reasserted_by_scanner": True}, deep=True)
+
+
+def _prioritizable(records: Sequence[VulnerabilityRecord]) -> list[VulnerabilityRecord]:
+    return [
+        record
+        for record in sorted(records, key=lambda item: (item.discovered_at, item.id))
+        if record.status != "closed" and record.disposition is None
+    ]
+
+
+def _suppressed_count(records: Sequence[VulnerabilityRecord]) -> int:
+    return sum(1 for record in records if record.disposition is not None)
+
+
+def _finding_for_priority(
+    priority: VulnPriority,
+    vulnerability: VulnerabilityRecord,
+    *,
+    by: ActorRef,
+) -> Finding:
+    evidence_ids = _evidence_ids(vulnerability)
+    if not evidence_ids:
+        raise VulnConfigInvalid("material vulnerability finding requires evidence")
+    affected = _affected_object_ids(vulnerability)
+    return Finding(
+        id=new_id("fnd"),
+        tenant_id=vulnerability.tenant_id,
+        finding_type="vulnerability.priority",
+        schema_version=1,
+        dedup_key=f"vulnerability.priority:{vulnerability.id}",
+        title=f"{priority.priority.title()} vulnerability priority: {vulnerability.cve_id}",
+        severity=_finding_severity(priority.score),
+        severity_score=round(priority.score / 100.0, 6),
+        status="open",
+        what_happened=(
+            f"Scanner {vulnerability.scanner} reported {vulnerability.cve_id} on "
+            f"{vulnerability.asset_ref.ref_id}; AQELYN prioritized it as "
+            f"{priority.priority} ({priority.score:.1f}/100)."
+        ),
+        why_it_matters=(
+            "The priority composes carried CVSS/EPSS, exploit intelligence, exposure, mission "
+            "impact, baseline blocking, and scanner trust."
+        ),
+        how_determined=(
+            "The Vulnerability Intelligence Engine used the replayable priority derivation and "
+            "the cited scanner basis; it did not scan, patch, or execute a response."
+        ),
+        risk_of_inaction=(
+            "Leaving a material vulnerability unresolved can preserve a reachable, "
+            "mission-relevant weakness for attackers."
+        ),
+        evidence_ids=evidence_ids,
+        affected_object_ids=affected,
+        expert_details={
+            "vulnerability_id": vulnerability.id,
+            "priority_id": priority.id,
+            "scanner": vulnerability.scanner,
+            "cve_id": vulnerability.cve_id,
+            "score": priority.score,
+            "priority": priority.priority,
+            "factors": priority.factors,
+            "derivation": priority.derivation.model_dump(mode="json"),
+            "raised_by": by.model_dump(mode="json"),
+        },
+        remediation=Remediation(
+            summary="Plan vulnerability remediation through response orchestration.",
+            steps=[
+                "Review the cited scanner evidence and priority factor breakdown.",
+                "Validate whether the affected asset remains exposed or mission-relevant.",
+                "Create a gated EA-0018 response campaign if remediation is still appropriate.",
+            ],
+            difficulty="medium",
+            estimated_effort=None,
+            expected_outcome=(
+                "The vulnerability is accepted, mitigated, or remediated through governed workflow."
+            ),
+            references=[vulnerability.cve_id, "EA-0018", "EA-0008"],
+        ),
+        automation=Automation(
+            eligibility="none",
+            action_ref=None,
+            requires_approval=True,
+            risk_note=(
+                "Vulnerability Intelligence raises findings only; remediation is advisory and "
+                "must go through EA-0018/EA-0008."
+            ),
+        ),
+        confidence=priority.confidence,
+        source_engine="vuln_engine",
+        correlation_id=priority.id,
+        first_detected_at=vulnerability.discovered_at,
+        last_detected_at=utc_now(),
+    )
+
+
+def _evidence_ids(vulnerability: VulnerabilityRecord) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for basis in vulnerability.basis:
+        if basis.evidence_id is None or basis.evidence_id in seen:
+            continue
+        seen.add(basis.evidence_id)
+        out.append(basis.evidence_id)
+    if (
+        vulnerability.asset_ref.evidence_id is not None
+        and vulnerability.asset_ref.evidence_id not in seen
+    ):
+        out.append(vulnerability.asset_ref.evidence_id)
+    return out
+
+
+def _affected_object_ids(vulnerability: VulnerabilityRecord) -> list[str]:
+    ref_id = vulnerability.asset_ref.ref_id
+    if not ref_id.startswith("obj_"):
+        return []
+    return [require_typed_id(ref_id, "obj", field="affected_object_ids")]
+
+
+def _finding_severity(score: float) -> str:
+    if score >= 90.0:
+        return "critical"
+    if score >= 70.0:
+        return "high"
+    if score >= 40.0:
+        return "medium"
+    if score > 0.0:
+        return "low"
+    return "info"
 
 
 def _epss_factor(vulnerability: VulnerabilityRecord) -> PriorityFactor:

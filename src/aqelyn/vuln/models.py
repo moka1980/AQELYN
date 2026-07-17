@@ -316,6 +316,8 @@ class VulnerabilityAssessment(BaseModel):
     priorities: list[VulnPriority] = Field(default_factory=list)
     coverage: CoverageReport
     suppressed_count: int = 0
+    degraded: bool = False
+    unavailable: list[dict[str, str]] = Field(default_factory=list)
     generated_at: datetime
 
     @field_validator("id")
@@ -332,6 +334,17 @@ class VulnerabilityAssessment(BaseModel):
     @classmethod
     def _suppressed_count(cls, value: object) -> int:
         return _nonnegative_int(value, field="suppressed_count")
+
+    @field_validator("unavailable")
+    @classmethod
+    def _unavailable(cls, values: list[dict[str, str]]) -> list[dict[str, str]]:
+        for value in values:
+            if not value:
+                raise VulnConfigInvalid("unavailable entries must not be empty")
+            for key, selected in value.items():
+                _nonempty(key, field="unavailable key")
+                _nonempty(selected, field="unavailable value")
+        return [dict(value) for value in values]
 
 
 class RemediationPlan(BaseModel):
