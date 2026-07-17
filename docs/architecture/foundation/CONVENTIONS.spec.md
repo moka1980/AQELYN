@@ -63,6 +63,8 @@ relies on. Other specs reference this rather than restating it.
 | `vpr` | Vulnerability priority | EA-0024 |
 | `vas` | Vulnerability assessment | EA-0024 |
 | `rem` | Remediation plan | EA-0024 |
+| `ast` | Asset record | EA-0025 |
+| `arl` | Asset relationship | EA-0025 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -240,6 +242,12 @@ Every created/changed record and every event carries the responsible actor.
 | `CoverageUnavailable` | EA-0024 | no |
 | `VulnNotFound` | EA-0024 | no |
 | `VulnNotReplayable` | EA-0024 | no |
+| `InventoryConfigInvalid` | EA-0025 | no |
+| `AssetBasisMissing` | EA-0025 | no |
+| `AssetNotFound` | EA-0025 | no |
+| `InventoryUnavailable` | EA-0025 | yes |
+| `SourceHealthUnknown` | EA-0025 | no |
+| `DecommissionRequiresEvidence` | EA-0025 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
