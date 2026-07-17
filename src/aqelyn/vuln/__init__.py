@@ -1,6 +1,15 @@
 """Vulnerability Intelligence & Prioritization Engine (EA-0024)."""
 
-from aqelyn.vuln.engine import VulnerabilityIntelligenceEngine
+from aqelyn.vuln.engine import (
+    BaselineBlockingProvider,
+    ExposureReachabilityProvider,
+    PriorityFactor,
+    ScannerTrustProvider,
+    ThreatExploitProvider,
+    VulnerabilityIntelligenceEngine,
+    VulnerabilityMissionProvider,
+    validate_replayable_priority,
+)
 from aqelyn.vuln.memory import InMemoryVulnerabilityStore
 from aqelyn.vuln.models import (
     VALID_DISPOSITION_KINDS,
@@ -32,15 +41,20 @@ __all__ = [
     "VALID_SEVERITIES",
     "VALID_VULN_BASIS_KINDS",
     "VALID_VULN_STATUS",
+    "BaselineBlockingProvider",
     "CarriedScore",
     "CoverageReport",
     "Disposition",
     "DispositionKind",
+    "ExposureReachabilityProvider",
     "InMemoryVulnerabilityStore",
     "PostgresVulnerabilityStore",
+    "PriorityFactor",
     "PriorityLevel",
     "RemediationPlan",
+    "ScannerTrustProvider",
     "Severity",
+    "ThreatExploitProvider",
     "VulnBasis",
     "VulnBasisKind",
     "VulnConfig",
@@ -48,6 +62,8 @@ __all__ = [
     "VulnStatus",
     "VulnerabilityAssessment",
     "VulnerabilityIntelligenceEngine",
+    "VulnerabilityMissionProvider",
     "VulnerabilityRecord",
     "VulnerabilityStore",
+    "validate_replayable_priority",
 ]
