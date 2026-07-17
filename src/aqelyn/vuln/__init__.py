@@ -35,6 +35,15 @@ from aqelyn.vuln.models import (
     VulnStatus,
 )
 from aqelyn.vuln.postgres import PostgresVulnerabilityStore
+from aqelyn.vuln.service import (
+    VULN_EVENTS,
+    DriftSnapshotBlockingProvider,
+    ExposureStoreReachabilityProvider,
+    StoreBackedVulnerabilityCoverageProvider,
+    ThreatSignalFactorProvider,
+    VulnerabilityIntelligenceService,
+    register_vuln_events,
+)
 from aqelyn.vuln.store import VulnerabilityStore
 
 __all__ = [
@@ -43,12 +52,15 @@ __all__ = [
     "VALID_SEVERITIES",
     "VALID_VULN_BASIS_KINDS",
     "VALID_VULN_STATUS",
+    "VULN_EVENTS",
     "BaselineBlockingProvider",
     "CarriedScore",
     "CoverageReport",
     "Disposition",
     "DispositionKind",
+    "DriftSnapshotBlockingProvider",
     "ExposureReachabilityProvider",
+    "ExposureStoreReachabilityProvider",
     "InMemoryVulnerabilityStore",
     "PostgresVulnerabilityStore",
     "PriorityFactor",
@@ -56,7 +68,9 @@ __all__ = [
     "RemediationPlan",
     "ScannerTrustProvider",
     "Severity",
+    "StoreBackedVulnerabilityCoverageProvider",
     "ThreatExploitProvider",
+    "ThreatSignalFactorProvider",
     "VulnBasis",
     "VulnBasisKind",
     "VulnConfig",
@@ -65,9 +79,11 @@ __all__ = [
     "VulnerabilityAssessment",
     "VulnerabilityCoverageProvider",
     "VulnerabilityIntelligenceEngine",
+    "VulnerabilityIntelligenceService",
     "VulnerabilityMissionProvider",
     "VulnerabilityRecord",
     "VulnerabilityStore",
     "VulnerabilityTrendProvider",
+    "register_vuln_events",
     "validate_replayable_priority",
 ]
