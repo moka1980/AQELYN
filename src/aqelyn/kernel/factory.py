@@ -633,8 +633,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.vuln import (
         DriftSnapshotBlockingProvider,
         ExposureStoreReachabilityProvider,
+        InertVulnerabilityCoverageProvider,
         InMemoryVulnerabilityStore,
-        StoreBackedVulnerabilityCoverageProvider,
         ThreatSignalFactorProvider,
         VulnerabilityIntelligenceEngine,
         register_vuln_events,
@@ -841,7 +841,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
         mission_provider=mission_engine,
         baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
-        coverage_provider=StoreBackedVulnerabilityCoverageProvider(vuln_store),
+        coverage_provider=InertVulnerabilityCoverageProvider(),
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
@@ -1063,8 +1063,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.vuln import (
         DriftSnapshotBlockingProvider,
         ExposureStoreReachabilityProvider,
+        InertVulnerabilityCoverageProvider,
         PostgresVulnerabilityStore,
-        StoreBackedVulnerabilityCoverageProvider,
         ThreatSignalFactorProvider,
         VulnerabilityIntelligenceEngine,
         register_vuln_events,
@@ -1320,7 +1320,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
         mission_provider=mission_engine,
         baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
-        coverage_provider=StoreBackedVulnerabilityCoverageProvider(vuln_store),
+        coverage_provider=InertVulnerabilityCoverageProvider(),
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )

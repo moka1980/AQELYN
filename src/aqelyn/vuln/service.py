@@ -46,21 +46,22 @@ def register_vuln_events(registry: EventTypeRegistry) -> None:
         registry.register(event_type, schema_version, None)
 
 
-class StoreBackedVulnerabilityCoverageProvider:
-    def __init__(self, store: VulnerabilityStore, *, limit: int = 10_000) -> None:
-        self.store = store
-        self.limit = limit
+class InertVulnerabilityCoverageProvider:
+    """Refusing coverage default until wired to an authoritative asset inventory.
+
+    Per ECR-0013, an unwired dependency's default must be inert or refusing, never
+    optimistic. Reporting ``unscanned=[]`` from the vulnerability store alone (which
+    knows only ingested vulns, not the asset universe) would present incomplete
+    coverage as complete - the exact "not scanned = clean" outcome EA-0024 S4 exists
+    to prevent. So this refuses; ``assess()`` refuses in turn. EA-0025 ``inventory()``
+    supplies the real coverage denominator (C-022 N6), replacing this.
+    """
 
     async def coverage(self, *, tenant_id: str | None) -> CoverageReport:
-        try:
-            rows = await self.store.query(tenant_id=tenant_id, limit=self.limit)
-        except Exception as exc:
-            raise CoverageUnavailable("vulnerability coverage source unavailable") from exc
-        return CoverageReport(
-            scanned=sorted({record.asset_ref.ref_id for record in rows}),
-            unscanned=[],
-            stale=[],
-            computed_at=utc_now(),
+        _ = tenant_id
+        raise CoverageUnavailable(
+            "vulnerability coverage is not wired to an authoritative asset inventory "
+            "(ECR-0013): refusing rather than reporting incomplete coverage as complete"
         )
 
 
@@ -188,8 +189,7 @@ class VulnerabilityIntelligenceService:
             self._check_config()
             await self._check_store()
             dependencies["vulnerability_store"] = "healthy"
-            await self._check_coverage_provider()
-            dependencies["coverage_provider"] = "healthy"
+            dependencies["coverage_provider"] = await self._check_coverage_provider()
             await self._check_threat_provider()
             dependencies["threat_fusion_engine"] = "healthy"
             await self._check_exposure_provider()
@@ -281,15 +281,22 @@ class VulnerabilityIntelligenceService:
         except Exception as exc:
             raise StoreUnavailable(f"vulnerability store unavailable: {exc}") from exc
 
-    async def _check_coverage_provider(self) -> None:
-        if self.engine.coverage_provider is None:
+    async def _check_coverage_provider(self) -> str:
+        provider = self.engine.coverage_provider
+        if provider is None:
             raise StoreUnavailable("vulnerability coverage provider unavailable")
+        # An intentionally inert/refusing default (ECR-0013) is an acceptable known
+        # state: the service still ingests and prioritizes, and assess() refuses
+        # rather than reporting incomplete coverage as complete.
+        if isinstance(provider, InertVulnerabilityCoverageProvider):
+            return "inert"
         try:
-            await self.engine.coverage_provider.coverage(tenant_id=None)
+            await provider.coverage(tenant_id=None)
         except CoverageUnavailable as exc:
             raise StoreUnavailable(exc.message) from exc
         except Exception as exc:
             raise StoreUnavailable(f"vulnerability coverage provider unavailable: {exc}") from exc
+        return "healthy"
 
     async def _check_threat_provider(self) -> None:
         if self.engine.threat_provider is None:

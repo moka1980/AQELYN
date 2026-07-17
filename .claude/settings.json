@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mypy *)",
+      "Bash(ruff format --check *)",
+      "Bash(ruff check src tests)",
+      "Bash(ruff check src)"
+    ]
+  }
+}
