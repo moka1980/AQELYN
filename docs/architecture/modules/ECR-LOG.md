@@ -19,6 +19,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0012 | EA-0024 / IS-024 | Accepted | CVSS/EPSS carried, **never recomputed**; every assessment carries a mandatory `CoverageReport` and is **refused if coverage can't be computed** (not-scanned ≠ clean). Overrides master §12.2 severity-normalization + §28.2/§28.3. |
 | ECR-0013 | cross-cutting (unwired-dependency default) | Accepted | An unwired dependency's default implementation MUST be **inert or refusing, never optimistic**. Fixes EA-0024's coverage provider (reported `unscanned=[]`) to refuse. |
 | ECR-0014 | EA-0025 / IS-025 | Accepted | Absence ≠ decommission (asset → `unreported`, never retired from silence); `inventory()` declares freshness + fails rather than shrinks; reconciliation **records** conflicts (EA-0006 precedence). Overrides master §28.2. |
+| ECR-0015 | EA-0026 / IS-026 | Accepted | **IS-026 is IS-012 restated — do not build EA-0026.** EA-0012 already ships baseline/drift/classify/remediation and the `configuration.drift.detected` event. Realize IS-026's intent as a small EA-0012 enhancement (C-023). |
 
 ---
 
@@ -468,3 +469,57 @@ handed-in; no ADR-0001 refresh).
 governs). Captured as EA-0025 **S2/S3/S4**, **FR-2/4/5/6/7**, **NFR-1/2**, and
 **AC-2/3/4/5/6/7/8/9/17**. Proven behaviourally (degraded store fails; sweep refuses
 on unknown health; conflicts + ties on the record), per ECR-0007.
+
+---
+
+## ECR-0015 - IS-026 is IS-012 restated; do not build EA-0026
+
+**Raised by:** owner (IS-026 spec pass), verified by Claude Code against shipped code
+(K1).
+**Severity:** architectural - building it would fork the platform's configuration
+authority.
+
+**Problem.** IS-026 (Configuration Compliance & Drift Intelligence) is **not a
+component overlap with EA-0012 (Asset & Configuration Governance) - it is the same
+engine restated.** The decisive tell: both archive masters declare the **identical**
+event `configuration.drift.detected` (EA-0012 master lines 787/1557/1959; IS-026
+master line 294). Types map one-for-one (`BaselineDefinition`->`Baseline`,
+`DriftAssessment`->`DriftSnapshot`, `ConfigurationRemediation`->finding + proposed
+run), components map, and EA-0012 **shipped all of it in C-009** (green on `main`):
+`Baseline`/`BaselineStore`, `DriftSnapshot`/`assess_asset`, `classify`,
+`drift_to_findings`, and the `aqelyn.config.drift_detected` event. Every mapping is
+verified against shipped code in `IS-026_Conformance_Analysis.md`.
+
+Building `EA-0026` as written would give the platform two baseline stores (two
+answers to "desired config state"), two drift detectors (divergent results on the
+same asset), two `configuration.drift.detected` emitters (duplicate findings, doubled
+remediation proposals, inflated drift counts in EA-0022 reporting), and a split brain
+in every consumer. That is the failure this project has rejected eight times - here in
+its most extreme form. This is the **second** archive redundancy after IS-018 vs
+EA-0008 (**ECR-0006**), indicating the archive was authored per-topic without
+cross-topic dedup: a documentation artefact, not a requirement.
+
+**Resolution.** **No `EA-0026` engine is built.** IS-026's intent is realized as a
+small **two-ticket EA-0012 enhancement (C-023)** - not a module:
+1. **K1** - accept the conformance mapping only after each ✅ is verified against
+   **shipped code**; any ✅ that fails becomes a C-023 ticket (never a reason to build
+   a second module).
+2. **K2** - delegate configuration **drift trend** to **EA-0021** (`analyze_trend`,
+   the EA-0023/EA-0024 precedent), and *optionally* emit an **EA-0020 advisory
+   recommendation alongside - never replacing** - the existing proposed gated run.
+
+The C-023 bundle states outright: **if `src/aqelyn/configcompliance/` appears, the
+milestone has gone wrong.** IS-026's "continuous drift detection" (scheduling) is
+**deliberately deferred** to a future scheduler EA (EA-0008 §13), where it will serve
+every assessment engine (EA-0010/0012/0023/0024/0025) rather than being re-implemented
+inside the config engine.
+
+**Going-forward discipline (adopted).** Before specifying any remaining archive
+module, **grep its declared event types and data types against shipped modules
+first.** Identical event names are a reliable restatement signal; that single check
+caught IS-026 immediately.
+
+**Impact.** No new module, no repository change beyond docs. IS-026's intent is met at
+its turn, sequentially, with evidence - without forking the platform's config
+authority. Master's Next after IS-026 is IS-027 (Identity Threat Detection &
+Behavioral Analytics), which the same event/type check should precede.

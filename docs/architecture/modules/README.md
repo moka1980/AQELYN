@@ -74,6 +74,7 @@ EA-0025 → `src/aqelyn/inventory/` + `tests/inventory/`.
 | [EA-0023 Threat Exposure & Attack Surface Mgmt](EA-0023-threat-exposure-attack-surface-management.spec.md) | EA-0023 | EA-0012, EA-0019, EA-0005, EA-0011, EA-0007/0006, EA-0013 | [C-020](C-020_Task_Bundle.md) | Accepted (see ECR-0011) |
 | [EA-0024 Vulnerability Intelligence & Prioritization](EA-0024-vulnerability-intelligence-prioritization.spec.md) | EA-0024 | EA-0014, EA-0023, EA-0007, EA-0012, EA-0006, EA-0020, EA-0018 | [C-021](C-021_Task_Bundle.md) | Accepted (see ECR-0012) |
 | [EA-0025 Cyber Asset Discovery & Inventory Intelligence](EA-0025-cyber-asset-discovery-inventory-intelligence.spec.md) | EA-0025 | EA-0012, EA-0002, EA-0005, EA-0006, EA-0007, EA-0004 | [C-022](C-022_Task_Bundle.md) | Accepted (see ECR-0014) |
+| IS-026 Configuration Compliance & Drift — **restates EA-0012, no new module** ([conformance](IS-026_Conformance_Analysis.md)) | (EA-0012) | — | [C-023](C-023_Task_Bundle.md) | ECR-0015: do not build |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
@@ -81,7 +82,7 @@ specs (currently ECR-0001 against EA-0005).
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0026 (Configuration Compliance & Drift Intelligence) onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0027 (Identity Threat Detection & Behavioral Analytics) onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).
