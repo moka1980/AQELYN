@@ -6,7 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id, utc_now
 from aqelyn.conventions.errors import (
@@ -16,9 +16,11 @@ from aqelyn.conventions.errors import (
     InventoryUnavailable,
     SourceHealthUnknown,
 )
+from aqelyn.graph import Path
 from aqelyn.inventory.models import (
     AssetBasis,
     AssetRecord,
+    AssetRelationship,
     ConflictCandidate,
     DiscoverySource,
     FieldConflict,
@@ -27,9 +29,33 @@ from aqelyn.inventory.models import (
     Ownership,
 )
 from aqelyn.inventory.store import AssetStore, validate_asset_id
+from aqelyn.objects import AQRelationship, SourceRef
 
 _RECONCILED_FIELDS = ("asset_type", "classification", "owner")
 _INVENTORY_STATES = frozenset(("provisioned", "active", "modified", "unreported"))
+_INVENTORY_ACTOR = ActorRef(actor_type="system", actor_id="inventory_engine")
+
+
+class AssetClassifier(Protocol):
+    async def classify(self, asset_id: str, *, tenant_id: str | None = None) -> str: ...
+
+
+class InventoryRelationshipStore(Protocol):
+    async def relate(self, rel: AQRelationship) -> AQRelationship: ...
+
+
+class InventoryRelationshipGraph(Protocol):
+    async def paths(
+        self,
+        from_id: str,
+        to_id: str,
+        *,
+        direction: str = "both",
+        relation_types: Sequence[str] | None = None,
+        max_depth: int = 6,
+        max_paths: int = 10,
+        max_work: int = 50_000,
+    ) -> list[Path]: ...
 
 
 @dataclass(frozen=True)
@@ -40,10 +66,35 @@ class _Resolution:
     resolved: bool
 
 
+@dataclass(frozen=True)
+class _RelationshipHint:
+    source_object_id: str
+    relation_type: str
+    target_object_id: str
+    ref: str
+    evidence_id: str | None
+    as_of: datetime
+
+
 class InventoryIntelligenceEngine:
-    def __init__(self, store: AssetStore, *, config: InventoryConfig | None = None) -> None:
+    def __init__(
+        self,
+        store: AssetStore,
+        *,
+        config: InventoryConfig | None = None,
+        classifier: AssetClassifier | None = None,
+        relationship_store: InventoryRelationshipStore | None = None,
+        graph: InventoryRelationshipGraph | None = None,
+        actor: ActorRef | None = None,
+        source_id: str | None = None,
+    ) -> None:
         self.store = store
         self.config = config or InventoryConfig()
+        self.classifier = classifier
+        self.relationship_store = relationship_store
+        self.graph = graph
+        self.actor = actor or _INVENTORY_ACTOR
+        self.source_id = source_id or new_id("src")
 
     async def ingest(
         self,
@@ -205,6 +256,106 @@ class InventoryIntelligenceEngine:
             degraded=False,
         )
 
+    async def classify(self, asset_id: str, *, tenant_id: str | None) -> AssetRecord:
+        if self.classifier is None:
+            raise InventoryConfigInvalid("asset classification provider is unavailable")
+        selected_id = validate_asset_id(asset_id)
+        selected_tenant = require_tenant_id(tenant_id)
+        current = await self.store.get(selected_id, tenant_id=selected_tenant)
+        if current is None:
+            raise AssetNotFound(selected_id)
+        asset_class = await self.classifier.classify(selected_id, tenant_id=selected_tenant)
+        if not asset_class.strip():
+            raise InventoryConfigInvalid("classification provider returned an empty class")
+        return await self.store.put(
+            current.model_copy(
+                update={
+                    "classification": asset_class,
+                    "basis": [
+                        *current.basis,
+                        AssetBasis(
+                            kind="config",
+                            ref=f"ea0012:classify:{selected_id}",
+                            as_of=utc_now(),
+                            evidence_id=None,
+                        ),
+                    ],
+                },
+                deep=True,
+            )
+        )
+
+    async def ownership(self, asset_id: str, *, tenant_id: str | None) -> Ownership | None:
+        selected_id = validate_asset_id(asset_id)
+        selected_tenant = require_tenant_id(tenant_id)
+        current = await self.store.get(selected_id, tenant_id=selected_tenant)
+        if current is None:
+            raise AssetNotFound(selected_id)
+        return None if current.owner is None else current.owner.model_copy(deep=True)
+
+    async def infer_relationships(
+        self, asset_id: str, *, tenant_id: str | None
+    ) -> list[AssetRelationship]:
+        if self.relationship_store is None:
+            raise InventoryConfigInvalid("EA-0002 relationship store is unavailable")
+        if self.graph is None:
+            raise InventoryConfigInvalid("EA-0005 knowledge graph is unavailable")
+        selected_id = validate_asset_id(asset_id)
+        selected_tenant = require_tenant_id(tenant_id)
+        current = await self.store.get(selected_id, tenant_id=selected_tenant)
+        if current is None:
+            raise AssetNotFound(selected_id)
+        inferred: list[AssetRelationship] = []
+        for hint in _relationship_hints(current):
+            paths = await self.graph.paths(
+                hint.source_object_id,
+                hint.target_object_id,
+                direction="out",
+                relation_types=(hint.relation_type,),
+                max_paths=1,
+                max_work=self.config.max_relationship_work,
+            )
+            if not paths:
+                continue
+            related = await self.relationship_store.relate(
+                AQRelationship(
+                    id="",
+                    tenant_id=selected_tenant,
+                    from_id=hint.source_object_id,
+                    to_id=hint.target_object_id,
+                    relation_type=hint.relation_type,
+                    attributes={"inferred_from": hint.ref, "inventory_asset_id": current.id},
+                    sources=[
+                        SourceRef(
+                            source_id=self.source_id,
+                            evidence_id=hint.evidence_id,
+                            observed_at=hint.as_of,
+                            method="inventory_relationship_inference",
+                        )
+                    ],
+                    confidence=current.confidence,
+                    lifecycle_state="active",
+                    version=1,
+                    created_at=utc_now(),
+                    updated_at=utc_now(),
+                    created_by=self.actor,
+                    updated_by=self.actor,
+                )
+            )
+            inferred.append(
+                AssetRelationship(
+                    tenant_id=selected_tenant,
+                    source_asset=related.from_id,
+                    target_asset=related.to_id,
+                    relationship_type=related.relation_type,
+                    confidence=related.confidence,
+                    inferred_from=hint.ref,
+                    evidence_id=hint.evidence_id,
+                )
+            )
+        inferred.sort(key=lambda item: (item.source_asset, item.target_asset, item.id))
+        return inferred
+
     async def _asset_from_report(
         self,
         report: Mapping[str, Any],
@@ -354,3 +505,29 @@ def _decommission_ref(*, by: ActorRef, evidence_id: str | None, decision_ref: st
         return f"decommission:evidence:{evidence_id}:by:{by.actor_type}:{by.actor_id}"
     assert decision_ref is not None
     return f"decommission:decision:{decision_ref}:by:{by.actor_type}:{by.actor_id}"
+
+
+def _relationship_hints(asset: AssetRecord) -> list[_RelationshipHint]:
+    hints: list[_RelationshipHint] = []
+    for basis in asset.basis:
+        if basis.kind != "relationship":
+            continue
+        parts = basis.ref.split("|")
+        if len(parts) != 3:
+            raise InventoryConfigInvalid(
+                "relationship basis ref must be source_obj|relation_type|target_obj"
+            )
+        source_object_id = require_typed_id(parts[0], "obj", field="relationship source")
+        relation_type = _string(parts[1], field="relationship type")
+        target_object_id = require_typed_id(parts[2], "obj", field="relationship target")
+        hints.append(
+            _RelationshipHint(
+                source_object_id=source_object_id,
+                relation_type=relation_type,
+                target_object_id=target_object_id,
+                ref=basis.ref,
+                evidence_id=basis.evidence_id,
+                as_of=basis.as_of,
+            )
+        )
+    return hints
