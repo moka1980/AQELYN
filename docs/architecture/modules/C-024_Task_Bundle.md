@@ -70,6 +70,10 @@ tenant, append-only). `detect` **runs the I2 dignity gate first** — if it fail
 `IdentityDetection` with ≥2 corroboration, EA-0006 `confidence`, and a replayable EA-0020
 `Derivation` pinned to profile/rule versions (rejected if `replay != result`). The store
 rejects <2 corroboration / no basis.
+**Input (ECR-0018):** `detect` accepts a structured `IdentityObservation` carrying
+the detection type and pinned profile/rule versions. The engine renders the fixed
+account-scoped statement and basis; callers cannot supply verdict-like prose or leave
+the replay pins implicit.
 **Depends on:** I2.
 **Independence (ECR-0017):** the gate de-duplicates corroboration itself, keyed on the
 **signal** (`ref`, and `evidence_id` where present) — never on `kind`. One occurrence

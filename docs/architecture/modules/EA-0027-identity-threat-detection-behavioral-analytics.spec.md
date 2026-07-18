@@ -125,6 +125,10 @@ DetectionType = "impossible_travel" | "credential_reuse" | "session_hijack"
 SignalRef = { kind: str, ref: str, as_of: datetime, evidence_id: str | null }   # independent signal (S3)
 IdentityBasis = { kind: "profile"|"entitlement"|"event", ref: str,
                   as_of: datetime, evidence_id: str | null }                     # cited (S1/S7)
+IdentityObservation = { subject_ref: str, detection_type: DetectionType,
+                        signals: list[SignalRef], profile_ref: str,
+                        profile_version: int, rule_ref: str, rule_version: int,
+                        detected_at: datetime }                                  # ECR-0018
 
 IdentityDetection = { id, tenant_id, subject_ref: str,          # account/credential/session (S2)
                       detection_type: DetectionType,
@@ -160,7 +164,7 @@ class IdentityDetectionStore(Protocol):
                     detection_type: DetectionType | None = None, limit: int = 100) -> list[IdentityDetection]: ...
 
 class IdentityThreatEngine(Protocol):
-    async def detect(self, *, subject_ref: str, signals: Sequence[SignalRef],
+    async def detect(self, *, observation: IdentityObservation,
                      tenant_id: str | None) -> IdentityDetection | None: ...   # dignity gate (S3); None if not met
     async def raise_detection(self, d: IdentityDetection, *, by: "ActorRef") -> "Finding": ...  # account-scoped question (S8)
     async def review(self, detection_id: str, *, by: "ActorRef", outcome: str,
@@ -174,8 +178,11 @@ owner-read availability + config validity + **dignity-gate validity**).
 
 ## 7. Computation (the reference model)
 
-**Detect.** Gather ≥ 2 **independent** `SignalRef`s for an account `subject_ref`;
-read its EA-0017 `BehaviorProfile` (S5) and cite EA-0011 entitlement context (S6).
+**Detect.** Accept an `IdentityObservation` carrying ≥ 2 **independent**
+`SignalRef`s for an account `subject_ref` plus the profile/rule versions needed for
+replay (ECR-0018); read its EA-0017 `BehaviorProfile` (S5) and cite EA-0011
+entitlement context (S6). The engine, not the caller, renders the fixed
+account-scoped observation statement and its basis.
 **The dignity gate runs first:** if corroboration < `min_corroboration` (≥ 2) or
 confidence ≤ `min_confidence` (> platform default), **no detection is produced**
 (returns `None`) — the observation is dropped, not surfaced as suspicion (S3). Else
