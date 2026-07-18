@@ -14,6 +14,7 @@ from aqelyn.cspm.models import (
     CloudNormalizationConfig,
     CloudResourceDescriptor,
     NormalizedCloudObject,
+    UnreportedCloudFact,
 )
 from aqelyn.cspm.normalize import (
     cloud_natural_key,
@@ -82,6 +83,10 @@ class CloudPostureEngine:
             "object_type": obj.object_type,
             "provider": obj.provider,
             "field_provenance": dict(obj.field_provenance),
+            "unreported_facts": {
+                field: state.model_dump(mode="json")
+                for field, state in sorted(obj.unreported_facts.items())
+            },
             "conflicts": copy.deepcopy(obj.conflicts),
             "evidence_id": obj.evidence_id,
             "flagged": obj.flagged,
@@ -116,7 +121,7 @@ class CloudPostureEngine:
         incoming_reliability = (
             await self.source_registry.get(source_id=descriptor.source_id)
         ).weight
-        facts, provenance, conflicts = await self._resolve_conflicts(
+        facts, provenance, unreported_facts, conflicts = await self._resolve_conflicts(
             existing,
             existing_object=existing_object,
             incoming_facts=incoming_facts,
@@ -134,9 +139,10 @@ class CloudPostureEngine:
             region=descriptor.region,
             native_facts=facts,
             field_provenance=provenance,
+            unreported_facts=unreported_facts,
             conflicts=conflicts,
             evidence_id=evidence.id,
-            flagged=selected_key is None,
+            flagged=selected_key is None or bool(unreported_facts),
         )
         object_confidence = max(
             incoming_reliability,
@@ -221,14 +227,28 @@ class CloudPostureEngine:
         descriptor: CloudResourceDescriptor,
         evidence_id: str,
         incoming_reliability: float,
-    ) -> tuple[dict[str, Any], dict[str, str], list[dict[str, Any]]]:
+    ) -> tuple[
+        dict[str, Any],
+        dict[str, str],
+        dict[str, UnreportedCloudFact],
+        list[dict[str, Any]],
+    ]:
         if existing is None:
-            return incoming_facts, incoming_provenance, []
-        facts = copy.deepcopy(incoming_facts)
-        provenance = dict(incoming_provenance)
+            return incoming_facts, incoming_provenance, {}, []
+        facts = copy.deepcopy(existing.native_facts)
+        provenance = dict(existing.field_provenance)
+        unreported_facts = copy.deepcopy(existing.unreported_facts)
         conflicts = copy.deepcopy(existing.conflicts)
-        for field in sorted(set(existing.native_facts) & set(incoming_facts)):
+        for field in sorted(incoming_facts):
+            if field not in existing.native_facts:
+                facts[field] = copy.deepcopy(incoming_facts[field])
+                provenance[field] = incoming_provenance[field]
+                unreported_facts.pop(field, None)
+                continue
             if existing.native_facts[field] == incoming_facts[field]:
+                facts[field] = copy.deepcopy(incoming_facts[field])
+                provenance[field] = incoming_provenance[field]
+                unreported_facts.pop(field, None)
                 continue
             old = await self._existing_candidate(
                 existing,
@@ -246,8 +266,29 @@ class CloudPostureEngine:
             winner, reason = _select_candidate(old, incoming)
             facts[field] = copy.deepcopy(winner.value)
             provenance[field] = winner.path
+            unreported_facts.pop(field, None)
             conflicts.append(_conflict_record(field, old, incoming, winner=winner, reason=reason))
-        return facts, provenance, conflicts
+        for field in sorted(set(existing.native_facts) - set(incoming_facts)):
+            if field in unreported_facts:
+                continue
+            old = await self._existing_candidate(
+                existing,
+                field=field,
+                existing_object=existing_object,
+            )
+            unreported_facts[field] = UnreportedCloudFact(
+                evidence_id=old.evidence_id,
+                observed_at=old.observed_at,
+            )
+            conflicts.append(
+                _unreported_record(
+                    field,
+                    old,
+                    omitting_evidence_id=evidence_id,
+                    omitted_at=descriptor.observed_at,
+                )
+            )
+        return facts, provenance, unreported_facts, conflicts
 
     async def _existing_candidate(
         self,
@@ -256,6 +297,23 @@ class CloudPostureEngine:
         field: str,
         existing_object: AQObject | None,
     ) -> _Candidate:
+        unreported = existing.unreported_facts.get(field)
+        if unreported is not None:
+            source = _source_for_evidence(existing_object, unreported.evidence_id)
+            if source is None:
+                raise CloudConfigInvalid(
+                    f"unreported normalized field {field!r} has no source for evidence "
+                    f"{unreported.evidence_id}"
+                )
+            reliability = (await self.source_registry.get(source_id=source.source_id)).weight
+            return _Candidate(
+                value=copy.deepcopy(existing.native_facts[field]),
+                source_id=source.source_id,
+                evidence_id=unreported.evidence_id,
+                observed_at=unreported.observed_at,
+                reliability=reliability,
+                path=existing.field_provenance[field],
+            )
         conflict_candidate = _candidate_from_conflicts(existing, field)
         if conflict_candidate is not None:
             current_reliability = (
@@ -367,6 +425,27 @@ def _conflict_record(
         "resolved_evidence_id": winner.evidence_id,
         "resolved_value": copy.deepcopy(winner.value),
         "reason": reason,
+    }
+
+
+def _unreported_record(
+    field: str,
+    last_reported: _Candidate,
+    *,
+    omitting_evidence_id: str,
+    omitted_at: datetime,
+) -> dict[str, Any]:
+    return {
+        "field": field,
+        "state": "unreported",
+        "reason": "configured fact absent from later snapshot",
+        "path": last_reported.path,
+        "last_reporting_source_id": last_reported.source_id,
+        "last_reporting_evidence_id": last_reported.evidence_id,
+        "last_reported_at": last_reported.observed_at.isoformat(),
+        "omitting_evidence_id": omitting_evidence_id,
+        "omitted_at": omitted_at.isoformat(),
+        "retained_value": copy.deepcopy(last_reported.value),
     }
 
 

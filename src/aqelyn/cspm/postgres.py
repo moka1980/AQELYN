@@ -20,7 +20,7 @@ from aqelyn.cspm.store import (
 
 _COLUMNS = (
     "object_id, object_type, tenant_id, provider, account, region, native_facts, "
-    "field_provenance, conflicts, evidence_id, flagged"
+    "field_provenance, unreported_facts, conflicts, evidence_id, flagged"
 )
 
 
@@ -67,12 +67,13 @@ class PostgresCloudNormalizationStore:
                 raise CrossTenantReference("normalized cloud object tenant_id cannot change")
             await conn.execute(
                 f"INSERT INTO aq_cloud_normalization ({_COLUMNS}) VALUES "
-                "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) "
+                "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) "
                 "ON CONFLICT (object_id) DO UPDATE SET "
                 "object_type=EXCLUDED.object_type, provider=EXCLUDED.provider, "
                 "account=EXCLUDED.account, region=EXCLUDED.region, "
                 "native_facts=EXCLUDED.native_facts, "
-                "field_provenance=EXCLUDED.field_provenance, conflicts=EXCLUDED.conflicts, "
+                "field_provenance=EXCLUDED.field_provenance, "
+                "unreported_facts=EXCLUDED.unreported_facts, conflicts=EXCLUDED.conflicts, "
                 "evidence_id=EXCLUDED.evidence_id, flagged=EXCLUDED.flagged",
                 *_object_args(stored),
             )
@@ -141,6 +142,9 @@ def _object_args(obj: NormalizedCloudObject) -> tuple[Any, ...]:
         obj.region,
         json.dumps(obj.native_facts),
         json.dumps(obj.field_provenance),
+        json.dumps(
+            {field: state.model_dump(mode="json") for field, state in obj.unreported_facts.items()}
+        ),
         json.dumps(obj.conflicts),
         obj.evidence_id,
         obj.flagged,
@@ -149,7 +153,7 @@ def _object_args(obj: NormalizedCloudObject) -> tuple[Any, ...]:
 
 def _row_to_object(row: asyncpg.Record) -> NormalizedCloudObject:
     data: dict[str, Any] = dict(row)
-    for key in ("native_facts", "field_provenance", "conflicts"):
+    for key in ("native_facts", "field_provenance", "unreported_facts", "conflicts"):
         data[key] = _json_value(data[key])
     return NormalizedCloudObject.model_validate(data)
 

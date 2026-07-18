@@ -2,7 +2,7 @@
 
 **Milestone:** C-025 (Cloud Security Posture Management, EA-0028)
 **For:** Codex (implementer) · Claude Code (reviewer)
-**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022/0023/0024 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
+**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022/0023/0024/0025 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
 **Definition of Done:** every ticket's acceptance tests pass on in-memory **and** Postgres; `ruff` clean; `mypy --strict` clean; **no cloud collection; no second inventory/baseline/compliance/exposure/identity/risk engine; no verdict field in a CSPM model; no provider-deleted input may decommission an asset**; nothing outside the spec; `make check` green; Claude Code sign-off per ticket.
 
 **Read EA-0028 §0 first.** "Cloud" is **a scope + a normalization layer**, not six

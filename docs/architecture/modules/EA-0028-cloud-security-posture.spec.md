@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (cloud resources are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0023 (exposure), EA-0011 (cloud identity), EA-0013 (risk)** — the owners it feeds; EA-0006 (source reliability), EA-0004 (evidence)
 **Consumed by:** the six owner engines above (as normalized cloud objects/signals); the cloud posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025, ECR-0024
+**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025
 **Build milestone:** C-025 (see `C-025_Task_Bundle.md`)
 **Definition of Ready:** see §8
 
@@ -127,9 +127,13 @@ NormalizedCloudObject = { object_id: str, object_type: str,             # EA-000
                           provider: Provider, account: str, region: str | null,
                           native_facts: dict,                           # flat: scalars/lists of scalars (ECR-0023)
                           field_provenance: dict,                       # normalized field -> raw path (D3)
+                          unreported_facts: dict[str, UnreportedCloudFact], # retained unknowns (ECR-0025)
                           conflicts: list[dict],                        # EA-0006-resolved, recorded (D3)
                           evidence_id: str,
                           flagged: bool }                               # no verdict fields (D5)
+
+UnreportedCloudFact = { status: "unreported", evidence_id: str,
+                        observed_at: datetime }                         # last reporting snapshot (ECR-0025)
 
 OwnerRouteOutcome = { owner: "inventory" | "assetconfig" | "compliance" |
                              "exposure" | "iag" | "risk",

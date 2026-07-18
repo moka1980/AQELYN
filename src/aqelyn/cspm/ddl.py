@@ -15,6 +15,22 @@ AS $$
         (SELECT array_agg(key ORDER BY key) FROM jsonb_object_keys(right_value) AS item(key))
 $$;
 
+CREATE OR REPLACE FUNCTION aq_jsonb_object_keys_subset(
+    subset_value jsonb,
+    superset_value jsonb
+)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+AS $$
+    SELECT NOT EXISTS (
+        SELECT 1
+        FROM jsonb_object_keys(subset_value) AS item(key)
+        WHERE NOT (superset_value ? key)
+    )
+$$;
+
 CREATE TABLE IF NOT EXISTS aq_cloud_normalization (
     object_id          text PRIMARY KEY,
     object_type        text NOT NULL CHECK (length(trim(object_type)) > 0),
@@ -24,11 +40,24 @@ CREATE TABLE IF NOT EXISTS aq_cloud_normalization (
     region             text NULL CHECK (region IS NULL OR length(trim(region)) > 0),
     native_facts       jsonb NOT NULL CHECK (jsonb_typeof(native_facts) = 'object'),
     field_provenance   jsonb NOT NULL CHECK (jsonb_typeof(field_provenance) = 'object'),
+    unreported_facts   jsonb NOT NULL DEFAULT '{}',
     conflicts          jsonb NOT NULL DEFAULT '[]' CHECK (jsonb_typeof(conflicts) = 'array'),
     evidence_id        text NOT NULL,
     flagged            boolean NOT NULL DEFAULT false,
     CHECK (aq_jsonb_object_keys_equal(native_facts, field_provenance))
 );
+ALTER TABLE aq_cloud_normalization
+    ADD COLUMN IF NOT EXISTS unreported_facts jsonb NOT NULL DEFAULT '{}';
+ALTER TABLE aq_cloud_normalization
+    DROP CONSTRAINT IF EXISTS ck_cloud_unreported_facts_object;
+ALTER TABLE aq_cloud_normalization
+    ADD CONSTRAINT ck_cloud_unreported_facts_object
+    CHECK (jsonb_typeof(unreported_facts) = 'object');
+ALTER TABLE aq_cloud_normalization
+    DROP CONSTRAINT IF EXISTS ck_cloud_unreported_facts_subset;
+ALTER TABLE aq_cloud_normalization
+    ADD CONSTRAINT ck_cloud_unreported_facts_subset
+    CHECK (aq_jsonb_object_keys_subset(unreported_facts, native_facts));
 CREATE INDEX IF NOT EXISTS ix_cloud_normalization_tenant_provider
     ON aq_cloud_normalization (tenant_id, provider, object_id);
 """
