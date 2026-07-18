@@ -113,7 +113,7 @@ happened to.
 | **IdentityDetection** | An account-scoped, evidence-backed, ≥2-corroborated observed event (S1/S3/D1). |
 | **subject_ref** | An **account/credential/session** — never "the person" (S2). |
 | **Dignity gate** | The ≥2-corroboration + above-default-floor invariant, non-negotiable (S3/§11/D2). |
-| **Corroboration** | ≥ 2 **independent** signal refs backing one detection (S3). |
+| **Corroboration** | ≥ 2 **independent** signal refs backing one detection (S3). Independence is keyed on the **signal** — distinct `ref`, and distinct `evidence_id` where present — never on `kind`: one occurrence relabelled twice is **one** corroboration (**ECR-0017**). |
 | **Right of reply** | Evidence + replayable derivation + human review = the accused can see what was observed (S7). |
 
 ## 5. Types
@@ -129,7 +129,7 @@ IdentityBasis = { kind: "profile"|"entitlement"|"event", ref: str,
 IdentityDetection = { id, tenant_id, subject_ref: str,          # account/credential/session (S2)
                       detection_type: DetectionType,
                       statement: str,                            # phrased as observation, never verdict (S2)
-                      corroboration: list[SignalRef],            # >= 2 independent (S3)
+                      corroboration: list[SignalRef],            # >= 2 independent by ref/evidence_id (S3/ECR-0017)
                       confidence: float,                         # EA-0006, above floor (S3)
                       basis: list[IdentityBasis],                # evidence-backed (S1/S7)
                       derivation: "Derivation",                  # replayable, pinned versions (S7)
@@ -195,8 +195,8 @@ recomputed (S5/S6).
 
 ### Functional (testable)
 
-- **FR-1** An `IdentityDetection` SHALL carry ≥ 2 independent `corroboration` signals and a non-empty `basis`; fewer/none SHALL be rejected at construction/`put` (S3/D1).
-- **FR-2** `detect` SHALL apply the **dignity gate first**: corroboration < `min_corroboration` **or** confidence ≤ `min_confidence` SHALL yield **no detection** (S3).
+- **FR-1** An `IdentityDetection` SHALL carry ≥ 2 independent `corroboration` signals and a non-empty `basis`; fewer/none SHALL be rejected at construction/`put` (S3/D1). Independence SHALL be keyed on the **signal** — signals sharing a `ref`, or sharing a non-null `evidence_id`, count as **one**; `kind` SHALL NOT distinguish them, and an undecidable pair counts as one (**ECR-0017**).
+- **FR-2** `detect` SHALL apply the **dignity gate first**: corroboration < `min_corroboration` **or** confidence ≤ `min_confidence` SHALL yield **no detection** (S3). The gate SHALL de-duplicate corroboration **itself**; no caller SHALL pass a pre-computed corroboration count (**ECR-0017**).
 - **FR-3** `IdThreatConfig` SHALL reject `min_corroboration < 2` and `min_confidence ≤ platform_default` at construction (`IdThreatConfigInvalid`) (S3/§11).
 - **FR-4** `subject_ref` SHALL be an account/credential/session and `statement` SHALL be an observation; no field/type SHALL name or score a **person** (S2/S4).
 - **FR-5** No `risk_score`/`user_score`/`predict`/`score_user` type or method SHALL exist in the package (S4) — verified structurally.
@@ -239,6 +239,7 @@ recomputed (S5/S6).
 | AC-16 | Registers as AQService with health (incl. dignity gate) | `test_idt_service_health` |
 | AC-17 | No scan/network surface | `test_idt_no_scan_surface` |
 | AC-18 | No `risk_score`/`user_score` field on any model | `test_idt_no_user_score_field` |
+| AC-19 | Independence keyed on signal: one `ref`/`evidence_id` relabelled twice = one corroboration (ECR-0017) | `test_idt_corroboration_independence_key` |
 
 ## 10. Error taxonomy (contributions)
 

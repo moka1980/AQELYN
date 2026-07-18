@@ -71,7 +71,12 @@ tenant, append-only). `detect` **runs the I2 dignity gate first** — if it fail
 `Derivation` pinned to profile/rule versions (rejected if `replay != result`). The store
 rejects <2 corroboration / no basis.
 **Depends on:** I2.
-**Acceptance:** `test_idt_corroboration_required`, `test_idt_detection_replayable`,
+**Independence (ECR-0017):** the gate de-duplicates corroboration itself, keyed on the
+**signal** (`ref`, and `evidence_id` where present) — never on `kind`. One occurrence
+relabelled twice is **one** corroboration; undecidable pairs count as one. I2's
+`(kind, ref)` key is superseded.
+**Acceptance:** `test_idt_corroboration_required`, `test_idt_corroboration_independence_key`,
+`test_idt_detection_replayable`,
 `test_idt_replay_mismatch`, `test_idt_confidence_from_trust`,
 `test_idt_store_contract[inmemory]`, `test_idt_store_contract[postgres]`.
 
