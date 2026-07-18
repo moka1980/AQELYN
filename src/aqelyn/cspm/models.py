@@ -157,6 +157,21 @@ class CloudResourceDescriptor(BaseModel):
         return require_typed_id(value, "evd", field="evidence_id")
 
 
+class UnreportedCloudFact(BaseModel):
+    """Last reporting provenance for a fact absent from a later snapshot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["unreported"] = "unreported"
+    evidence_id: str
+    observed_at: datetime
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="evidence_id")
+
+
 class NormalizedCloudObject(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -168,6 +183,7 @@ class NormalizedCloudObject(BaseModel):
     region: str | None = None
     native_facts: dict[str, Any] = Field(default_factory=dict)
     field_provenance: dict[str, str] = Field(default_factory=dict)
+    unreported_facts: dict[str, UnreportedCloudFact] = Field(default_factory=dict)
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
     evidence_id: str
     flagged: bool = False
@@ -218,6 +234,15 @@ class NormalizedCloudObject(BaseModel):
                 "native_facts and field_provenance keys must match exactly; "
                 f"missing provenance={missing}, orphaned provenance={orphaned}"
             )
+        unreported = set(self.unreported_facts)
+        orphaned_unreported = sorted(unreported - facts)
+        if orphaned_unreported:
+            raise CloudConfigInvalid(
+                "unreported_facts must name retained native facts; "
+                f"orphaned markers={orphaned_unreported}"
+            )
+        if unreported and not self.flagged:
+            raise CloudConfigInvalid("an object with unreported facts must be flagged")
         for key, value in self.native_facts.items():
             _flat_fact_value(value, key=key)
         _reject_reserved_keys(self.field_provenance, path="field_provenance")

@@ -284,3 +284,28 @@ def test_cspm_native_facts_flat() -> None:
     non_finite["field_provenance"] = {"temperature": "$.temperature"}
     with pytest.raises(CloudConfigInvalid, match="must be finite"):
         NormalizedCloudObject.model_validate(non_finite)
+
+
+def test_cspm_unreported_fact_model_guard() -> None:
+    unflagged = _normalized_payload()
+    unflagged["unreported_facts"] = {
+        "encryption_enabled": {
+            "status": "unreported",
+            "evidence_id": unflagged["evidence_id"],
+            "observed_at": "2026-07-18T14:00:00Z",
+        }
+    }
+    with pytest.raises(CloudConfigInvalid, match="must be flagged"):
+        NormalizedCloudObject.model_validate(unflagged)
+
+    orphaned = _normalized_payload()
+    orphaned["flagged"] = True
+    orphaned["unreported_facts"] = {
+        "not_a_retained_fact": {
+            "status": "unreported",
+            "evidence_id": orphaned["evidence_id"],
+            "observed_at": "2026-07-18T14:00:00Z",
+        }
+    }
+    with pytest.raises(CloudConfigInvalid, match="orphaned markers"):
+        NormalizedCloudObject.model_validate(orphaned)

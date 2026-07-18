@@ -78,7 +78,7 @@ EA-0028 → `src/aqelyn/cspm/` + `tests/cspm/`.
 | [EA-0025 Cyber Asset Discovery & Inventory Intelligence](EA-0025-cyber-asset-discovery-inventory-intelligence.spec.md) | EA-0025 | EA-0012, EA-0002, EA-0005, EA-0006, EA-0007, EA-0004 | [C-022](C-022_Task_Bundle.md) | Accepted (see ECR-0014) |
 | IS-026 Configuration Compliance & Drift — **restates EA-0012, no new module** ([conformance](IS-026_Conformance_Analysis.md)) | (EA-0012) | — | [C-023](C-023_Task_Bundle.md) | ECR-0015: do not build |
 | [EA-0027 Identity Threat Detection & Behavioral Analytics](EA-0027-identity-threat-detection-behavioral-analytics.spec.md) | EA-0027 | EA-0017, EA-0011, EA-0006, EA-0020, EA-0013, EA-0008 | [C-024](C-024_Task_Bundle.md) | Accepted (see ECR-0016, ECR-0017) |
-| [EA-0028 Cloud Security Posture (CSPM)](EA-0028-cloud-security-posture.spec.md) | EA-0028 | EA-0025, EA-0012, EA-0010, EA-0023, EA-0011, EA-0013, EA-0006 | [C-025](C-025_Task_Bundle.md) | Accepted (see ECR-0020–0024) |
+| [EA-0028 Cloud Security Posture (CSPM)](EA-0028-cloud-security-posture.spec.md) | EA-0028 | EA-0025, EA-0012, EA-0010, EA-0023, EA-0011, EA-0013, EA-0006 | [C-025](C-025_Task_Bundle.md) | Accepted (see ECR-0020–0025) |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).

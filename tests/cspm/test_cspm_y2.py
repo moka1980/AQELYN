@@ -368,6 +368,101 @@ async def test_cspm_conflict_recorded(kind: str) -> None:
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_cspm_unreported_fact_retained(kind: str) -> None:
+    async with _harness(kind) as harness:
+        source_id = new_id("src")
+        first = (
+            await harness.engine.normalize(
+                [_descriptor(source_id=source_id)],
+                tenant_id=TENANT,
+            )
+        )[0]
+
+        partial_raw = _raw()
+        configuration = cast(dict[str, object], partial_raw["configuration"])
+        configuration.pop("encryptionEnabled")
+        second = (
+            await harness.engine.normalize(
+                [
+                    _descriptor(
+                        source_id=source_id,
+                        raw=partial_raw,
+                        observed_at=NOW + timedelta(minutes=5),
+                    )
+                ],
+                tenant_id=TENANT,
+            )
+        )[0]
+
+        assert second.native_facts["encryption_enabled"] is True
+        assert second.field_provenance["encryption_enabled"] == "/configuration/encryptionEnabled"
+        state = second.unreported_facts["encryption_enabled"]
+        assert state.status == "unreported"
+        assert state.evidence_id == first.evidence_id
+        assert state.observed_at == NOW
+        assert second.flagged is True
+        transition = second.conflicts[-1]
+        assert transition["field"] == "encryption_enabled"
+        assert transition["state"] == "unreported"
+        assert transition["last_reporting_evidence_id"] == first.evidence_id
+        assert transition["omitting_evidence_id"] == second.evidence_id
+
+        stored = await harness.store.get(second.object_id, tenant_id=TENANT)
+        assert stored == second
+        obj = await harness.object_store.get(second.object_id, resolve_merged=False)
+        assert obj is not None
+        assert obj.attributes["unreported_facts"]["encryption_enabled"] == (
+            state.model_dump(mode="json")
+        )
+        explanation = harness.engine.explain(second)
+        assert explanation["unreported_facts"] == {
+            "encryption_enabled": state.model_dump(mode="json")
+        }
+
+        repeated = (
+            await harness.engine.normalize(
+                [
+                    _descriptor(
+                        source_id=source_id,
+                        raw=partial_raw,
+                        observed_at=NOW + timedelta(minutes=10),
+                    )
+                ],
+                tenant_id=TENANT,
+            )
+        )[0]
+        assert repeated.unreported_facts["encryption_enabled"] == state
+        assert (
+            sum(
+                conflict.get("state") == "unreported"
+                and conflict.get("field") == "encryption_enabled"
+                for conflict in repeated.conflicts
+            )
+            == 1
+        )
+
+        returned = (
+            await harness.engine.normalize(
+                [
+                    _descriptor(
+                        source_id=source_id,
+                        raw=_raw(encryption_enabled=False),
+                        observed_at=NOW + timedelta(minutes=15),
+                    )
+                ],
+                tenant_id=TENANT,
+            )
+        )[0]
+        assert returned.native_facts["encryption_enabled"] is False
+        assert returned.unreported_facts == {}
+        assert returned.flagged is False
+        assert returned.conflicts[-1]["reason"] == "newer observation"
+        returned_obj = await harness.object_store.get(returned.object_id, resolve_merged=False)
+        assert returned_obj is not None
+        assert returned_obj.attributes["unreported_facts"] == {}
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
 async def test_cspm_unknown_flagged(kind: str) -> None:
     async with _harness(kind) as harness:
         descriptor = _descriptor(

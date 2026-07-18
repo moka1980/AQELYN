@@ -15,6 +15,7 @@ from aqelyn.cspm.models import (
     OwnerRouteStatus,
     Provider,
     RouteOwner,
+    UnreportedCloudFact,
 )
 from aqelyn.cspm.normalize import CLOUD_UNKNOWN_OBJECT_TYPE
 from aqelyn.cspm.postgres import PostgresCloudNormalizationStore
@@ -38,4 +39,5 @@ __all__ = [
     "PostgresCloudNormalizationStore",
     "Provider",
     "RouteOwner",
+    "UnreportedCloudFact",
 ]

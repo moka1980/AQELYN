@@ -134,6 +134,10 @@ def normalized_to_object(
             "resource_id": descriptor.resource_id,
             "native_facts": copy.deepcopy(obj.native_facts),
             "field_provenance": dict(obj.field_provenance),
+            "unreported_facts": {
+                field: state.model_dump(mode="json")
+                for field, state in sorted(obj.unreported_facts.items())
+            },
             "conflicts": copy.deepcopy(obj.conflicts),
             "flagged": obj.flagged,
         },
