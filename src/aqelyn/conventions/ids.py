@@ -59,6 +59,7 @@ PREFIXES: dict[str, str] = {
     "rem": "remediation_plan",
     "ast": "asset_record",
     "arl": "asset_relationship",
+    "idt": "identity_detection",
     "svc": "service",
 }
 

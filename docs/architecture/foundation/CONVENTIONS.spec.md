@@ -65,6 +65,7 @@ relies on. Other specs reference this rather than restating it.
 | `rem` | Remediation plan | EA-0024 |
 | `ast` | Asset record | EA-0025 |
 | `arl` | Asset relationship | EA-0025 |
+| `idt` | Identity detection | EA-0027 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -248,6 +249,11 @@ Every created/changed record and every event carries the responsible actor.
 | `InventoryUnavailable` | EA-0025 | yes |
 | `SourceHealthUnknown` | EA-0025 | no |
 | `DecommissionRequiresEvidence` | EA-0025 | no |
+| `IdThreatConfigInvalid` | EA-0027 | no |
+| `IdentityCorroborationMissing` | EA-0027 | no |
+| `IdentityBasisMissing` | EA-0027 | no |
+| `IdentityNotFound` | EA-0027 | no |
+| `IdentityNotReplayable` | EA-0027 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
