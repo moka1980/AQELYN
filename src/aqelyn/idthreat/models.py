@@ -66,6 +66,20 @@ def _unit(value: object, *, field: str) -> float:
     return selected
 
 
+def _account_subject_ref(value: str) -> str:
+    selected = _nonempty(value, field="subject_ref")
+    namespace, separator, identifier = selected.partition(":")
+    if separator != ":" or namespace not in _ACCOUNT_SUBJECT_NAMESPACES or not identifier.strip():
+        raise IdThreatConfigInvalid("subject_ref must identify an account, credential, or session")
+    return selected
+
+
+def _detection_type(value: str) -> str:
+    if value not in VALID_DETECTION_TYPES:
+        raise IdThreatConfigInvalid(f"unknown identity detection type: {value!r}")
+    return value
+
+
 class SignalRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -115,6 +129,46 @@ class IdentityBasis(BaseModel):
         return require_typed_id(value, "evd", field="evidence_id")
 
 
+class IdentityObservation(BaseModel):
+    """Handed-in observed signals plus the versions needed for reproducibility."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    subject_ref: str
+    detection_type: str
+    signals: list[SignalRef]
+    profile_ref: str
+    profile_version: int
+    rule_ref: str
+    rule_version: int
+    detected_at: datetime
+
+    @field_validator("subject_ref")
+    @classmethod
+    def _subject_ref(cls, value: str) -> str:
+        return _account_subject_ref(value)
+
+    @field_validator("detection_type")
+    @classmethod
+    def _observation_type(cls, value: str) -> str:
+        return _detection_type(value)
+
+    @field_validator("profile_ref")
+    @classmethod
+    def _profile_ref(cls, value: str) -> str:
+        return require_typed_id(value, "prf", field="profile_ref")
+
+    @field_validator("profile_version", "rule_version", mode="before")
+    @classmethod
+    def _version(cls, value: object) -> int:
+        return _positive_int(value, field="version")
+
+    @field_validator("rule_ref")
+    @classmethod
+    def _rule_ref(cls, value: str) -> str:
+        return _nonempty(value, field="rule_ref")
+
+
 class IdentityDetection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -145,24 +199,12 @@ class IdentityDetection(BaseModel):
     @field_validator("subject_ref")
     @classmethod
     def _subject_ref(cls, value: str) -> str:
-        selected = _nonempty(value, field="subject_ref")
-        namespace, separator, identifier = selected.partition(":")
-        if (
-            separator != ":"
-            or namespace not in _ACCOUNT_SUBJECT_NAMESPACES
-            or not identifier.strip()
-        ):
-            raise IdThreatConfigInvalid(
-                "subject_ref must identify an account, credential, or session"
-            )
-        return selected
+        return _account_subject_ref(value)
 
     @field_validator("detection_type")
     @classmethod
-    def _detection_type(cls, value: str) -> str:
-        if value not in VALID_DETECTION_TYPES:
-            raise IdThreatConfigInvalid(f"unknown identity detection type: {value!r}")
-        return value
+    def _identity_detection_type(cls, value: str) -> str:
+        return _detection_type(value)
 
     @field_validator("statement")
     @classmethod
@@ -172,8 +214,7 @@ class IdentityDetection(BaseModel):
     @field_validator("corroboration")
     @classmethod
     def _corroboration(cls, values: list[SignalRef]) -> list[SignalRef]:
-        independent = {(signal.kind, signal.ref) for signal in values}
-        if len(values) < 2 or len(independent) < 2:
+        if independent_signal_count(values) < 2:
             raise IdentityCorroborationMissing(
                 "identity detection requires at least two independent signals"
             )
@@ -252,3 +293,37 @@ def assert_dignity_floors(config: IdThreatConfig) -> None:
         raise IdThreatConfigInvalid("min_corroboration must be >= 2")
     if config.min_confidence <= config.platform_default:
         raise IdThreatConfigInvalid("min_confidence must be strictly greater than platform_default")
+
+
+def independent_signal_count(signals: list[SignalRef]) -> int:
+    """Count independent occurrences by shared ref or shared evidence (ECR-0017)."""
+
+    if not signals:
+        return 0
+    parents = list(range(len(signals)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root = find(left)
+        right_root = find(right)
+        if left_root != right_root:
+            parents[right_root] = left_root
+
+    seen_refs: dict[str, int] = {}
+    seen_evidence: dict[str, int] = {}
+    for index, signal in enumerate(signals):
+        if signal.ref in seen_refs:
+            union(index, seen_refs[signal.ref])
+        else:
+            seen_refs[signal.ref] = index
+        if signal.evidence_id is not None:
+            if signal.evidence_id in seen_evidence:
+                union(index, seen_evidence[signal.evidence_id])
+            else:
+                seen_evidence[signal.evidence_id] = index
+    return len({find(index) for index in range(len(signals))})

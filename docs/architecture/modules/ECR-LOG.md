@@ -22,6 +22,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0015 | EA-0026 / IS-026 | Accepted | **IS-026 is IS-012 restated — do not build EA-0026.** EA-0012 already ships baseline/drift/classify/remediation and the `configuration.drift.detected` event. Realize IS-026's intent as a small EA-0012 enhancement (C-023). |
 | ECR-0016 | EA-0027 / IS-027 | Accepted | Identity detection watches **accounts, not people**: no per-person risk score (absent), no insider-threat *prediction*; a **dignity gate** (≥2 corroboration + confidence floor > platform default) is non-negotiable. Overrides master §429 risk-score + §107/261 insider-threat + consumes EA-0017's `behavior.profile.updated`. |
 | ECR-0017 | EA-0027 / IS-027 | Accepted | Corroboration independence is keyed on the **signal** (`ref`, and `evidence_id` when present), not on `(kind, ref)` — one occurrence relabelled twice is **one** corroboration, so the ≥2 floor cannot degrade to 1. Undecidable ties count as one. |
+| ECR-0018 | EA-0027 / IS-027 | Accepted | Replace the under-specified `detect(subject_ref, signals, tenant_id)` input with a structured `IdentityObservation` carrying detection type and pinned profile/rule versions; the engine renders the account-scoped statement and basis. |
 
 ---
 
@@ -616,3 +617,30 @@ archive is silent here; this tightens an under-specified floor rather than overr
 a demand. Implemented in C-024 **I3**, where `detect` first calls the gate; I2's
 `(kind, ref)` key is superseded. Proven behaviourally per ECR-0007: construct two
 `SignalRef`s over one `ref`/`evidence_id` and assert the gate refuses.
+
+---
+
+## ECR-0018 — make identity-detection replay inputs explicit
+
+**Raised by:** Codex (C-024 I3 implementation).
+**Severity:** blocking ambiguity — the Accepted interface cannot supply data its
+required output must pin.
+
+**Problem.** EA-0027's Accepted `detect(subject_ref, signals, tenant_id)` signature
+requires the resulting derivation to pin both profile and rule versions, but carries
+neither version, the detection type, nor the observation time. I3 cannot infer those
+values without inventing state or silently choosing "latest", which would break the
+right-of-reply guarantee when profiles or rules later change. Allowing caller-authored
+statement/basis fields would also permit verdict-like prose to bypass S2.
+
+**Resolution.** Replace the under-specified arguments with a structured
+`IdentityObservation`: account-scoped `subject_ref`, `detection_type`, signals,
+`profile_ref` + `profile_version`, `rule_ref` + `rule_version`, and `detected_at`.
+`detect(observation, tenant_id)` obtains confidence from EA-0006, runs the dignity
+gate first, and only then constructs the statement, basis, and replayable derivation.
+The derivation is accepted only when replay, result match, and source/pin match all
+hold; the store repeats those checks at the persistence boundary.
+
+**Impact.** I3 interface and reference computation only. No prior shipped caller
+exists, and no later I4/I5 API is changed. This makes the spec's existing S2/S3/S7,
+FR-2/6/10, and AC-6/7/11 implementable without an implicit "latest" choice.
