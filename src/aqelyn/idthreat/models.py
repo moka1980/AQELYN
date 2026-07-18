@@ -6,7 +6,7 @@ import math
 from datetime import datetime
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from aqelyn.conventions import new_id, require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import (
@@ -231,3 +231,13 @@ class IdThreatConfig(BaseModel):
     @classmethod
     def _confidence_floor(cls, value: object) -> float:
         return _unit(value, field="confidence floor")
+
+    @model_validator(mode="after")
+    def _dignity_floors(self) -> IdThreatConfig:
+        if self.min_corroboration < 2:
+            raise IdThreatConfigInvalid("min_corroboration must be >= 2")
+        if self.min_confidence <= self.platform_default:
+            raise IdThreatConfigInvalid(
+                "min_confidence must be strictly greater than platform_default"
+            )
+        return self

@@ -1,5 +1,6 @@
 """Identity Threat Detection & Behavioral Analytics (EA-0027)."""
 
+from aqelyn.idthreat.dignity import dignity_gate
 from aqelyn.idthreat.models import (
     VALID_BASIS_KINDS,
     VALID_DETECTION_STATUS,
@@ -24,4 +25,5 @@ __all__ = [
     "IdentityDetection",
     "IdentityDetectionStatus",
     "SignalRef",
+    "dignity_gate",
 ]
