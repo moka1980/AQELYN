@@ -8,6 +8,7 @@ from datetime import datetime
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import (
     EvidenceNotFound,
+    ExceptionsUnavailable,
     ExecutiveConfigInvalid,
     StoreUnavailable,
 )
@@ -75,9 +76,19 @@ class EmptyExecutiveValueSource:
 
 
 class EmptyMaterialExceptionSource:
+    """Refusing default until material-exception owners are wired.
+
+    Per ECR-0013, returning an empty collection here would claim that no material
+    exceptions exist. The default cannot know that, so report assembly and issuance
+    fail closed instead.
+    """
+
     async def material_exceptions(self, *, period: str, tenant_id: str | None) -> Sequence[Figure]:
         _ = period, tenant_id
-        return []
+        raise ExceptionsUnavailable(
+            "executive material exceptions are not wired to authoritative owner sources "
+            "(ECR-0013): refusing rather than reporting no exceptions"
+        )
 
 
 class ExecutiveIntelligenceService:
@@ -152,8 +163,7 @@ class ExecutiveIntelligenceService:
             dependencies["definition_store"] = "healthy"
             await self._check_evidence_store()
             dependencies["evidence_store"] = "healthy"
-            await self._check_exception_source()
-            dependencies["exception_source"] = "healthy"
+            dependencies["exception_source"] = await self._check_exception_source()
             await self._check_owner_sources()
             dependencies["owner_sources"] = "healthy"
             await self._check_section_sources()
@@ -267,7 +277,12 @@ class ExecutiveIntelligenceService:
         except Exception as exc:
             raise StoreUnavailable(f"executive evidence store unavailable: {exc}") from exc
 
-    async def _check_exception_source(self) -> None:
+    async def _check_exception_source(self) -> str:
+        # The refusing default is an acceptable known state: the service can still
+        # compute KPIs, while report assembly/issuance refuses rather than presenting
+        # an unverified empty exceptions section (ECR-0013).
+        if isinstance(self.report_engine.exception_source, EmptyMaterialExceptionSource):
+            return "inert"
         try:
             await collect_material_exceptions(
                 self.report_engine.exception_source,
@@ -276,6 +291,7 @@ class ExecutiveIntelligenceService:
             )
         except Exception as exc:
             raise StoreUnavailable(f"executive exception source unavailable: {exc}") from exc
+        return "healthy"
 
     async def _check_owner_sources(self) -> None:
         if not self.owner_sources:
