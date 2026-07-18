@@ -26,12 +26,18 @@ from aqelyn.idthreat.models import (
     independent_signal_count,
 )
 from aqelyn.idthreat.postgres import PostgresIdentityDetectionStore
+from aqelyn.idthreat.service import (
+    IDTHREAT_EVENTS,
+    IdentityThreatService,
+    register_idthreat_events,
+)
 from aqelyn.idthreat.store import (
     IdentityDetectionStore,
     validate_replayable_detection,
 )
 
 __all__ = [
+    "IDTHREAT_EVENTS",
     "VALID_BASIS_KINDS",
     "VALID_DETECTION_STATUS",
     "VALID_DETECTION_TYPES",
@@ -49,11 +55,13 @@ __all__ = [
     "IdentityProfileSource",
     "IdentityReview",
     "IdentityThreatEngine",
+    "IdentityThreatService",
     "IdentityTrustAssessor",
     "InMemoryIdentityDetectionStore",
     "PostgresIdentityDetectionStore",
     "SignalRef",
     "dignity_gate",
     "independent_signal_count",
+    "register_idthreat_events",
     "validate_replayable_detection",
 ]
