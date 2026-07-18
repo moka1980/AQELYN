@@ -254,6 +254,8 @@ Every created/changed record and every event carries the responsible actor.
 | `IdentityBasisMissing` | EA-0027 | no |
 | `IdentityNotFound` | EA-0027 | no |
 | `IdentityNotReplayable` | EA-0027 | no |
+| `CloudConfigInvalid` | EA-0028 | no |
+| `CloudObjectNotFound` | EA-0028 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

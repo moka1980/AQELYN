@@ -26,6 +26,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0019 | EA-0027 / IS-027 | Accepted | Make I4's IAG identity input and append-only right-of-reply record explicit: `IdentityObservation.identity_id` delegates to EA-0011; one evidenced `IdentityReview` materializes reviewed status without mutating the detection row. |
 | ECR-0020 | EA-0028 / IS-028 | Accepted | Realize CSPM as a verdict-free normalization + routing layer over existing owners, with explicit partial-route outcomes and provider deletion mapped to EA-0025 `unreported`, never decommissioned by silence. |
 | ECR-0021 | EA-0028 / IS-028 | Accepted | Close the two soft spots in EA-0028's verdict boundary: `native_facts` keys MUST equal `field_provenance` keys (nothing enters normalized state without a declared raw source), and CSPM does **not** emit `aqelyn.cloud.misconfiguration_detected` — an EA-0012 cloud-baseline failure is EA-0012's event, filtered by cloud object_type. |
+| ECR-0022 | EA-0028 / IS-028 | Accepted | Make the normalized cloud record tenant-owned and every store read explicitly tenant-scoped; the Accepted draft otherwise could not satisfy CONVENTIONS §5 or AC-10 on Postgres. |
 
 ---
 
@@ -790,3 +791,30 @@ keys: AWS Config returns `complianceType`, Azure Policy `complianceState`, Secur
 `Severity`. A normalizer that copies the provider block wholesale will refuse genuine
 input. Extraction must be selective — which the provenance-equality rule enforces by
 construction, since each extracted key must name its source path.
+
+---
+
+## ECR-0022 — normalized cloud records are tenant-owned and reads require scope
+
+**Raised by:** Codex (C-025 Y1 implementation).
+**Status:** Accepted.
+**Severity:** blocking contract omission — Y2 cannot implement tenant isolation on
+either store while the persisted record and `get` contract carry no tenant scope.
+
+**Problem.** EA-0028 FR-10 and AC-10 require tenant-scoped operations, and
+CONVENTIONS §5 requires `tenant_id` on every tenant-owned record plus an explicit
+scope on enterprise reads. The Accepted `NormalizedCloudObject` omitted
+`tenant_id`, while `CloudNormalizationStore.get(object_id)` accepted no tenant.
+`put(obj)` therefore had no tenant to persist, and `get` could only be unscoped or
+infer tenancy from ambient state. Either choice would make the in-memory/Postgres
+contract diverge or permit a cross-tenant read.
+
+**Resolution.** Add `tenant_id: str | null` to `NormalizedCloudObject`, validated
+with the canonical UUID-or-null guard. Change the store contract to
+`get(object_id, *, tenant_id)`; `query` already carries the explicit scope. Local
+mode continues to use `NULL`, while enterprise mode requires a tenant UUID under
+the existing store-mode rules.
+
+**Impact.** Amends EA-0028 §4/§5 and FR-10, adds AC-18
+(`test_cspm_tenant_model_guard`), and updates C-025 Y1/Y2 notes. No new capability
+or storage field beyond the platform-wide tenancy convention is introduced.

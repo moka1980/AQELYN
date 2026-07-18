@@ -2,7 +2,7 @@
 
 **Milestone:** C-025 (Cloud Security Posture Management, EA-0028)
 **For:** Codex (implementer) · Claude Code (reviewer)
-**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
+**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
 **Definition of Done:** every ticket's acceptance tests pass on in-memory **and** Postgres; `ruff` clean; `mypy --strict` clean; **no cloud collection; no second inventory/baseline/compliance/exposure/identity/risk engine; no verdict field in a CSPM model; no provider-deleted input may decommission an asset**; nothing outside the spec; `make check` green; Claude Code sign-off per ticket.
 
 **Read EA-0028 §0 first.** "Cloud" is **a scope + a normalization layer**, not six
@@ -56,9 +56,11 @@ provider verdicts stay only in raw EA-0004 evidence (FR-13/ECR-0020).
 **The primary guarantee is provenance binding, not the name list (ECR-0021):**
 `set(native_facts) == set(field_provenance)` is enforced at construction, so a key
 with no declared raw source is unconstructable. The reserved-name check is a backstop.
+Per ECR-0022, `NormalizedCloudObject` carries a validated `tenant_id`; Y2 store
+reads require an explicit tenant scope.
 **Depends on:** EA-0002/0012 types, conventions.
 **Acceptance:** `test_cspm_config_invalid`, `test_cspm_verdict_fields_rejected`,
-`test_cspm_native_facts_provenance_bound`.
+`test_cspm_native_facts_provenance_bound`, `test_cspm_tenant_model_guard`.
 
 ## Y2 — Normalization (provenance + conflict recording) + store
 

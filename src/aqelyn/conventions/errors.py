@@ -452,6 +452,15 @@ class IdentityNotReplayable(AQError):
     code = "IdentityNotReplayable"
 
 
+# --- EA-0028 ---
+class CloudConfigInvalid(AQError):
+    code = "CloudConfigInvalid"
+
+
+class CloudObjectNotFound(AQError):
+    code = "CloudObjectNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

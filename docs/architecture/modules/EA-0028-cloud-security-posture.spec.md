@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (cloud resources are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0023 (exposure), EA-0011 (cloud identity), EA-0013 (risk)** — the owners it feeds; EA-0006 (source reliability), EA-0004 (evidence)
 **Consumed by:** the six owner engines above (as normalized cloud objects/signals); the cloud posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0020, ECR-0021
+**Change control:** ECR-0020, ECR-0021, ECR-0022
 **Build milestone:** C-025 (see `C-025_Task_Bundle.md`)
 **Definition of Ready:** see §8
 
@@ -123,6 +123,7 @@ CloudResourceDescriptor = { provider: Provider, account: str, region: str | null
                                                                     # handed in (§0.1)
 
 NormalizedCloudObject = { object_id: str, object_type: str,             # EA-0002 object emitted
+                          tenant_id: str | null,
                           provider: Provider, account: str, region: str | null,
                           native_facts: dict,                           # observational only; verdict keys rejected
                           field_provenance: dict,                       # normalized field -> raw path (D3)
@@ -159,7 +160,8 @@ from typing import Protocol, Sequence
 
 class CloudNormalizationStore(Protocol):
     async def put(self, obj: NormalizedCloudObject) -> NormalizedCloudObject: ...
-    async def get(self, object_id: str) -> NormalizedCloudObject | None: ...
+    async def get(self, object_id: str, *,
+                  tenant_id: str | None) -> NormalizedCloudObject | None: ...
     async def query(self, *, tenant_id: str | None, provider: str | None = None,
                     limit: int = 1000) -> list[NormalizedCloudObject]: ...
 
@@ -222,7 +224,7 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 - **FR-7** Cloud config assessment SHALL be performed by **EA-0012** using cloud `Baseline`s; the module SHALL NOT implement drift detection (D4).
 - **FR-8** Cloud compliance SHALL be **EA-0010**, cloud exposure **EA-0023**, cloud identity **EA-0011**, cloud risk **EA-0013**; the module SHALL implement none of them (§0).
 - **FR-9** The module SHALL raise no findings directly and execute nothing; findings arise from the owners it routes to.
-- **FR-10** All operations SHALL be tenant-scoped and bounded; invalid config (unknown `type_map` target, unknown `baseline_id`, `batch_size ≤ 0`) SHALL raise `CloudConfigInvalid`.
+- **FR-10** All operations SHALL be tenant-scoped and bounded. `NormalizedCloudObject` SHALL carry `tenant_id`, and every store read SHALL require an explicit tenant scope (ECR-0022). Invalid config (unknown `type_map` target, unknown `baseline_id`, `batch_size ≤ 0`) SHALL raise `CloudConfigInvalid`.
 - **FR-11** `CloudNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite.
 - **FR-12** `CloudPostureService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 - **FR-13** `NormalizedCloudObject` SHALL use `extra="forbid"` and SHALL define no severity, score, risk score, compliance status, finding, or action field. Its constructor SHALL recursively reject those reserved verdict keys, **case-insensitively**, anywhere in normalized state, including `native_facts`, `field_provenance`, and `conflicts`; such provider material may exist only in raw EA-0004 evidence (D5/ECR-0020). This name check is a **backstop**: the primary guarantee is FR-3's provenance binding, under which an invented verdict key has no raw source and cannot be constructed (**ECR-0021**).
@@ -256,6 +258,7 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 | AC-15 | Partial routing names accepted + failed owners | `test_cspm_partial_routing_visible` |
 | AC-16 | Provider-deleted input maps to unreported, never decommissioned | `test_cspm_deleted_maps_unreported` |
 | AC-17 | `native_facts` keys ≡ `field_provenance` keys; an undeclared key is unconstructable (ECR-0021) | `test_cspm_native_facts_provenance_bound` |
+| AC-18 | Normalized records carry a validated tenant and store reads require scope (ECR-0022) | `test_cspm_tenant_model_guard` |
 
 ## 9. Error taxonomy (contributions)
 
