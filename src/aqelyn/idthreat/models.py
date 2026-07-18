@@ -216,7 +216,10 @@ class IdentityDetection(BaseModel):
 
 
 class IdThreatConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # Frozen: the dignity floors are not knobs, so a constructed config cannot be
+    # lowered afterwards (EA-0027 S3/§11). `assert_dignity_floors` re-checks at the
+    # point of use, for configs minted through validation-skipping pydantic APIs.
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     min_corroboration: int
     min_confidence: float
@@ -234,10 +237,18 @@ class IdThreatConfig(BaseModel):
 
     @model_validator(mode="after")
     def _dignity_floors(self) -> IdThreatConfig:
-        if self.min_corroboration < 2:
-            raise IdThreatConfigInvalid("min_corroboration must be >= 2")
-        if self.min_confidence <= self.platform_default:
-            raise IdThreatConfigInvalid(
-                "min_confidence must be strictly greater than platform_default"
-            )
+        assert_dignity_floors(self)
         return self
+
+
+def assert_dignity_floors(config: IdThreatConfig) -> None:
+    """Raise unless the config honours both dignity floors (EA-0027 S3/§11).
+
+    Checked at construction *and* at every use: `model_construct`/`model_copy`
+    skip validation by design, so a config that never passed the constructor can
+    still exist. A lowered floor must not be usable, however it was minted.
+    """
+    if config.min_corroboration < 2:
+        raise IdThreatConfigInvalid("min_corroboration must be >= 2")
+    if config.min_confidence <= config.platform_default:
+        raise IdThreatConfigInvalid("min_confidence must be strictly greater than platform_default")
