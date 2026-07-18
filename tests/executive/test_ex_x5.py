@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 
 from aqelyn.conventions import ActorRef, new_id
+from aqelyn.conventions.errors import ExceptionsUnavailable
 from aqelyn.events import EventTypeRegistry
 from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.executive import (
@@ -27,7 +28,7 @@ from aqelyn.executive import (
     SourceRef,
     content_hash_for_report,
 )
-from aqelyn.executive.service import EmptyMaterialExceptionSource, register_executive_events
+from aqelyn.executive.service import register_executive_events
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime, create_runtime
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -41,6 +42,12 @@ EXECUTIVE_EVENT_TYPES = (
     "aqelyn.executive.dashboard_updated",
     "aqelyn.executive.summary_generated",
 )
+
+
+class _MaterialExceptionSource:
+    async def material_exceptions(self, *, period: str, tenant_id: str | None) -> list[Figure]:
+        _ = period, tenant_id
+        return []
 
 
 def _figure() -> Figure:
@@ -110,7 +117,7 @@ async def test_exec_service_health(backend: str) -> None:
     assert pre_start.dependencies["report_store"] == "healthy"
     assert pre_start.dependencies["definition_store"] == "healthy"
     assert pre_start.dependencies["evidence_store"] == "healthy"
-    assert pre_start.dependencies["exception_source"] == "healthy"
+    assert pre_start.dependencies["exception_source"] == "inert"
     assert pre_start.dependencies["owner_sources"] == "healthy"
     assert pre_start.dependencies["section_sources"] == "healthy"
 
@@ -124,7 +131,7 @@ async def test_exec_service_health(backend: str) -> None:
         assert executive_health.dependencies["report_store"] == "healthy"
         assert executive_health.dependencies["definition_store"] == "healthy"
         assert executive_health.dependencies["evidence_store"] == "healthy"
-        assert executive_health.dependencies["exception_source"] == "healthy"
+        assert executive_health.dependencies["exception_source"] == "inert"
         assert executive_health.dependencies["owner_sources"] == "healthy"
         assert executive_health.dependencies["section_sources"] == "healthy"
         assert state.services["mission_engine"].ready is True
@@ -133,6 +140,23 @@ async def test_exec_service_health(backend: str) -> None:
         assert state.services["forecast_engine"].ready is True
         assert state.services["trust_engine"].ready is True
         assert state.services["_kernel"].ready is True
+
+        draft = await runtime.executive_report_store.put(
+            ExecutiveReport(
+                tenant_id=None,
+                title="Executive report 2026-Q3",
+                period="2026-Q3",
+                sections=[ReportSection(key="kpis", title="KPIs", figures=[_figure()])],
+                exceptions=[_figure()],
+                scope={"audience": "board"},
+            )
+        )
+        with pytest.raises(ExceptionsUnavailable):
+            await runtime.executive_engine_service.issue_report(
+                draft.id,
+                by=ACTOR,
+                tenant_id=None,
+            )
     finally:
         await runtime.kernel.stop()
 
@@ -171,7 +195,7 @@ async def test_exec_content_hash_excludes_issue_evidence_id() -> None:
     )
     engine = ExecutiveReportEngine(
         report_store=report_store,
-        exception_source=EmptyMaterialExceptionSource(),
+        exception_source=_MaterialExceptionSource(),
         evidence_store=evidence_store,
         clock=lambda: NOW,
     )
