@@ -31,6 +31,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0024 | EA-0028 / IS-028 | Accepted | Make selective flattening explicit: config maps each normalized fact key to an RFC 6901 JSON Pointer in the handed-in raw provider record; generic provider-block flattening is forbidden. |
 | ECR-0025 | EA-0028 / IS-028 | Accepted | A configured fact path missing from a later snapshot silently deletes a previously-known fact. Absence is **unknown**, not a change: the fact is retained with its last-known value, marked `unreported`, and the object is flagged — never dropped without trace (the ECR-0014 rule at field level). |
 | ECR-0026 | EA-0028 / IS-028 | Accepted | Y3 routes a typed, evidence-backed `CloudRouteEnvelope` containing the full normalized object to owner adapters. The six heterogeneous owner APIs are not rewritten, and no adapter may strip ECR-0025's `unreported_facts`; provider deletion is recovered from the pinned evidence and maps only to inventory `mark_unreported`. |
+| ECR-0027 | EA-0028 + EA-0012 | Accepted | `apply_cloud_baselines` can never assess a cloud object: EA-0012's asset query hard-forces `object_type="asset"` while CSPM normalizes to `cloud_*`. It returns a clean-looking empty snapshot. EA-0012 gains a configured set of assessable object types, and an assessment that applied no baseline to in-scope objects must be surfaced, never reported clean. |
 
 ---
 
@@ -1006,3 +1007,76 @@ does not evaluate checks.
 collector, finding, or action surface. Y3 tests use six behavioral spies and require every
 received envelope to retain `unreported_facts`; Y4 wires concrete adapters without changing
 this contract.
+
+---
+
+## ECR-0027 — cloud baselines never reach EA-0012, and the empty result looks clean
+
+**Raised by:** Claude Code (C-025 Y4 review, PR #159).
+**Severity:** blocking — EA-0028 **D4/FR-7** ("cloud config assessment is EA-0012 using cloud
+`Baseline`s") is non-functional as shipped, and it fails **silently**.
+
+**Problem.** `AssetConfigCloudBaselineRouter` delegates to `AssetConfigAnalyzer.assess`, which
+enumerates candidates through `_asset_query`. That builder **overrides** whatever scope it is
+given:
+
+```python
+data.update({"tenant_id": ..., "object_type": ASSET_OBJECT_TYPE, ...})   # ASSET_OBJECT_TYPE == "asset"
+```
+
+CSPM normalizes cloud resources to `cloud_storage` / `cloud_network` / `cloud_iam` / … — never
+`"asset"`. No adapter creates an `"asset"`-typed object either: `SharedObjectCloudOwnerRouter`
+verifies and returns the existing object, and EA-0025's engine does not write to the object
+store at all. So **no normalized cloud object is visible to EA-0012's assessment by any path**.
+
+Constructed end-to-end against the shipped adapter, with a matching baseline in the store and
+one non-compliant cloud object present (`encryption_enabled: False`):
+
+```
+normalized        : obj_… {'encryption_enabled': False, 'network_public': True}
+snapshot id       : drift-snapshot-…
+baselines applied : []
+assets assessed   : 0
+evidence recorded : True
+```
+
+A direct `AssetConfigAnalyzer.assess(tenant_id, scope=None)` on the same store returns the same
+zero. This is not a classification or configuration gap — the object type is forced in code, so
+no deployment configuration can reach it.
+
+**The failure mode is the dangerous half.** `apply_cloud_baselines` returns a snapshot id, records
+evidence, and reports zero drift. To every caller and every dashboard above it, "cloud baselines
+were assessed and nothing failed" is indistinguishable from "nothing was ever assessed". This is
+the platform's recurring defect — absence presented as a clean result — in the one place a
+misconfigured cloud estate would be caught. **Not assessed ≠ compliant** (ECR-0012's rule for
+scan coverage, restated for assessment coverage).
+
+**Why the milestone's tests passed.** AC-7 (`test_cspm_config_delegates`) exercises delegation
+through a **`_BaselineSpy`**, so it proves `apply_cloud_baselines` calls its router with the right
+arguments — it cannot prove the concrete adapter shipped in Y4 assesses anything. A delegation spy
+demonstrates *intent*; only a run against the real owner demonstrates *connectivity*.
+
+**Resolution.**
+
+1. **EA-0012 owns the widening.** `AssetConfigAnalyzer` gains a configured set of assessable
+   object types (default `{"asset"}`, preserving today's behaviour) and stops discarding a
+   scope-supplied `object_type`. Cloud object types are assessed by adding them to that set. CSPM
+   SHALL NOT relabel cloud resources as `"asset"` to sneak past the filter: the object type is
+   information the owners need, and forging it would trade a visible gap for an invisible one.
+2. **An assessment that assessed nothing is not a clean assessment.** When a scope matches
+   in-scope objects but **no baseline applies to any of them**, or matches no assessable objects
+   at all, `apply_cloud_baselines` SHALL surface that state rather than return a zero-drift
+   snapshot — refusing, or returning a snapshot that explicitly declares zero coverage. A caller
+   must never be able to read "assessed, all clean" from an assessment that ran against nothing.
+3. **AC-7 is re-proved end-to-end.** The acceptance test SHALL drive a real `AssetConfigAnalyzer`
+   with a real cloud `Baseline` and a non-compliant normalized cloud object, and assert the drift
+   is detected. The spy test may remain for argument-passing.
+
+**Impact.** Amends EA-0028 §6 and FR-7, amends EA-0012's assessment scope contract, adds AC-22
+(`test_cspm_cloud_baseline_assessed_end_to_end`), and updates C-025 Y4. Implementation is Codex's
+— it changes an owner's contract and a shipped query builder, which is beyond a review fix.
+
+**Method note.** Every other owner handoff in Y3 was verified with spies too. Those spies proved
+the envelope arrives intact, which was the right question for ECR-0025's marker. They did not ask
+whether the receiving owner can act on what arrives. The five non-baseline owners should each get
+one end-to-end proof before C-025 is called done.

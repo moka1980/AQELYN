@@ -157,3 +157,26 @@ Per ticket, confirm the normal DoD **and**, with extra scrutiny:
 Merge only on green review; then **report back to the owner** before the next
 module. **Note for IS-029 (SSPM):** run the event/type check; it is likely the
 same normalize+route shape — consider a shared posture-normalization base then.
+
+
+---
+
+## Y4 follow-on (ECR-0027) — make the EA-0012 seam real
+
+`apply_cloud_baselines` currently cannot assess any cloud object: `_asset_query` in
+EA-0012 hard-forces `object_type="asset"` while CSPM normalizes to `cloud_*`, and no
+adapter creates an `"asset"`-typed object. The call returns a zero-drift snapshot with
+evidence recorded, which reads as "assessed, all clean".
+
+1. EA-0012 gains a configured assessable object-type set (default `{"asset"}`) and stops
+   discarding a scope-supplied `object_type`. **Do not** relabel cloud resources as
+   `"asset"` — the type is information the owners need.
+2. An assessment that applied no baseline to in-scope objects must be surfaced, never
+   returned as zero drift (**not assessed ≠ compliant**, ECR-0012's rule for coverage).
+3. Re-prove AC-7 end-to-end against a real `AssetConfigAnalyzer`; keep the spy test for
+   argument-passing only.
+**Acceptance:** `test_cspm_cloud_baseline_assessed_end_to_end`.
+
+**Then do the same for the other five owners.** Y3's spies prove the envelope arrives
+intact; they do not prove the receiving owner can act on it. Each of inventory,
+compliance, exposure, iag and risk needs one end-to-end proof before C-025 is done.
