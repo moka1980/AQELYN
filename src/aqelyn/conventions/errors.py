@@ -431,6 +431,27 @@ class DecommissionRequiresEvidence(AQError):
     code = "DecommissionRequiresEvidence"
 
 
+# --- EA-0027 ---
+class IdThreatConfigInvalid(AQError):
+    code = "IdThreatConfigInvalid"
+
+
+class IdentityCorroborationMissing(AQError):
+    code = "IdentityCorroborationMissing"
+
+
+class IdentityBasisMissing(AQError):
+    code = "IdentityBasisMissing"
+
+
+class IdentityNotFound(AQError):
+    code = "IdentityNotFound"
+
+
+class IdentityNotReplayable(AQError):
+    code = "IdentityNotReplayable"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
