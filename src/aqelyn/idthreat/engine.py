@@ -323,6 +323,10 @@ class IdentityThreatEngine:
             return None
         if (
             profile is None
+            # The store must return the profile that was asked for: the basis pins
+            # `profile_ref`, so a different record would cite a profile the detection
+            # never used (S7 right of reply).
+            or profile.id != observation.profile_ref
             or profile.subject_ref != observation.subject_ref
             or profile.tenant_id != tenant_id
             or profile.version != observation.profile_version
@@ -427,7 +431,6 @@ def _basis_for(
         for risk in risk_report.risks
         if risk.subject_id in context_ids
     )
-    assert profile.id == observation.profile_ref
     return basis, entitlement_refs
 
 
