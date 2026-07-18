@@ -30,6 +30,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0023 | EA-0028 / IS-028 | Accepted | ECR-0021's provenance binding is top-level only, so an invented verdict one level down (`native_facts["tags"]["posture_grade"]`) still passes. `native_facts` values are constrained to scalars or lists of scalars: structured provider material belongs in raw EA-0004 evidence, and every normalized key is then provenance-bound. |
 | ECR-0024 | EA-0028 / IS-028 | Accepted | Make selective flattening explicit: config maps each normalized fact key to an RFC 6901 JSON Pointer in the handed-in raw provider record; generic provider-block flattening is forbidden. |
 | ECR-0025 | EA-0028 / IS-028 | Accepted | A configured fact path missing from a later snapshot silently deletes a previously-known fact. Absence is **unknown**, not a change: the fact is retained with its last-known value, marked `unreported`, and the object is flagged — never dropped without trace (the ECR-0014 rule at field level). |
+| ECR-0026 | EA-0028 / IS-028 | Accepted | Y3 routes a typed, evidence-backed `CloudRouteEnvelope` containing the full normalized object to owner adapters. The six heterogeneous owner APIs are not rewritten, and no adapter may strip ECR-0025's `unreported_facts`; provider deletion is recovered from the pinned evidence and maps only to inventory `mark_unreported`. |
 
 ---
 
@@ -965,3 +966,43 @@ change rather than a review fix.
 **Note on ECR-0024.** Its "omitted rather than fabricated" wording remains correct for a
 first observation and is not withdrawn — this ECR only settles what the same absence means
 on a *subsequent* one, which ECR-0024 did not address.
+
+---
+
+## ECR-0026 — owner routing uses a typed, evidence-backed envelope
+
+**Raised by:** Codex (C-025 Y3 implementation).
+**Status:** Accepted.
+**Severity:** blocking contract omission — the Accepted Y3 interface names six owner
+handoffs but does not define a common input, and `route(object_ids)` does not carry the
+descriptor metadata needed to distinguish an observation from `reported_deleted`.
+
+**Problem.** The shipped owners expose different contracts: inventory ingests discovery
+reports, asset configuration and compliance assess shared objects, exposure consumes known
+surface records, IAG reads identity objects, and risk consumes findings/signals. None has a
+shared `accept_cloud_object` method, and rewriting all six owners would fork their APIs for
+one scope filter. Passing only `native_facts` would also strip ECR-0025's
+`unreported_facts`, making a stale retained value look current at the exact boundary the
+ECR was meant to protect. Finally, the normalized projection pins the current evidence id
+but does not duplicate `change_kind`, source, resource id, or observation time; those facts
+remain in EA-0004 evidence by design.
+
+**Resolution.** Y3 introduces a `CloudRouteEnvelope` built from the tenant-scoped
+`NormalizedCloudObject` and its pinned EA-0004 evidence. It carries the **entire** normalized
+object (including `field_provenance`, `unreported_facts`, conflicts, and flag), plus
+`resource_id`, `source_id`, source reliability, `observed_at`, and `change_kind`.
+`CloudOwnerRouter` is the adapter boundary: each configured owner receives that envelope
+unchanged and returns owner refs. The engine attempts every owner independently and records
+accepted/failed outcomes. Concrete adapters translate to the owner's existing API; they do
+not add cloud-specific analysis.
+
+For `reported_deleted`, Y3 invokes only the inventory adapter's `mark_unreported` path.
+The route envelope is reconstructed from verified stored evidence rather than caller input,
+so a caller cannot relabel an observation as deletion or vice versa. `apply_cloud_baselines`
+uses a separate EA-0012 adapter receiving the configured baseline ids and cloud scope; CSPM
+does not evaluate checks.
+
+**Impact.** Amends EA-0028 §4/§5/§6 and FR-6/FR-14, updates C-025 Y3, and adds no verdict,
+collector, finding, or action surface. Y3 tests use six behavioral spies and require every
+received envelope to retain `unreported_facts`; Y4 wires concrete adapters without changing
+this contract.
