@@ -126,8 +126,12 @@ async def test_exec_service_health(backend: str) -> None:
         state = await runtime.kernel.health()
         executive_health = state.services["executive_engine"]
 
-        assert executive_health.status == "healthy"
+        # The refusing exceptions default blocks every report, so "healthy" would
+        # overstate: degraded-but-ready is the honest state (KPIs still compute).
+        assert executive_health.status == "degraded"
         assert executive_health.ready is True
+        assert executive_health.detail is not None
+        assert "report assembly and issuance refuse" in executive_health.detail
         assert executive_health.dependencies["report_store"] == "healthy"
         assert executive_health.dependencies["definition_store"] == "healthy"
         assert executive_health.dependencies["evidence_store"] == "healthy"
