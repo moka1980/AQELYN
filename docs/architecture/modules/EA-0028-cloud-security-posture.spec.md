@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (cloud resources are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0023 (exposure), EA-0011 (cloud identity), EA-0013 (risk)** — the owners it feeds; EA-0006 (source reliability), EA-0004 (evidence)
 **Consumed by:** the six owner engines above (as normalized cloud objects/signals); the cloud posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0020
+**Change control:** ECR-0020, ECR-0021
 **Build milestone:** C-025 (see `C-025_Task_Bundle.md`)
 **Definition of Ready:** see §8
 
@@ -215,7 +215,7 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 
 - **FR-1** `normalize` SHALL accept handed-in descriptors only; the module SHALL make no cloud API call, hold no cloud credential, and expose no enumerate/scan method (§0.1).
 - **FR-2** Each descriptor SHALL be normalized to an `AQObject` with `provider`/`account`/`region` and `native_facts`; the raw block SHALL be preserved as evidence (D1).
-- **FR-3** Every normalized field SHALL carry `field_provenance` back to the raw provider field (D3).
+- **FR-3** Every normalized field SHALL carry `field_provenance` back to the raw provider field (D3). `set(native_facts)` SHALL equal `set(field_provenance)`, enforced at construction: a key with no declared raw source is unconstructable (**ECR-0021**).
 - **FR-4** Cross-snapshot field conflicts SHALL resolve by EA-0006 reliability then recency and SHALL be **recorded**, not smoothed (D3).
 - **FR-5** An unmapped `resource_type` SHALL become `cloud_unknown`, flagged; it SHALL NOT be dropped (§6).
 - **FR-6** `route` SHALL attempt every configured owner independently and record one `OwnerRouteOutcome` per owner plus an overall `complete` / `partial` / `failed` status; accepted and failed owners SHALL both remain visible. It SHALL NOT itself assess, score, or detect (D2/§0).
@@ -225,12 +225,12 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 - **FR-10** All operations SHALL be tenant-scoped and bounded; invalid config (unknown `type_map` target, unknown `baseline_id`, `batch_size ≤ 0`) SHALL raise `CloudConfigInvalid`.
 - **FR-11** `CloudNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite.
 - **FR-12** `CloudPostureService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
-- **FR-13** `NormalizedCloudObject` SHALL use `extra="forbid"` and SHALL define no severity, score, risk score, compliance status, finding, or action field. Its constructor SHALL recursively reject those reserved verdict keys anywhere in normalized state, including `native_facts`, `field_provenance`, and `conflicts`; such provider material may exist only in raw EA-0004 evidence (D5/ECR-0020).
+- **FR-13** `NormalizedCloudObject` SHALL use `extra="forbid"` and SHALL define no severity, score, risk score, compliance status, finding, or action field. Its constructor SHALL recursively reject those reserved verdict keys, **case-insensitively**, anywhere in normalized state, including `native_facts`, `field_provenance`, and `conflicts`; such provider material may exist only in raw EA-0004 evidence (D5/ECR-0020). This name check is a **backstop**: the primary guarantee is FR-3's provenance binding, under which an invented verdict key has no raw source and cannot be constructed (**ECR-0021**).
 - **FR-14** A handed-in `reported_deleted` descriptor SHALL route to EA-0025 `mark_unreported` / `aqelyn.inventory.asset_unreported`; it SHALL NOT delete or decommission an asset without positive evidence or an attributed EA-0008-gated decision (EA-0025 S3/ECR-0014/ECR-0020).
 
 ### Non-functional
 
-- **NFR-1 (normalizer, not silo — structural)** the module exposes normalization + routing only; no assessment/scoring/detection method or verdict field exists. `extra="forbid"` makes verdict-bearing normalized objects unconstructable, and delegation spies prove EA-0025/0012/0010/0023/0011/0013 do the analyses, per **ECR-0007**.
+- **NFR-1 (normalizer, not silo — structural)** the module exposes normalization + routing only; no assessment/scoring/detection method or verdict field exists. `extra="forbid"` plus FR-3's provenance binding makes verdict-bearing normalized objects unconstructable, and delegation spies prove EA-0025/0012/0010/0023/0011/0013 do the analyses, per **ECR-0007**.
 - **NFR-2 (no collection)** no cloud API/socket; socket spy proves zero outbound.
 - **NFR-3 (provenance)** every normalized field traces to a raw provider field; conflicts recorded.
 - **NFR-4 (bounded & typed)** batched; store passes one suite; `mypy --strict` + `ruff` clean.
@@ -252,9 +252,10 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 | AC-11 | Invalid config rejected | `test_cspm_config_invalid` |
 | AC-12 | Store in-memory & Postgres pass one suite | `test_cspm_store_contract[inmemory]` / `[postgres]` |
 | AC-13 | Registers as AQService with health | `test_cspm_service_health` |
-| AC-14 | Verdict fields/keys are unrepresentable at any normalized depth | `test_cspm_verdict_fields_rejected` |
+| AC-14 | No verdict field on the model (structural); reserved verdict names rejected case-insensitively at any depth (backstop) | `test_cspm_verdict_fields_rejected` |
 | AC-15 | Partial routing names accepted + failed owners | `test_cspm_partial_routing_visible` |
 | AC-16 | Provider-deleted input maps to unreported, never decommissioned | `test_cspm_deleted_maps_unreported` |
+| AC-17 | `native_facts` keys ≡ `field_provenance` keys; an undeclared key is unconstructable (ECR-0021) | `test_cspm_native_facts_provenance_bound` |
 
 ## 9. Error taxonomy (contributions)
 
@@ -264,12 +265,14 @@ CONVENTIONS §9). Reuses `StoreUnavailable`,
 
 ## 10. Registered event types (owned by EA-0028)
 
-`aqelyn.cloud.resource_normalized`, `aqelyn.cloud.misconfiguration_detected`
-(emitted when a routed EA-0012 assessment on a cloud object fails a cloud
-baseline — carries the EA-0012 refs, does not re-detect),
-`aqelyn.cloud.resource_unclassified` — via `register_cloud_events()` (EA-0003 §7).
-(Archive uses `cloud.misconfiguration.detected`; mapped into the platform
-namespace.)
+`aqelyn.cloud.resource_normalized`, `aqelyn.cloud.resource_unclassified` — via
+`register_cloud_events()` (EA-0003 §7). Both are facts this engine originates.
+
+The archive's `cloud.misconfiguration.detected` is **not** registered (**ECR-0021**).
+A cloud baseline failure is EA-0012's `aqelyn.config.drift_detected` on an object whose
+`provider` is set; "cloud misconfiguration" is a **query over that event**, not a second
+fact. Emitting it here would give one occurrence two names — inviting double-counting —
+and would assert a detection from the layer that owns no verdicts.
 
 The archive's `cloud.resource.deleted` is **not** registered as a CSPM-owned fact.
 A handed-in provider deletion observation maps to EA-0025 `mark_unreported`, whose

@@ -50,11 +50,15 @@ tests/cspm/           # acceptance suite (in-memory + Postgres)
 `type_map` target, unknown `baseline_id`, `batch_size ≤ 0`); new error codes in
 `conventions.errors` + CONVENTIONS §9. Every model uses `extra="forbid"`;
 `NormalizedCloudObject` has no severity/score/risk-score/compliance-status/
-finding/action field, and construction rejects those reserved keys recursively
-inside `native_facts`, `field_provenance`, and `conflicts`; provider verdicts stay
-only in raw EA-0004 evidence (FR-13/ECR-0020).
+finding/action field, and construction rejects those reserved keys recursively and
+**case-insensitively** inside `native_facts`, `field_provenance`, and `conflicts`;
+provider verdicts stay only in raw EA-0004 evidence (FR-13/ECR-0020).
+**The primary guarantee is provenance binding, not the name list (ECR-0021):**
+`set(native_facts) == set(field_provenance)` is enforced at construction, so a key
+with no declared raw source is unconstructable. The reserved-name check is a backstop.
 **Depends on:** EA-0002/0012 types, conventions.
-**Acceptance:** `test_cspm_config_invalid`, `test_cspm_verdict_fields_rejected`.
+**Acceptance:** `test_cspm_config_invalid`, `test_cspm_verdict_fields_rejected`,
+`test_cspm_native_facts_provenance_bound`.
 
 ## Y2 — Normalization (provenance + conflict recording) + store
 
@@ -91,9 +95,11 @@ decommissions or deletes an asset (FR-14/ECR-0014/ECR-0020).
 
 **Spec:** FR-12, §10.
 **Deliverables:** `CloudPostureService` (`AQService`, name `"cspm_engine"`) +
-`register_cloud_events` (`resource_normalized`, `misconfiguration_detected` [from
-a routed EA-0012 failure, not re-detected], `resource_unclassified`); no
-CSPM-owned deletion event; wired into the kernel factory.
+`register_cloud_events` (`resource_normalized`, `resource_unclassified` — **only
+these two**); **no `misconfiguration_detected` event (ECR-0021)** — a cloud baseline
+failure is EA-0012's `aqelyn.config.drift_detected` on a cloud object, and a second
+name for one occurrence invites double-counting; no CSPM-owned deletion event; wired
+into the kernel factory.
 **Depends on:** Y3.
 **Acceptance:** `test_cspm_service_health`.
 
@@ -119,8 +125,12 @@ Per ticket, confirm the normal DoD **and**, with extra scrutiny:
 5. **Owner-down ≠ silent drop or false success.** Every configured owner has an
    explicit accepted/failed outcome. A five-of-six handoff is `partial` and names
    the failed owner + reason.
-6. **misconfiguration_detected is not a re-detection** — it carries EA-0012 refs
-   from a routed assessment failure.
+6. **CSPM registers exactly two events** (`resource_normalized`,
+   `resource_unclassified`). If `misconfiguration_detected` appears, it is wrong
+   (ECR-0021): that fact is EA-0012's, and CSPM owns no verdict to detect.
+   Also check `native_facts` keys are provenance-bound — an extractor that copies the
+   provider block wholesale will both break that rule and refuse real AWS Config /
+   Azure Policy payloads, which carry `complianceType` / `complianceState` / `Severity`.
 7. **Provider-deleted ≠ decommissioned.** A lifecycle spy proves the input maps to
    EA-0025 `mark_unreported` and never calls a delete/decommission path. No
    `cloud.resource.deleted` event is registered as a CSPM-owned fact.
