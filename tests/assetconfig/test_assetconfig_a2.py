@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
+
 from aqelyn.assetconfig import (
     ASSET_OBJECT_TYPE,
     ACGConfig,
@@ -14,6 +16,7 @@ from aqelyn.assetconfig import (
     Check,
 )
 from aqelyn.conventions import ActorRef, new_id
+from aqelyn.conventions.errors import BaselineNotFound
 from aqelyn.findings.models import Severity
 from aqelyn.objects import AQObject, AQRelationship, InMemoryObjectStore, ObjectQuery, SourceRef
 
@@ -43,13 +46,14 @@ def _asset(
     observed: dict[str, Any] | None = None,
     attrs: dict[str, Any] | None = None,
     labels: dict[str, str] | None = None,
+    object_type: str = ASSET_OBJECT_TYPE,
 ) -> AQObject:
     now = _now()
     attributes = dict(attrs or {})
     attributes["observed_state"] = dict(observed or {})
     return AQObject(
         id="",
-        object_type=ASSET_OBJECT_TYPE,
+        object_type=object_type,
         schema_version=1,
         tenant_id=tenant_id,
         display_name=name,
@@ -165,6 +169,79 @@ async def test_acg_assess_estate() -> None:
     assert by_asset[passed.id].failed == 0
     assert by_asset[failed.id].passed == 0
     assert by_asset[failed.id].failed == 1
+
+
+async def test_acg_assess_configured_cloud_object_type() -> None:
+    store = _store()
+    store.registry.register("cloud_storage", 1, None)
+    cloud = await store.upsert(
+        _asset(
+            "bucket",
+            object_type="cloud_storage",
+            attrs={"provider": "aws"},
+            observed={"encryption_enabled": False},
+            labels={"module": "EA-0028"},
+        )
+    )
+    analyzer = AssetConfigAnalyzer(
+        store,
+        [
+            _baseline(
+                "cis-aws-storage",
+                "cloud_storage",
+                _check("encryption", "encryption_enabled", True),
+            )
+        ],
+        config=ACGConfig(
+            assessable_object_types=["asset", "cloud_storage"],
+            classification_rules=[
+                {
+                    "asset_class": "cloud_storage",
+                    "condition": {
+                        "op": "eq",
+                        "attr": "object_type",
+                        "value": "cloud_storage",
+                    },
+                }
+            ],
+        ),
+    )
+
+    snapshot = await analyzer.assess(
+        tenant_id=None,
+        scope=ObjectQuery(object_type="cloud_storage", labels={"module": "EA-0028"}),
+        record_evidence=False,
+    )
+
+    assert snapshot.baseline_ids == ["cis-aws-storage"]
+    assert snapshot.scope["object_type"] == "cloud_storage"
+    assert snapshot.scope["assessable_object_types"] == ["cloud_storage"]
+    assert len(snapshot.asset_drifts) == 1
+    assert snapshot.asset_drifts[0].asset_id == cloud.id
+    assert snapshot.asset_drifts[0].failed == 1
+    assert snapshot.overall_score == 0.0
+
+
+async def test_acg_assess_refuses_zero_coverage() -> None:
+    empty_store = _store()
+    analyzer = AssetConfigAnalyzer(
+        empty_store,
+        [_baseline("cis-linux", "linux_server")],
+        config=_config(),
+    )
+
+    with pytest.raises(BaselineNotFound, match="matched no assessable objects"):
+        await analyzer.assess(tenant_id=None, record_evidence=False)
+
+    await empty_store.upsert(
+        _asset(
+            "unclassified",
+            attrs={"os_family": "network"},
+            observed={"ssh.root": "no"},
+        )
+    )
+    with pytest.raises(BaselineNotFound, match="applied no baseline"):
+        await analyzer.assess(tenant_id=None, record_evidence=False)
 
 
 async def test_acg_deterministic() -> None:

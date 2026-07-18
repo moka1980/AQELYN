@@ -92,6 +92,10 @@ def test_acg_config_invalid() -> None:
     with pytest.raises(BaselineConfigInvalid):
         ACGConfig(batch_size=True)
     with pytest.raises(BaselineConfigInvalid):
+        ACGConfig(assessable_object_types=[])
+    with pytest.raises(BaselineConfigInvalid):
+        ACGConfig(assessable_object_types=["asset", "asset"])
+    with pytest.raises(BaselineConfigInvalid):
         _check(comparator="matches")
     with pytest.raises(BaselineConfigInvalid):
         Check.model_validate(
