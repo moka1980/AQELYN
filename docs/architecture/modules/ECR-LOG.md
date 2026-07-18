@@ -20,6 +20,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0013 | cross-cutting (unwired-dependency default) | Accepted | An unwired dependency's default implementation MUST be **inert or refusing, never optimistic**. Fixes EA-0024's coverage provider (reported `unscanned=[]`) to refuse. |
 | ECR-0014 | EA-0025 / IS-025 | Accepted | Absence ≠ decommission (asset → `unreported`, never retired from silence); `inventory()` declares freshness + fails rather than shrinks; reconciliation **records** conflicts (EA-0006 precedence). Overrides master §28.2. |
 | ECR-0015 | EA-0026 / IS-026 | Accepted | **IS-026 is IS-012 restated — do not build EA-0026.** EA-0012 already ships baseline/drift/classify/remediation and the `configuration.drift.detected` event. Realize IS-026's intent as a small EA-0012 enhancement (C-023). |
+| ECR-0016 | EA-0027 / IS-027 | Accepted | Identity detection watches **accounts, not people**: no per-person risk score (absent), no insider-threat *prediction*; a **dignity gate** (≥2 corroboration + confidence floor > platform default) is non-negotiable. Overrides master §429 risk-score + §107/261 insider-threat + consumes EA-0017's `behavior.profile.updated`. |
 
 ---
 
@@ -523,3 +524,47 @@ caught IS-026 immediately.
 its turn, sequentially, with evidence - without forking the platform's config
 authority. Master's Next after IS-026 is IS-027 (Identity Threat Detection &
 Behavioral Analytics), which the same event/type check should precede.
+
+---
+
+## ECR-0016 - EA-0027 watches accounts, not people: dignity gate, no person-scoring
+
+**Raised by:** planning (EA-0027 spec pass).
+**Severity:** architectural + ethical - this is the only engine that analyses named
+human beings, and it sits directly against EA-0021 **S8** ("predictive suspicion of
+named people is out of scope, permanently").
+
+**Problem.** The EA-0027 archive master demands exactly what this boundary exists to
+prevent: an **"Identity risk score"** (§429) - a UEBA per-user number attached to a
+colleague, rising and decaying invisibly; **"insider threat identification"**
+(§107/261) - *prediction* of who someone will become, for which no evidence exists and
+whose cost is borne by a person; and it re-declares `behavior.profile.updated` (§300),
+an event **EA-0017 already owns**. Individual behavioural anomalies are low-prevalence,
+so even a strong detector produces mostly false positives - and here **each false
+positive is a colleague wrongly suspected.**
+
+**Resolution.** The engine surfaces **observed, evidence-backed, account-scoped
+events** a human then judges - never a standing verdict about a person.
+1. **The account is the subject; the person is not the finding** - *"this credential
+   shows impossible travel,"* never *"this user is suspicious."*
+2. **A dignity gate, non-negotiable.** An identity detection requires **both** ≥ 2
+   independent corroborating signals **and** a confidence floor **strictly above the
+   platform default** - the one detector deliberately made *less* sensitive. A config
+   lowering corroboration below 2 or dropping the floor to the default is **rejected at
+   construction** (EA-0027 §11). The guarantees are structural, not knobs.
+3. **No per-person risk score - absent, not disabled.** No `risk_score`/`user_score`
+   type or method exists; the review's first check is its absence.
+4. **Right of reply by construction** - every detection is evidence-backed, replayable
+   against pinned versions, and human-reviewed before consequence, so the accused can be
+   shown exactly what was observed.
+5. **Reuse, not rebuild** - behavioural profiles are **EA-0017**'s (keyed by an identity
+   `subject_ref`); entitlements are **cited from EA-0011**, never merged; `behavior.
+   profile.updated` is **consumed** from EA-0017, never re-emitted. No individual's
+   future behaviour is forecast (EA-0021 S7/S8).
+
+**Impact.** Governs implementation only; the archive master is unchanged (the spec
+governs). Captured as EA-0027 **S1-S8**, **FR-1..5/11/12**, **NFR-1/2/3**, and the §11
+dignity gate; the dignity gate (C-024 **I2**) is built **before** any detection can be
+raised, and the review's first check is that no person-scoring type/method exists.
+Proven structurally (unrepresentable sub-threshold detection, unconstructable
+knob-lowering config, absent score surface) per ECR-0007.
