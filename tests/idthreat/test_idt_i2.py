@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
+from pydantic import ValidationError
 
 from aqelyn.conventions.errors import IdThreatConfigInvalid
 from aqelyn.idthreat import IdThreatConfig, SignalRef, dignity_gate
@@ -51,3 +52,46 @@ def test_idt_dignity_gate_drops() -> None:
 
     detection = "candidate" if dignity_gate([first], 0.99, config) else None
     assert detection is None
+
+
+def test_idt_config_floors_immutable() -> None:
+    """A constructed config cannot be lowered afterwards (S3/§11 — not knobs)."""
+    config = _config()
+
+    # The type-ignores are themselves part of the proof: frozen makes the floors
+    # read-only to mypy, so lowering one fails static checking as well as runtime.
+    with pytest.raises(ValidationError):
+        config.min_corroboration = 1  # type: ignore[misc]
+    with pytest.raises(ValidationError):
+        config.min_confidence = 0.0  # type: ignore[misc]
+
+    assert config.min_corroboration == 2
+    assert config.min_confidence == 0.75
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"min_corroboration": 1},
+        {"min_confidence": 0.0},
+        {"min_confidence": 0.5},
+    ],
+)
+def test_idt_laundered_config_refused_at_use(update: dict[str, int | float]) -> None:
+    """A config minted through a validation-skipping API cannot run the gate.
+
+    `model_copy(update=...)` and `model_construct` bypass validators by design,
+    so construction-time enforcement alone leaves the floors reachable. The gate
+    re-asserts them at the point of use.
+    """
+    laundered = _config().model_copy(update=update)
+    signals = [_signal("authentication", "auth:oslo"), _signal("session", "session:sao-paulo")]
+
+    with pytest.raises(IdThreatConfigInvalid):
+        dignity_gate(signals, 0.01, laundered)
+
+    constructed = IdThreatConfig.model_construct(
+        min_corroboration=1, min_confidence=0.0, platform_default=0.5
+    )
+    with pytest.raises(IdThreatConfigInvalid):
+        dignity_gate([_signal("authentication", "auth:oslo")], 0.01, constructed)
