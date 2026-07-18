@@ -82,6 +82,9 @@ if TYPE_CHECKING:
     from aqelyn.forensics.store import ArtifactStore
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
+    from aqelyn.idthreat.engine import IdentityThreatEngine
+    from aqelyn.idthreat.service import IdentityThreatService
+    from aqelyn.idthreat.store import IdentityDetectionStore
     from aqelyn.inventory import (
         AssetStore,
         InventoryIntelligenceEngine,
@@ -153,6 +156,9 @@ class Runtime:
     detection_profile_store: ProfileStore
     detection_engine: ThreatDetectionEngine
     detection_engine_service: ThreatDetectionService
+    idthreat_store: IdentityDetectionStore
+    idthreat_engine: IdentityThreatEngine
+    idthreat_engine_service: IdentityThreatService
     soc_store: SOCStore
     soc_engine: SecurityOperationsEngine
     soc_engine_service: SecurityOperationsService
@@ -308,6 +314,8 @@ def _register_runtime_services(
     detection_rule_store: RuleStore,
     detection_profile_store: ProfileStore,
     detection_engine: ThreatDetectionEngine,
+    idthreat_store: IdentityDetectionStore,
+    idthreat_engine: IdentityThreatEngine,
     soc_store: SOCStore,
     soc_engine: SecurityOperationsEngine,
     decision_recommendation_store: RecommendationStore,
@@ -344,6 +352,7 @@ def _register_runtime_services(
     close_threat_source_registry: Callable[[], Awaitable[None]] | None = None,
     close_detection_rule_store: Callable[[], Awaitable[None]] | None = None,
     close_detection_profile_store: Callable[[], Awaitable[None]] | None = None,
+    close_idthreat_store: Callable[[], Awaitable[None]] | None = None,
     close_soc_store: Callable[[], Awaitable[None]] | None = None,
     close_decision_recommendation_store: Callable[[], Awaitable[None]] | None = None,
     close_decision_model_store: Callable[[], Awaitable[None]] | None = None,
@@ -371,6 +380,7 @@ def _register_runtime_services(
     RiskIntelligenceService,
     ThreatFusionService,
     ThreatDetectionService,
+    IdentityThreatService,
     SecurityOperationsService,
     DecisionIntelligenceService,
     ResponseOrchestrationService,
@@ -391,6 +401,7 @@ def _register_runtime_services(
     from aqelyn.forensics.service import DigitalForensicsService
     from aqelyn.governance.service import ComplianceGovernanceService
     from aqelyn.iag.service import IdentityAccessGovernanceService
+    from aqelyn.idthreat.service import IdentityThreatService
     from aqelyn.inventory.service import InventoryIntelligenceService
     from aqelyn.lake.service import DataLakeService
     from aqelyn.response.service import ResponseOrchestrationService
@@ -482,6 +493,12 @@ def _register_runtime_services(
         close_profile_store=close_detection_profile_store,
     )
     kernel.register(detection_service)
+    idthreat_service = IdentityThreatService(
+        idthreat_engine,
+        store=idthreat_store,
+        close_store=close_idthreat_store,
+    )
+    kernel.register(idthreat_service)
     soc_service = SecurityOperationsService(
         soc_engine,
         store=soc_store,
@@ -578,6 +595,7 @@ def _register_runtime_services(
         risk_service,
         threat_service,
         detection_service,
+        idthreat_service,
         soc_service,
         decision_service,
         response_service,
@@ -635,6 +653,12 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.idthreat import (
+        IdentityThreatEngine,
+        IdThreatConfig,
+        InMemoryIdentityDetectionStore,
+        register_idthreat_events,
+    )
     from aqelyn.inventory import (
         InMemoryAssetStore,
         InventoryIntelligenceEngine,
@@ -681,6 +705,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_risk_events(registry)
     register_threat_events(registry)
     register_detection_events(registry)
+    register_idthreat_events(registry)
     register_soc_events(registry)
     register_response_events(registry)
     register_forensics_events(registry)
@@ -779,6 +804,24 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         mission_engine=mission_engine,
         evidence_store=evidence_store,
         finding_store=finding_store,
+    )
+    idthreat_store = InMemoryIdentityDetectionStore(
+        config=IdThreatConfig(
+            min_corroboration=2,
+            min_confidence=0.75,
+            platform_default=0.5,
+        ),
+        mode=cfg.tenant_mode,
+    )
+    idthreat_engine = IdentityThreatEngine(
+        idthreat_store,
+        evidence_store=evidence_store,
+        trust_engine=trust_engine,
+        profile_store=detection_profile_store,
+        entitlement_analyzer=iag_engine,
+        config=idthreat_store.config,
+        finding_store=finding_store,
+        evidence_recorder=evidence_store,
     )
     soc_store = InMemorySOCStore(mode=cfg.tenant_mode)
     soc_engine = SecurityOperationsEngine(
@@ -896,6 +939,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         risk_engine_service,
         threat_engine_service,
         detection_engine_service,
+        idthreat_engine_service,
         soc_engine_service,
         decision_engine_service,
         response_engine_service,
@@ -934,6 +978,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         detection_rule_store=detection_rule_store,
         detection_profile_store=detection_profile_store,
         detection_engine=detection_engine,
+        idthreat_store=idthreat_store,
+        idthreat_engine=idthreat_engine,
         soc_store=soc_store,
         soc_engine=soc_engine,
         decision_recommendation_store=decision_recommendation_store,
@@ -1001,6 +1047,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         detection_profile_store=detection_profile_store,
         detection_engine=detection_engine,
         detection_engine_service=detection_engine_service,
+        idthreat_store=idthreat_store,
+        idthreat_engine=idthreat_engine,
+        idthreat_engine_service=idthreat_engine_service,
         soc_store=soc_store,
         soc_engine=soc_engine,
         soc_engine_service=soc_engine_service,
@@ -1085,6 +1134,12 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         register_compliance_events,
     )
     from aqelyn.iag.service import StoreBackedIAGPolicyEvaluator, register_iag_events
+    from aqelyn.idthreat import (
+        IdentityThreatEngine,
+        IdThreatConfig,
+        PostgresIdentityDetectionStore,
+        register_idthreat_events,
+    )
     from aqelyn.inventory import (
         InventoryIntelligenceEngine,
         InventoryKnownSurfaceSource,
@@ -1136,6 +1191,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_risk_events(registry)
     register_threat_events(registry)
     register_detection_events(registry)
+    register_idthreat_events(registry)
     register_soc_events(registry)
     register_response_events(registry)
     register_forensics_events(registry)
@@ -1245,6 +1301,25 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         mission_engine=mission_engine,
         evidence_store=evidence_store,
         finding_store=finding_store,
+    )
+    idthreat_store = await PostgresIdentityDetectionStore.connect(
+        cfg.database_url,
+        config=IdThreatConfig(
+            min_corroboration=2,
+            min_confidence=0.75,
+            platform_default=0.5,
+        ),
+        mode=cfg.tenant_mode,
+    )
+    idthreat_engine = IdentityThreatEngine(
+        idthreat_store,
+        evidence_store=evidence_store,
+        trust_engine=trust_engine,
+        profile_store=detection_profile_store,
+        entitlement_analyzer=iag_engine,
+        config=idthreat_store.config,
+        finding_store=finding_store,
+        evidence_recorder=evidence_store,
     )
     soc_store = await PostgresSOCStore.connect(cfg.database_url, mode=cfg.tenant_mode)
     soc_engine = SecurityOperationsEngine(
@@ -1398,6 +1473,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         risk_engine_service,
         threat_engine_service,
         detection_engine_service,
+        idthreat_engine_service,
         soc_engine_service,
         decision_engine_service,
         response_engine_service,
@@ -1436,6 +1512,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         detection_rule_store=detection_rule_store,
         detection_profile_store=detection_profile_store,
         detection_engine=detection_engine,
+        idthreat_store=idthreat_store,
+        idthreat_engine=idthreat_engine,
         soc_store=soc_store,
         soc_engine=soc_engine,
         decision_recommendation_store=decision_recommendation_store,
@@ -1472,6 +1550,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_threat_source_registry=threat_source_registry.close,
         close_detection_rule_store=detection_rule_store.close,
         close_detection_profile_store=detection_profile_store.close,
+        close_idthreat_store=idthreat_store.close,
         close_soc_store=soc_store.close,
         close_decision_recommendation_store=decision_recommendation_store.close,
         close_decision_model_store=decision_model_store.close,
@@ -1529,6 +1608,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         detection_profile_store=detection_profile_store,
         detection_engine=detection_engine,
         detection_engine_service=detection_engine_service,
+        idthreat_store=idthreat_store,
+        idthreat_engine=idthreat_engine,
+        idthreat_engine_service=idthreat_engine_service,
         soc_store=soc_store,
         soc_engine=soc_engine,
         soc_engine_service=soc_engine_service,
