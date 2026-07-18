@@ -251,6 +251,36 @@ class NormalizedCloudObject(BaseModel):
         return self
 
 
+class CloudRouteEnvelope(BaseModel):
+    """Evidence-backed owner handoff that preserves the complete normalized state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    normalized: NormalizedCloudObject
+    resource_id: str
+    source_id: str
+    source_reliability: float
+    observed_at: datetime
+    change_kind: CloudChangeKind
+
+    @field_validator("resource_id")
+    @classmethod
+    def _resource_id(cls, value: str) -> str:
+        return _nonempty(value, field="resource_id")
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str) -> str:
+        return require_typed_id(value, "src", field="source_id")
+
+    @field_validator("source_reliability")
+    @classmethod
+    def _source_reliability(cls, value: float) -> float:
+        if not math.isfinite(value) or value < 0.0 or value > 1.0:
+            raise CloudConfigInvalid("source_reliability must be in [0,1]")
+        return value
+
+
 class OwnerRouteOutcome(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (cloud resources are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0023 (exposure), EA-0011 (cloud identity), EA-0013 (risk)** — the owners it feeds; EA-0006 (source reliability), EA-0004 (evidence)
 **Consumed by:** the six owner engines above (as normalized cloud objects/signals); the cloud posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025
+**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025, ECR-0026
 **Build milestone:** C-025 (see `C-025_Task_Bundle.md`)
 **Definition of Ready:** see §8
 
@@ -135,6 +135,11 @@ NormalizedCloudObject = { object_id: str, object_type: str,             # EA-000
 UnreportedCloudFact = { status: "unreported", evidence_id: str,
                         observed_at: datetime }                         # last reporting snapshot (ECR-0025)
 
+CloudRouteEnvelope = { normalized: NormalizedCloudObject,
+                       resource_id: str, source_id: str,
+                       source_reliability: float, observed_at: datetime,
+                       change_kind: "observed" | "reported_deleted" } # rebuilt from pinned evidence (ECR-0026)
+
 OwnerRouteOutcome = { owner: "inventory" | "assetconfig" | "compliance" |
                              "exposure" | "iag" | "risk",
                       status: "accepted" | "failed",
@@ -170,6 +175,15 @@ class CloudNormalizationStore(Protocol):
     async def query(self, *, tenant_id: str | None, provider: str | None = None,
                     limit: int = 1000) -> list[NormalizedCloudObject]: ...
 
+class CloudOwnerRouter(Protocol):
+    owner: str
+    async def route(self, envelope: CloudRouteEnvelope, *,
+                    tenant_id: str | None) -> Sequence[str]: ...
+
+class CloudBaselineRouter(Protocol):
+    async def apply(self, baseline_ids: Sequence[str], *, tenant_id: str | None,
+                    scope: dict | None = None) -> str: ...
+
 class CloudPostureEngine(Protocol):
     async def normalize(self, descriptors: Sequence[CloudResourceDescriptor], *,
                         tenant_id: str | None) -> list[NormalizedCloudObject]: ...   # D1/D3
@@ -202,7 +216,9 @@ Provider verdict fields that are not selected remain in raw evidence and never e
 normalized state; normalization SHALL NOT flatten the provider block wholesale
 (ECR-0024).
 
-**Route.** Hand each normalized object to its owners (D2): to **EA-0025** as an
+**Route.** Rebuild a `CloudRouteEnvelope` from the normalized object and its pinned
+EA-0004 evidence, then hand the complete envelope — including `unreported_facts` — to
+each owner adapter (ECR-0026). Hand each normalized object to its owners (D2): to **EA-0025** as an
 asset (which reconciles it into the denominator); IAM objects to **EA-0011**;
 facets (public storage, open network) to **EA-0023**; and register it for
 **EA-0012** cloud-baseline assessment. Cloud findings raised by those owners flow
@@ -229,7 +245,7 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 - **FR-3** Every normalized field SHALL carry `field_provenance` back to the raw provider field (D3). `set(native_facts)` SHALL equal `set(field_provenance)`, enforced at construction: a key with no declared raw source is unconstructable (**ECR-0021**). `native_facts` values SHALL be scalars or lists of scalars, so that binding covers **every** key in normalized state; structured provider material belongs in the raw EA-0004 evidence block (**ECR-0023**). `CloudNormalizationConfig.fact_paths` SHALL explicitly select each normalized key and its RFC 6901 JSON Pointer; the normalizer SHALL NOT copy or generically flatten the provider block (**ECR-0024**).
 - **FR-4** Cross-snapshot field conflicts SHALL resolve by EA-0006 reliability then recency and SHALL be **recorded**, not smoothed (D3). A previously-reported fact that is **absent** from a later snapshot SHALL NOT be deleted: it is retained with its last-known value and provenance, marked `unreported` with the last reporting evidence, the object is flagged, and the transition is recorded in `conflicts`. Absence is **unknown**, never a change — and Y3 routing SHALL carry the marker so owners receive it as unknown (**ECR-0025**).
 - **FR-5** An unmapped `resource_type` SHALL become `cloud_unknown`, flagged; it SHALL NOT be dropped (§6).
-- **FR-6** `route` SHALL attempt every configured owner independently and record one `OwnerRouteOutcome` per owner plus an overall `complete` / `partial` / `failed` status; accepted and failed owners SHALL both remain visible. It SHALL NOT itself assess, score, or detect (D2/§0).
+- **FR-6** `route` SHALL rebuild a typed `CloudRouteEnvelope` from the tenant-scoped normalized object and its pinned evidence, then attempt every configured owner independently and record one `OwnerRouteOutcome` per owner plus an overall `complete` / `partial` / `failed` status. The complete normalized object, including `unreported_facts`, SHALL reach every adapter unchanged; accepted and failed owners SHALL both remain visible. It SHALL NOT itself assess, score, or detect (D2/§0/ECR-0026).
 - **FR-7** Cloud config assessment SHALL be performed by **EA-0012** using cloud `Baseline`s; the module SHALL NOT implement drift detection (D4).
 - **FR-8** Cloud compliance SHALL be **EA-0010**, cloud exposure **EA-0023**, cloud identity **EA-0011**, cloud risk **EA-0013**; the module SHALL implement none of them (§0).
 - **FR-9** The module SHALL raise no findings directly and execute nothing; findings arise from the owners it routes to.
@@ -271,7 +287,6 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 | AC-19 | `native_facts` values are flat, so no key escapes provenance binding (ECR-0023) | `test_cspm_native_facts_flat` |
 | AC-20 | Only configured `fact_paths` are normalized; provider verdicts stay in raw evidence (ECR-0024) | `test_cspm_selective_flatten` |
 | AC-21 | A fact absent from a later snapshot is retained as `unreported` + flagged + recorded, never dropped (ECR-0025) | `test_cspm_unreported_fact_retained` |
-| AC-20 | Normalization extracts only configured fact paths; provider verdicts remain raw evidence (ECR-0024) | `test_cspm_selective_flatten` |
 
 ## 9. Error taxonomy (contributions)
 

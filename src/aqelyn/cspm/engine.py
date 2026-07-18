@@ -3,17 +3,24 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
-from aqelyn.conventions import ActorRef, new_id, require_tenant_id, utc_now
-from aqelyn.conventions.errors import CloudConfigInvalid
+from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id, utc_now
+from aqelyn.conventions.errors import CloudConfigInvalid, CloudObjectNotFound, StoreUnavailable
 from aqelyn.cspm.models import (
+    ROUTE_OWNERS,
+    CloudChangeKind,
     CloudNormalizationConfig,
     CloudResourceDescriptor,
+    CloudRouteEnvelope,
+    CloudRoutingResult,
+    CloudRoutingStatus,
     NormalizedCloudObject,
+    OwnerRouteOutcome,
+    RouteOwner,
     UnreportedCloudFact,
 )
 from aqelyn.cspm.normalize import (
@@ -23,6 +30,7 @@ from aqelyn.cspm.normalize import (
     normalized_to_object,
     object_type_for,
 )
+from aqelyn.cspm.route import CloudBaselineRouter, CloudOwnerRouter
 from aqelyn.cspm.store import CloudNormalizationStore
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
@@ -51,6 +59,8 @@ class CloudPostureEngine:
         evidence_store: EvidenceStore,
         source_registry: SourceReliabilityRegistry,
         config: CloudNormalizationConfig,
+        owner_routers: Sequence[CloudOwnerRouter] = (),
+        baseline_router: CloudBaselineRouter | None = None,
         actor: ActorRef | None = None,
     ) -> None:
         self.store = store
@@ -58,6 +68,8 @@ class CloudPostureEngine:
         self.evidence_store = evidence_store
         self.source_registry = source_registry
         self.config = config
+        self.owner_routers = _owner_router_map(owner_routers)
+        self.baseline_router = baseline_router
         self.actor = actor or _ACTOR
         ensure_cloud_object_types(object_store, config)
 
@@ -95,6 +107,130 @@ class CloudPostureEngine:
                 "each fact names its raw JSON Pointer and conflicts retain all candidates."
             ),
         }
+
+    async def route(
+        self,
+        object_ids: Sequence[str],
+        *,
+        tenant_id: str | None,
+    ) -> list[CloudRoutingResult]:
+        selected_tenant = require_tenant_id(tenant_id)
+        selected_ids = [
+            require_typed_id(object_id, "obj", field="object_ids") for object_id in object_ids
+        ]
+        if len(selected_ids) > self.config.batch_size:
+            raise CloudConfigInvalid(
+                f"route batch exceeds configured limit {self.config.batch_size}"
+            )
+        if len(selected_ids) != len(set(selected_ids)):
+            raise CloudConfigInvalid("object_ids must not contain duplicates")
+
+        results: list[CloudRoutingResult] = []
+        for object_id in sorted(selected_ids):
+            normalized = await self.store.get(object_id, tenant_id=selected_tenant)
+            if normalized is None:
+                raise CloudObjectNotFound(object_id)
+            envelope = await self._route_envelope(normalized, tenant_id=selected_tenant)
+            owners: Sequence[RouteOwner] = (
+                ("inventory",)
+                if envelope.change_kind == "reported_deleted"
+                else tuple(cast(RouteOwner, owner) for owner in sorted(ROUTE_OWNERS))
+            )
+            outcomes = [
+                await self._route_to_owner(
+                    owner,
+                    envelope,
+                    tenant_id=selected_tenant,
+                )
+                for owner in owners
+            ]
+            results.append(
+                CloudRoutingResult(
+                    object_id=object_id,
+                    status=_routing_status(outcomes),
+                    outcomes=outcomes,
+                )
+            )
+        return results
+
+    async def apply_cloud_baselines(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: Mapping[str, object] | None = None,
+    ) -> str:
+        selected_tenant = require_tenant_id(tenant_id)
+        if self.baseline_router is None:
+            raise StoreUnavailable("EA-0012 cloud baseline router unavailable")
+        if not self.config.baseline_ids:
+            raise CloudConfigInvalid("no cloud baseline_ids configured")
+        return await self.baseline_router.apply(
+            tuple(self.config.baseline_ids),
+            tenant_id=selected_tenant,
+            scope=None if scope is None else dict(scope),
+        )
+
+    async def _route_to_owner(
+        self,
+        owner: RouteOwner,
+        envelope: CloudRouteEnvelope,
+        *,
+        tenant_id: str | None,
+    ) -> OwnerRouteOutcome:
+        router = self.owner_routers.get(owner)
+        if router is None:
+            return OwnerRouteOutcome(
+                owner=owner,
+                status="failed",
+                detail=f"{owner} owner router unavailable",
+            )
+        try:
+            refs = list(
+                await router.route(
+                    envelope.model_copy(deep=True),
+                    tenant_id=tenant_id,
+                )
+            )
+            if not refs:
+                raise CloudConfigInvalid(f"{owner} owner router returned no references")
+            return OwnerRouteOutcome(owner=owner, status="accepted", refs=refs)
+        except Exception as exc:
+            detail = str(exc).strip() or type(exc).__name__
+            return OwnerRouteOutcome(owner=owner, status="failed", detail=detail)
+
+    async def _route_envelope(
+        self,
+        normalized: NormalizedCloudObject,
+        *,
+        tenant_id: str | None,
+    ) -> CloudRouteEnvelope:
+        verification = await self.evidence_store.verify(normalized.evidence_id)
+        if not verification.ok:
+            detail = verification.detail or "integrity check failed"
+            raise CloudConfigInvalid(f"cloud route evidence failed verification: {detail}")
+        evidence = await self.evidence_store.get(normalized.evidence_id, actor=self.actor)
+        if evidence.tenant_id != tenant_id:
+            raise CloudConfigInvalid("cloud route evidence tenant does not match object tenant")
+        if normalized.object_id not in evidence.subject.object_ids:
+            raise CloudConfigInvalid("cloud route evidence does not name the normalized object")
+        if evidence.evidence_type != "cloud.resource_descriptor":
+            raise CloudConfigInvalid("cloud route evidence has the wrong evidence_type")
+        content = evidence.content
+        if not isinstance(content, Mapping):
+            raise CloudConfigInvalid("cloud route evidence content is unavailable")
+        _validate_route_identity(normalized, content)
+        change_kind = content.get("change_kind")
+        if change_kind not in {"observed", "reported_deleted"}:
+            raise CloudConfigInvalid("cloud route evidence has an invalid change_kind")
+        reliability = (await self.source_registry.get(source_id=evidence.source_id)).weight
+        return CloudRouteEnvelope(
+            normalized=normalized.model_copy(deep=True),
+            resource_id=_route_text(content, "resource_id"),
+            source_id=evidence.source_id,
+            source_reliability=reliability,
+            observed_at=evidence.collected_at,
+            change_kind=cast(CloudChangeKind, change_kind),
+        )
 
     async def _normalize_one(
         self,
@@ -342,6 +478,50 @@ class CloudPostureEngine:
             reliability=reliability,
             path=existing.field_provenance[field],
         )
+
+
+def _owner_router_map(
+    routers: Sequence[CloudOwnerRouter],
+) -> dict[RouteOwner, CloudOwnerRouter]:
+    selected: dict[RouteOwner, CloudOwnerRouter] = {}
+    for router in routers:
+        owner = router.owner
+        if owner not in ROUTE_OWNERS:
+            raise CloudConfigInvalid(f"unknown cloud owner router: {owner!r}")
+        if owner in selected:
+            raise CloudConfigInvalid(f"duplicate cloud owner router: {owner!r}")
+        selected[owner] = router
+    return selected
+
+
+def _routing_status(outcomes: Sequence[OwnerRouteOutcome]) -> CloudRoutingStatus:
+    accepted = sum(outcome.status == "accepted" for outcome in outcomes)
+    if accepted == len(outcomes):
+        return "complete"
+    if accepted == 0:
+        return "failed"
+    return "partial"
+
+
+def _route_text(content: Mapping[str, object], key: str) -> str:
+    value = content.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise CloudConfigInvalid(f"cloud route evidence requires {key}")
+    return value
+
+
+def _validate_route_identity(
+    normalized: NormalizedCloudObject,
+    content: Mapping[str, object],
+) -> None:
+    expected: dict[str, object] = {
+        "provider": normalized.provider,
+        "account": normalized.account,
+        "region": normalized.region,
+    }
+    for key, value in expected.items():
+        if content.get(key) != value:
+            raise CloudConfigInvalid(f"cloud route evidence {key} does not match normalized object")
 
 
 def _source_for_evidence(obj: AQObject | None, evidence_id: str) -> SourceRef | None:

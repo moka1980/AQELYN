@@ -2,7 +2,7 @@
 
 **Milestone:** C-025 (Cloud Security Posture Management, EA-0028)
 **For:** Codex (implementer) · Claude Code (reviewer)
-**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022/0023/0024/0025 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
+**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022/0023/0024/0025/0026 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
 **Definition of Done:** every ticket's acceptance tests pass on in-memory **and** Postgres; `ruff` clean; `mypy --strict` clean; **no cloud collection; no second inventory/baseline/compliance/exposure/identity/risk engine; no verdict field in a CSPM model; no provider-deleted input may decommission an asset**; nothing outside the spec; `make check` green; Claude Code sign-off per ticket.
 
 **Read EA-0028 §0 first.** "Cloud" is **a scope + a normalization layer**, not six
@@ -91,7 +91,9 @@ at the owner boundary reintroduces the defect one layer later.
 ## Y3 — Routing to owners + cloud baselines (delegate everything)
 
 **Spec:** §6, FR-6/7/8/9, D2/D4, NFR-1.
-**Deliverables:** `route` (hand normalized objects to **EA-0025** inventory,
+**Deliverables:** `route` (rebuild an evidence-backed `CloudRouteEnvelope` and hand the
+complete normalized object — including ECR-0025 `unreported_facts` — to every adapter;
+hand normalized objects to **EA-0025** inventory,
 **EA-0011** IAM, **EA-0023** facets, register for **EA-0012** assessment; record
 one `OwnerRouteOutcome` per configured owner and overall
 `complete`/`partial`/`failed`; **no self-analysis**); `apply_cloud_baselines`
