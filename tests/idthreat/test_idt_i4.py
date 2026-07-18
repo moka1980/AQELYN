@@ -471,3 +471,35 @@ def test_idt_no_precrime() -> None:
     assert set(IdentityObservation.model_fields).isdisjoint(
         {"person", "person_id", "prediction", "forecast"}
     )
+
+
+@pytest.mark.asyncio
+async def test_idt_profile_mismatch_withholds_detection() -> None:
+    """A profile source returning a different record withholds the detection (S7).
+
+    The basis pins `profile_ref`, so accepting a mismatched record would cite a
+    profile the detection never used — the accused would be shown the wrong
+    baseline. This must be a withhold in the module's own taxonomy (§12), not an
+    assertion that disappears under `python -O`.
+    """
+    store = InMemoryIdentityDetectionStore(config=_config(), mode="enterprise")
+    engine, detection, observation, profile_spy, _iag, _ev, _fs = await _detected(store)
+
+    class _MismatchedProfileSource:
+        def __init__(self, real: _ProfileSpy) -> None:
+            self.real = real
+
+        async def get(
+            self,
+            profile_id: str,
+            *,
+            version: int | None = None,
+        ) -> BehaviorProfile | None:
+            profile = await self.real.get(profile_id, version=version)
+            if profile is None:
+                return None
+            return profile.model_copy(update={"id": new_id("prf")})
+
+    engine.profile_store = _MismatchedProfileSource(profile_spy)
+
+    assert await engine.detect(observation=observation, tenant_id=detection.tenant_id) is None
