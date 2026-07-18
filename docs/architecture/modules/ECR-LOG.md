@@ -21,6 +21,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0014 | EA-0025 / IS-025 | Accepted | Absence ≠ decommission (asset → `unreported`, never retired from silence); `inventory()` declares freshness + fails rather than shrinks; reconciliation **records** conflicts (EA-0006 precedence). Overrides master §28.2. |
 | ECR-0015 | EA-0026 / IS-026 | Accepted | **IS-026 is IS-012 restated — do not build EA-0026.** EA-0012 already ships baseline/drift/classify/remediation and the `configuration.drift.detected` event. Realize IS-026's intent as a small EA-0012 enhancement (C-023). |
 | ECR-0016 | EA-0027 / IS-027 | Accepted | Identity detection watches **accounts, not people**: no per-person risk score (absent), no insider-threat *prediction*; a **dignity gate** (≥2 corroboration + confidence floor > platform default) is non-negotiable. Overrides master §429 risk-score + §107/261 insider-threat + consumes EA-0017's `behavior.profile.updated`. |
+| ECR-0017 | EA-0027 / IS-027 | Accepted | Corroboration independence is keyed on the **signal** (`ref`, and `evidence_id` when present), not on `(kind, ref)` — one occurrence relabelled twice is **one** corroboration, so the ≥2 floor cannot degrade to 1. Undecidable ties count as one. |
 
 ---
 
@@ -568,3 +569,50 @@ dignity gate; the dignity gate (C-024 **I2**) is built **before** any detection 
 raised, and the review's first check is that no person-scoring type/method exists.
 Proven structurally (unrepresentable sub-threshold detection, unconstructable
 knob-lowering config, absent score surface) per ECR-0007.
+
+---
+
+## ECR-0017 — corroboration independence is keyed on the signal, not on its label
+
+**Raised by:** Claude Code (C-024 I2 review, PR #141).
+**Severity:** blocking for C-024 I3 — it sets the numeric value of the dignity gate's
+corroboration floor, and under EA-0027 S3 a weakened floor is a wrongly-suspected
+colleague.
+
+**Problem.** EA-0027 S3/FR-1 require "corroboration from **≥ 2 independent** signals"
+but never define what makes two `SignalRef`s independent. I2 (`dignity.py`) resolved
+it as the tuple `(kind, ref)`. Constructed behaviourally against the shipped gate:
+
+```
+dignity_gate([SignalRef(kind="auth",    ref="evt:42"),
+              SignalRef(kind="session", ref="evt:42")], 0.9, config)  -> True
+```
+
+One underlying occurrence, reported under two `kind` labels, satisfies a floor whose
+entire purpose is to require **two** things to have happened. The floor is then
+nominally 2 and effectively 1 — and it degrades exactly where the platform is least
+able to notice, because whichever upstream collector labels one event twice does so
+for *every* event of that shape. Nothing in the module is wrong by its own reading;
+the spec is simply silent, and silence resolved toward the *more* sensitive detector
+in the one module the spec says must be deliberately **less** sensitive (S3).
+
+**Resolution.** Independence is a property of the **signal**, not of its label.
+
+1. **The independence key is `ref`** — one occurrence is one corroboration, regardless
+   of how many `kind`s report it. Two `SignalRef`s sharing a `ref` collapse to one.
+2. **`evidence_id` collapses too, when present** — two distinct `ref`s backed by the
+   same `evidence_id` are one signal seen twice, not two. Absent `evidence_id` never
+   merges (fail-closed toward *fewer* corroborations, never more).
+3. **Counting is the gate's job, not the caller's.** `dignity_gate` de-duplicates
+   internally; no caller may pre-count and pass a number. A caller able to assert its
+   own corroboration count is a knob (S3/§11).
+4. **Ties toward refusal.** Where independence is undecidable, the signals count as
+   one. Dropping a true detection costs a missed alert; inflating corroboration costs
+   a person.
+
+**Impact.** Amends EA-0027 §4 (**Corroboration**), §5 (`SignalRef`), FR-1/FR-2 and
+adds **AC-19** (`test_idt_corroboration_independence_key`). No master override — the
+archive is silent here; this tightens an under-specified floor rather than overriding
+a demand. Implemented in C-024 **I3**, where `detect` first calls the gate; I2's
+`(kind, ref)` key is superseded. Proven behaviourally per ECR-0007: construct two
+`SignalRef`s over one `ref`/`evidence_id` and assert the gate refuses.
