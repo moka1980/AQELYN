@@ -17,8 +17,10 @@ from aqelyn.conventions.errors import (
     IdThreatConfigInvalid,
     OptimisticConcurrencyConflict,
 )
+from aqelyn.detection import BehaviorProfile
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord
+from aqelyn.iag import AccessPath, AccessRiskReport
 from aqelyn.idthreat import (
     IdentityDetection,
     IdentityDetectionStore,
@@ -31,6 +33,7 @@ from aqelyn.idthreat import (
     dignity_gate,
     validate_replayable_detection,
 )
+from aqelyn.objects import ObjectQuery
 from aqelyn.trust import TrustAssessment
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -79,6 +82,41 @@ class _TrustSpy:
         )
 
 
+class _ProfileSource:
+    def __init__(self, profile: BehaviorProfile) -> None:
+        self.profile = profile
+
+    async def get(
+        self,
+        profile_id: str,
+        *,
+        version: int | None = None,
+    ) -> BehaviorProfile | None:
+        if profile_id != self.profile.id or version != self.profile.version:
+            return None
+        return self.profile.model_copy(deep=True)
+
+
+class _EntitlementAnalyzer:
+    async def access_paths(
+        self,
+        identity_id: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> list[AccessPath]:
+        _ = (identity_id, tenant_id)
+        return []
+
+    async def analyze_risk(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: ObjectQuery | None = None,
+    ) -> AccessRiskReport:
+        _ = (tenant_id, scope)
+        return AccessRiskReport(risks=[], evaluated=1)
+
+
 def _config() -> IdThreatConfig:
     return IdThreatConfig(
         min_corroboration=2,
@@ -99,7 +137,7 @@ async def _store(kind: str) -> AsyncIterator[IdentityDetectionStore]:
         mode="enterprise",
     )
     async with store._pool.acquire() as conn:
-        await conn.execute("TRUNCATE aq_identity_detection")
+        await conn.execute("TRUNCATE aq_identity_review, aq_identity_detection")
     try:
         yield store
     finally:
@@ -151,6 +189,7 @@ def _observation(
 ) -> IdentityObservation:
     return IdentityObservation(
         subject_ref=subject_ref,
+        identity_id=new_id("obj"),
         detection_type=detection_type,
         signals=[
             _signal("authentication", f"auth:{subject_ref}:oslo", evidence_id=evidence[0].id),
@@ -179,14 +218,17 @@ async def _detect(
     records = [_evidence(tenant_id=tenant_id), _evidence(tenant_id=tenant_id)]
     evidence = _EvidenceLookup(records)
     trust = _TrustSpy(score)
+    observation = _observation(records, subject_ref=subject_ref)
     engine = IdentityThreatEngine(
         store,
         evidence_store=evidence,
         trust_engine=trust,
+        profile_store=_ProfileSource(_profile_for(observation, tenant_id=tenant_id)),
+        entitlement_analyzer=_EntitlementAnalyzer(),
         config=_config(),
     )
     detection = await engine.detect(
-        observation=_observation(records, subject_ref=subject_ref),
+        observation=observation,
         tenant_id=tenant_id,
     )
     assert detection is not None
@@ -197,30 +239,35 @@ async def test_idt_corroboration_required() -> None:
     record = _evidence()
     store = InMemoryIdentityDetectionStore(config=_config(), mode="enterprise")
     trust = _TrustSpy(0.99)
+    observation = _observation([record, record]).model_copy(
+        update={"signals": [_signal("authentication", "auth:only", evidence_id=record.id)]},
+        deep=True,
+    )
     engine = IdentityThreatEngine(
         store,
         evidence_store=_EvidenceLookup([record]),
         trust_engine=trust,
+        profile_store=_ProfileSource(_profile_for(observation)),
+        entitlement_analyzer=_EntitlementAnalyzer(),
         config=_config(),
-    )
-    observation = _observation([record, record]).model_copy(
-        update={"signals": [_signal("authentication", "auth:only", evidence_id=record.id)]},
-        deep=True,
     )
 
     assert await engine.detect(observation=observation, tenant_id=TENANT) is None
     assert await store.query(tenant_id=TENANT) == []
 
     valid_records = [_evidence(), _evidence()]
+    low_observation = _observation(valid_records)
     low_confidence_engine = IdentityThreatEngine(
         store,
         evidence_store=_EvidenceLookup(valid_records),
         trust_engine=_TrustSpy(0.75),
+        profile_store=_ProfileSource(_profile_for(low_observation)),
+        entitlement_analyzer=_EntitlementAnalyzer(),
         config=_config(),
     )
     assert (
         await low_confidence_engine.detect(
-            observation=_observation(valid_records),
+            observation=low_observation,
             tenant_id=TENANT,
         )
         is None
@@ -391,3 +438,20 @@ def _minimal_detection_data(signals: Sequence[SignalRef]) -> dict[str, object]:
         "profile_ref": new_id("prf"),
         "detected_at": NOW.isoformat(),
     }
+
+
+def _profile_for(
+    observation: IdentityObservation,
+    *,
+    tenant_id: str | None = TENANT,
+) -> BehaviorProfile:
+    return BehaviorProfile(
+        id=observation.profile_ref,
+        tenant_id=tenant_id,
+        subject_ref=observation.subject_ref,
+        metric="authentication_count",
+        window_days=30,
+        baseline={"mean": 3.0},
+        computed_at=observation.detected_at - timedelta(minutes=1),
+        version=observation.profile_version,
+    )

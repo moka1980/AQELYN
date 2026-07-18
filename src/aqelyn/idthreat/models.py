@@ -8,7 +8,7 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from aqelyn.conventions import new_id, require_tenant_id, require_typed_id
+from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import (
     IdentityBasisMissing,
     IdentityCorroborationMissing,
@@ -135,6 +135,7 @@ class IdentityObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     subject_ref: str
+    identity_id: str
     detection_type: str
     signals: list[SignalRef]
     profile_ref: str
@@ -147,6 +148,11 @@ class IdentityObservation(BaseModel):
     @classmethod
     def _subject_ref(cls, value: str) -> str:
         return _account_subject_ref(value)
+
+    @field_validator("identity_id")
+    @classmethod
+    def _identity_id(cls, value: str) -> str:
+        return require_typed_id(value, "obj", field="identity_id")
 
     @field_validator("detection_type")
     @classmethod
@@ -254,6 +260,39 @@ class IdentityDetection(BaseModel):
         if value not in VALID_DETECTION_STATUS:
             raise IdThreatConfigInvalid(f"unknown identity detection status: {value!r}")
         return value
+
+
+class IdentityReview(BaseModel):
+    """One evidenced human review appended without mutating the detection."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    detection_id: str
+    tenant_id: str | None = None
+    outcome: str
+    reviewed_by: ActorRef
+    reviewed_at: datetime
+    evidence_id: str
+
+    @field_validator("detection_id")
+    @classmethod
+    def _detection_id(cls, value: str) -> str:
+        return require_typed_id(value, "idt", field="detection_id")
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _review_tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("outcome")
+    @classmethod
+    def _outcome(cls, value: str) -> str:
+        return _nonempty(value, field="review outcome")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _review_evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="evidence_id")
 
 
 class IdThreatConfig(BaseModel):

@@ -49,4 +49,57 @@ DROP TRIGGER IF EXISTS aq_identity_detection_no_update_delete
 CREATE TRIGGER aq_identity_detection_no_update_delete
     BEFORE UPDATE OR DELETE ON aq_identity_detection
     FOR EACH ROW EXECUTE FUNCTION aq_identity_detection_append_only();
+
+CREATE TABLE IF NOT EXISTS aq_identity_review (
+    detection_id text PRIMARY KEY REFERENCES aq_identity_detection(id),
+    tenant_id    text NULL,
+    outcome      text NOT NULL CHECK (length(trim(outcome)) > 0),
+    reviewed_by  jsonb NOT NULL CHECK (jsonb_typeof(reviewed_by) = 'object'),
+    reviewed_at  timestamptz NOT NULL,
+    evidence_id  text NOT NULL UNIQUE
+);
+CREATE INDEX IF NOT EXISTS ix_identity_review_tenant_time
+    ON aq_identity_review (tenant_id, reviewed_at, detection_id);
+
+CREATE OR REPLACE FUNCTION aq_identity_review_validate_tenant()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    detection_tenant text;
+BEGIN
+    SELECT tenant_id INTO detection_tenant
+      FROM aq_identity_detection
+     WHERE id = NEW.detection_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'identity detection not found' USING ERRCODE = '23503';
+    END IF;
+    IF detection_tenant IS DISTINCT FROM NEW.tenant_id THEN
+        RAISE EXCEPTION 'identity review tenant does not match detection'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS aq_identity_review_tenant_guard
+    ON aq_identity_review;
+CREATE TRIGGER aq_identity_review_tenant_guard
+    BEFORE INSERT ON aq_identity_review
+    FOR EACH ROW EXECUTE FUNCTION aq_identity_review_validate_tenant();
+
+CREATE OR REPLACE FUNCTION aq_identity_review_append_only()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'aq_identity_review is append-only' USING ERRCODE = '55000';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS aq_identity_review_no_update_delete
+    ON aq_identity_review;
+CREATE TRIGGER aq_identity_review_no_update_delete
+    BEFORE UPDATE OR DELETE ON aq_identity_review
+    FOR EACH ROW EXECUTE FUNCTION aq_identity_review_append_only();
 """

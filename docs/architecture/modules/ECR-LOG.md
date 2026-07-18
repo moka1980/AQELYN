@@ -23,6 +23,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0016 | EA-0027 / IS-027 | Accepted | Identity detection watches **accounts, not people**: no per-person risk score (absent), no insider-threat *prediction*; a **dignity gate** (≥2 corroboration + confidence floor > platform default) is non-negotiable. Overrides master §429 risk-score + §107/261 insider-threat + consumes EA-0017's `behavior.profile.updated`. |
 | ECR-0017 | EA-0027 / IS-027 | Accepted | Corroboration independence is keyed on the **signal** (`ref`, and `evidence_id` when present), not on `(kind, ref)` — one occurrence relabelled twice is **one** corroboration, so the ≥2 floor cannot degrade to 1. Undecidable ties count as one. |
 | ECR-0018 | EA-0027 / IS-027 | Accepted | Replace the under-specified `detect(subject_ref, signals, tenant_id)` input with a structured `IdentityObservation` carrying detection type and pinned profile/rule versions; the engine renders the account-scoped statement and basis. |
+| ECR-0019 | EA-0027 / IS-027 | Accepted | Make I4's IAG identity input and append-only right-of-reply record explicit: `IdentityObservation.identity_id` delegates to EA-0011; one evidenced `IdentityReview` materializes reviewed status without mutating the detection row. |
 
 ---
 
@@ -649,3 +650,34 @@ hold; the store repeats those checks at the persistence boundary.
 **Impact.** I3 interface and reference computation only. No prior shipped caller
 exists, and no later I4/I5 API is changed. This makes the spec's existing S2/S3/S7,
 FR-2/6/10, and AC-6/7/11 implementable without an implicit "latest" choice.
+
+---
+
+## ECR-0019 — explicit IAG identity input and append-only right of reply
+
+**Raised by:** Codex (C-024 I4 implementation).
+**Severity:** blocking ambiguity — I4 requires two states its Accepted types and store
+contract cannot represent.
+
+**Problem.** (1) I4 must call EA-0011 `access_paths`/`analyze_risk`, whose subject is a
+typed `obj_` identity id, but `IdentityObservation` carries only an account-scoped
+display reference such as `acct:alice`. Inferring an object id would fabricate a
+cross-engine reference. (2) `review` must durably record a human outcome and return a
+reviewed detection, while I3 correctly made `aq_identity_detection` append-only and
+the Accepted store protocol has no review record. Updating the detection row would
+break D6; returning an unpersisted status would make right of reply cosmetic.
+
+**Resolution.** Add a required, typed `identity_id` to the handed-in
+`IdentityObservation`; it is used only to delegate to EA-0011 and is cited in the
+detection basis, while `subject_ref` remains the account/credential/session and the
+person is never the finding. Add one append-only `IdentityReview` per detection:
+`{detection_id, tenant_id, outcome, reviewed_by, reviewed_at, evidence_id}`. The
+review evidence is written through EA-0004 first, then the review row is appended;
+`get`/`query` materialize `status="reviewed"` from that row without updating the
+original detection. Re-review is refused as an optimistic conflict. I4 findings use
+a fixed `medium` / `50.0` triage severity (not a new scorer), cite existing signal
+evidence, and remain non-actionable (`eligibility="none"`).
+
+**Impact.** Additive I4 contract and DDL only. It preserves I3's append-only gate,
+makes EA-0011 delegation possible without inference, and makes S7/FR-11/AC-12/14
+durable and testable. No Workflow execution or new scoring authority is introduced.

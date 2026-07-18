@@ -93,7 +93,9 @@ entitlement context **cites EA-0011** (`access_paths`/`analyze_risk`) — no ent
 verdict computed here; **`behavior.profile.updated` is consumed from EA-0017, never
 emitted**; `raise_detection` raises a **non-actionable** EA-0013 `Finding` (no new
 `SignalRef` kind); `review` records the human outcome **before** any EA-0008 consequence
-(right of reply); no individual-behaviour forecast (`no predict`/`no project`).
+(right of reply). Per ECR-0019, the handed-in observation carries the typed EA-0011
+`identity_id`, and review appends an evidenced `IdentityReview`; the original detection
+row remains immutable. No individual-behaviour forecast (`no predict`/`no project`).
 **Depends on:** I3.
 **Acceptance:** `test_idt_profile_delegates_detection`, `test_idt_entitlements_cite_iag`,
 `test_idt_profile_event_not_emitted`, `test_idt_finding_and_review`,
