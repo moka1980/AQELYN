@@ -53,13 +53,17 @@ def _normalized_payload() -> dict[str, Any]:
         "provider": "aws",
         "account": "123456789012",
         "region": "eu-north-1",
+        # Flat by ECR-0023: the provider's nested `network` block is flattened into
+        # declared scalar facts, each citing the raw path it came from.
         "native_facts": {
             "encryption_enabled": True,
-            "network": {"public": False, "ports": [443]},
+            "network_public": False,
+            "network_ports": [443],
         },
         "field_provenance": {
             "encryption_enabled": "$.properties.encryption.enabled",
-            "network": "$.properties.network",
+            "network_public": "$.properties.network.public",
+            "network_ports": "$.properties.network.ports",
         },
         "conflicts": [],
         "evidence_id": new_id("evd"),
@@ -131,8 +135,9 @@ def test_cspm_verdict_fields_rejected() -> None:
     for container in ("native_facts", "field_provenance", "conflicts"):
         payload = _normalized_payload()
         if container == "native_facts":
-            payload[container] = {"network": {"SeVeRiTy": "high"}}
-            payload["field_provenance"] = {"network": "$.network"}
+            # native_facts is flat (ECR-0023), so the backstop is tested on the key itself.
+            payload[container] = {"SeVeRiTy": "high"}
+            payload["field_provenance"] = {"SeVeRiTy": "$.severity"}
         elif container == "field_provenance":
             payload["native_facts"] = {"Compliance_Status": "NON_COMPLIANT"}
             payload[container] = {"Compliance_Status": "$.complianceState"}
@@ -223,3 +228,31 @@ def test_cspm_routing_result_consistency() -> None:
             status="complete",
             outcomes=[accepted, accepted.model_copy()],
         )
+
+
+def test_cspm_native_facts_flat() -> None:
+    """Flat values keep provenance binding total (ECR-0023).
+
+    Top-level binding only covers top-level keys, so a nested mapping would carry
+    keys no `field_provenance` entry declares — and an invented verdict name one
+    level down would meet nothing but the reserved-name backstop.
+    """
+    scalars = _normalized_payload()
+    scalars["native_facts"] = {"public": True, "open_ports": [22, 3389], "region_pin": None}
+    scalars["field_provenance"] = {
+        "public": "$.acl.public",
+        "open_ports": "$.ipPermissions[*].fromPort",
+        "region_pin": "$.location",
+    }
+    normalized = NormalizedCloudObject.model_validate(scalars)
+    assert normalized.native_facts["open_ports"] == [22, 3389]
+
+    for facts in (
+        {"tags": {"posture_grade": "F"}},
+        {"tags": [{"verdict": "FAIL"}]},
+    ):
+        nested = _normalized_payload()
+        nested["native_facts"] = facts
+        nested["field_provenance"] = {"tags": "$.tags"}
+        with pytest.raises(CloudConfigInvalid, match="belongs in raw evidence"):
+            NormalizedCloudObject.model_validate(nested)

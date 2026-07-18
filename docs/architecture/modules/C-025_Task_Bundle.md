@@ -56,6 +56,9 @@ provider verdicts stay only in raw EA-0004 evidence (FR-13/ECR-0020).
 **The primary guarantee is provenance binding, not the name list (ECR-0021):**
 `set(native_facts) == set(field_provenance)` is enforced at construction, so a key
 with no declared raw source is unconstructable. The reserved-name check is a backstop.
+**`native_facts` values are flat — scalars or lists of scalars (ECR-0023)** — so the
+binding covers every key; a nested mapping would smuggle undeclared keys past it.
+Structured provider material stays in the raw EA-0004 evidence block.
 Per ECR-0022, `NormalizedCloudObject` carries a validated `tenant_id`; Y2 store
 reads require an explicit tenant scope.
 **Depends on:** EA-0002/0012 types, conventions.
@@ -130,9 +133,11 @@ Per ticket, confirm the normal DoD **and**, with extra scrutiny:
 6. **CSPM registers exactly two events** (`resource_normalized`,
    `resource_unclassified`). If `misconfiguration_detected` appears, it is wrong
    (ECR-0021): that fact is EA-0012's, and CSPM owns no verdict to detect.
-   Also check `native_facts` keys are provenance-bound — an extractor that copies the
-   provider block wholesale will both break that rule and refuse real AWS Config /
-   Azure Policy payloads, which carry `complianceType` / `complianceState` / `Severity`.
+   Also check `native_facts` keys are provenance-bound and values are flat (ECR-0023).
+   An extractor that copies the provider block wholesale breaks both rules and refuses
+   real AWS Config / Azure Policy payloads, which carry `complianceType` /
+   `complianceState` / `Severity`. Y2 must **flatten** (e.g. `open_ports: [22, 3389]`),
+   not copy — that flattening is the translation this engine exists to perform.
 7. **Provider-deleted ≠ decommissioned.** A lifecycle spy proves the input maps to
    EA-0025 `mark_unreported` and never calls a delete/decommission path. No
    `cloud.resource.deleted` event is registered as a CSPM-owned fact.

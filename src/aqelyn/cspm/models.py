@@ -63,6 +63,29 @@ def _known_strings(info: ValidationInfo, key: str) -> frozenset[str] | None:
     return frozenset(known)
 
 
+def _flat_fact_value(value: object, *, key: str) -> None:
+    """Normalized facts are flat, so top-level provenance binding covers every key.
+
+    A nested mapping would carry keys no `field_provenance` entry declares, which is
+    where an invented verdict could hide (ECR-0023). Structured provider material
+    belongs in the raw EA-0004 evidence block, not in normalized state.
+    """
+    if isinstance(value, str | int | float | bool) or value is None:
+        return
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        for index, item in enumerate(value):
+            if not (isinstance(item, str | int | float | bool) or item is None):
+                raise CloudConfigInvalid(
+                    f"native_facts[{key!r}][{index}] must be a scalar; "
+                    "structured provider material belongs in raw evidence"
+                )
+        return
+    raise CloudConfigInvalid(
+        f"native_facts[{key!r}] must be a scalar or a list of scalars; "
+        "structured provider material belongs in raw evidence"
+    )
+
+
 def _reject_reserved_keys(value: object, *, path: str) -> None:
     if isinstance(value, Mapping):
         for key, nested in value.items():
@@ -175,6 +198,8 @@ class NormalizedCloudObject(BaseModel):
                 "native_facts and field_provenance keys must match exactly; "
                 f"missing provenance={missing}, orphaned provenance={orphaned}"
             )
+        for key, value in self.native_facts.items():
+            _flat_fact_value(value, key=key)
         _reject_reserved_keys(self.field_provenance, path="field_provenance")
         _reject_reserved_keys(self.native_facts, path="native_facts")
         _reject_reserved_keys(self.conflicts, path="conflicts")
