@@ -25,6 +25,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0018 | EA-0027 / IS-027 | Accepted | Replace the under-specified `detect(subject_ref, signals, tenant_id)` input with a structured `IdentityObservation` carrying detection type and pinned profile/rule versions; the engine renders the account-scoped statement and basis. |
 | ECR-0019 | EA-0027 / IS-027 | Accepted | Make I4's IAG identity input and append-only right-of-reply record explicit: `IdentityObservation.identity_id` delegates to EA-0011; one evidenced `IdentityReview` materializes reviewed status without mutating the detection row. |
 | ECR-0020 | EA-0028 / IS-028 | Accepted | Realize CSPM as a verdict-free normalization + routing layer over existing owners, with explicit partial-route outcomes and provider deletion mapped to EA-0025 `unreported`, never decommissioned by silence. |
+| ECR-0021 | EA-0028 / IS-028 | Accepted | Close the two soft spots in EA-0028's verdict boundary: `native_facts` keys MUST equal `field_provenance` keys (nothing enters normalized state without a declared raw source), and CSPM does **not** emit `aqelyn.cloud.misconfiguration_detected` — an EA-0012 cloud-baseline failure is EA-0012's event, filtered by cloud object_type. |
 
 ---
 
@@ -728,3 +729,64 @@ D2/D5, FR-6/13/14, NFR-1, and AC-14/15/16. Proof is structural and behavioural p
 ECR-0007: forbidden verdict fields fail construction, delegation spies show the
 six owners perform analysis, route failure remains visible, and a lifecycle spy
 proves provider deletion calls only EA-0025's unreported path.
+
+---
+
+## ECR-0021 — provenance-bound normalized state, and no second name for an EA-0012 fact
+
+**Raised by:** Claude Code (EA-0028 spec review, PR #151).
+**Severity:** blocking for C-025 — both items set what the implementer builds first,
+and the second one decides whether an event exists at all.
+
+**Problem.** EA-0028 lands the verdict boundary correctly at the model level and then
+softens in two places.
+
+1. **The recursive key check is a denylist described as a guarantee.** FR-13 rejects
+   six reserved names (`severity`, `score`, `risk_score`, `compliance_status`,
+   `finding`, `action`) at any depth, and AC-14 calls the result "verdict fields/keys
+   are **unrepresentable** at any normalized depth". For the model's own fields that is
+   true and structural (`extra="forbid"` + no such field). For `native_facts` it is not:
+   `verdict`, `posture_grade`, `risk_level`, `is_compliant`, `criticality`, `rating`
+   and `passed` all pass today, as does `Severity` if matching is case-sensitive. The
+   accurate claim is "six known names are rejected", and a future reviewer who trusts
+   AC-14's wording will not re-check. A denylist is also the wrong shape here: it must
+   anticipate every word a provider or a future contributor might choose.
+2. **`aqelyn.cloud.misconfiguration_detected` is a second name for an EA-0012 fact.**
+   §10 emits it "when a routed EA-0012 assessment on a cloud object fails a cloud
+   baseline". EA-0012 already ships `aqelyn.config.drift_detected` and
+   `aqelyn.config.assessment_completed` for that fact. Two events for one occurrence
+   invites double-counting, and the name asserts a *detection* from the layer that
+   owns no verdicts — rebuilding the silo at the event layer, where the archive's
+   restatement pressure was strongest. It is also the event whose apparent net-newness
+   was taken as evidence that IS-028 is not a restatement; under the same
+   strip-the-prefix reading applied to the rest of the archive's events,
+   `cloud.misconfiguration.detected` is `config.drift_detected` scoped to cloud
+   objects.
+
+**Resolution.**
+
+1. **Normalized state is provenance-bound.** `set(native_facts) == set(field_provenance)`
+   is enforced at construction: every key in normalized state declares the raw provider
+   path it came from, and a key without a declared source is unconstructable. This makes
+   the boundary an allowlist shaped by D3's own machinery rather than a list of
+   forbidden words — an *invented* verdict (`posture_grade`) has no raw source and cannot
+   exist, and a *copied* provider verdict is traceable to the field it came from and
+   reviewable. The reserved-name check remains as a backstop and becomes
+   case-insensitive. AC-14 is reworded to claim only what holds.
+2. **CSPM emits no misconfiguration event.** `aqelyn.cloud.misconfiguration_detected` is
+   withdrawn. A cloud baseline failure is EA-0012's `aqelyn.config.drift_detected` on an
+   object whose `provider` is set; "cloud misconfiguration" is a **query over an existing
+   event**, not a new fact — which is the module's own thesis (cloud is a scope filter)
+   applied to its event surface. `aqelyn.cloud.resource_normalized` and
+   `aqelyn.cloud.resource_unclassified` remain: both are facts this engine genuinely
+   originates.
+
+**Impact.** Amends EA-0028 §4/§10, FR-3/FR-13, AC-14, adds **AC-17**
+(`test_cspm_native_facts_provenance_bound`), and removes one registered event. C-025
+ticket notes updated. No shipped code changes — C-025 has not started.
+
+**Implementation note (not a requirement).** Real provider payloads carry verdict-ish
+keys: AWS Config returns `complianceType`, Azure Policy `complianceState`, Security Hub
+`Severity`. A normalizer that copies the provider block wholesale will refuse genuine
+input. Extraction must be selective — which the provenance-equality rule enforces by
+construction, since each extracted key must name its source path.
