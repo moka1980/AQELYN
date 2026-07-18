@@ -602,8 +602,13 @@ in the one module the spec says must be deliberately **less** sensitive (S3).
 1. **The independence key is `ref`** — one occurrence is one corroboration, regardless
    of how many `kind`s report it. Two `SignalRef`s sharing a `ref` collapse to one.
 2. **`evidence_id` collapses too, when present** — two distinct `ref`s backed by the
-   same `evidence_id` are one signal seen twice, not two. Absent `evidence_id` never
-   merges (fail-closed toward *fewer* corroborations, never more).
+   same `evidence_id` are one signal seen twice, not two. A **null** `evidence_id` is
+   not a match: two signals that both lack evidence are **not** merged on that basis,
+   because "unknown" is not "same". `ref` remains the primary key, so such signals
+   still count separately when their `ref`s differ. Merging is only ever a *reduction*
+   applied on positive evidence of sameness — never inferred from absent data.
+   Collapsing is transitive: signals joined through any chain of shared `ref` or
+   shared `evidence_id` count as one.
 3. **Counting is the gate's job, not the caller's.** `dignity_gate` de-duplicates
    internally; no caller may pre-count and pass a number. A caller able to assert its
    own corroboration count is a knob (S3/§11).
