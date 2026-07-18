@@ -1,4 +1,4 @@
-"""Typed CSPM owner-routing boundaries and concrete inventory adapter (Y3)."""
+"""Typed CSPM owner-routing boundaries and concrete owner adapters (Y3-Y4)."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from aqelyn.conventions import parse_id
 from aqelyn.conventions.errors import CloudConfigInvalid
 from aqelyn.cspm.models import CloudRouteEnvelope, RouteOwner
 from aqelyn.inventory.models import AssetRecord, DiscoverySource
+from aqelyn.objects import ObjectStore
 
 
 class CloudOwnerRouter(Protocol):
@@ -88,6 +89,52 @@ class InventoryCloudOwnerRouter:
         if not assets:
             raise CloudConfigInvalid("inventory route returned no asset reference")
         return [asset.id for asset in assets]
+
+
+class SharedObjectCloudOwnerRouter:
+    """Expose the complete EA-0002 object to an existing analytical owner.
+
+    These owners already read the shared object substrate. The adapter verifies that
+    the routed state reached that substrate unchanged and returns its stable reference;
+    it deliberately does not invoke an assessment from inside CSPM.
+    """
+
+    def __init__(self, owner: RouteOwner, object_store: ObjectStore) -> None:
+        if owner == "inventory":
+            raise CloudConfigInvalid("inventory requires InventoryCloudOwnerRouter")
+        self.owner: RouteOwner = owner
+        self.object_store = object_store
+
+    async def route(
+        self,
+        envelope: CloudRouteEnvelope,
+        *,
+        tenant_id: str | None,
+    ) -> Sequence[str]:
+        obj = await self.object_store.get(
+            envelope.normalized.object_id,
+            resolve_merged=False,
+        )
+        if obj is None:
+            raise CloudConfigInvalid(f"{self.owner} route object is unavailable")
+        if obj.tenant_id != tenant_id:
+            raise CloudConfigInvalid(f"{self.owner} route object tenant does not match")
+
+        normalized = envelope.normalized
+        expected = {
+            "native_facts": normalized.native_facts,
+            "field_provenance": normalized.field_provenance,
+            "unreported_facts": {
+                field: state.model_dump(mode="json")
+                for field, state in sorted(normalized.unreported_facts.items())
+            },
+            "conflicts": normalized.conflicts,
+            "flagged": normalized.flagged,
+        }
+        for field, value in expected.items():
+            if obj.attributes.get(field) != value:
+                raise CloudConfigInvalid(f"{self.owner} route object does not preserve {field}")
+        return [obj.id]
 
 
 def cloud_asset_id(object_id: str) -> str:

@@ -61,6 +61,11 @@ if TYPE_CHECKING:
     from aqelyn.assetconfig.drift import AssetConfigAnalyzer
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.assetconfig.store import BaselineStore, DriftSnapshotStore
+    from aqelyn.cspm import (
+        CloudNormalizationStore,
+        CloudPostureEngine,
+        CloudPostureService,
+    )
     from aqelyn.decision.recommend import DecisionIntelligenceEngine
     from aqelyn.decision.service import DecisionIntelligenceService
     from aqelyn.decision.store import ModelVersionStore, RecommendationStore
@@ -194,6 +199,9 @@ class Runtime:
     vuln_store: VulnerabilityStore
     vuln_engine: VulnerabilityIntelligenceEngine
     vuln_engine_service: VulnerabilityIntelligenceService
+    cloud_normalization_store: CloudNormalizationStore
+    cloud_posture_engine: CloudPostureEngine
+    cloud_posture_service: CloudPostureService
 
 
 class _RuntimeService:
@@ -341,6 +349,8 @@ def _register_runtime_services(
     exposure_engine: KnownDataExposureEngine,
     vuln_store: VulnerabilityStore,
     vuln_engine: VulnerabilityIntelligenceEngine,
+    cloud_normalization_store: CloudNormalizationStore,
+    cloud_posture_engine: CloudPostureEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -368,6 +378,7 @@ def _register_runtime_services(
     close_inventory_store: Callable[[], Awaitable[None]] | None = None,
     close_exposure_store: Callable[[], Awaitable[None]] | None = None,
     close_vuln_store: Callable[[], Awaitable[None]] | None = None,
+    close_cloud_normalization_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -391,8 +402,10 @@ def _register_runtime_services(
     InventoryIntelligenceService,
     ExposureManagementService,
     VulnerabilityIntelligenceService,
+    CloudPostureService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
+    from aqelyn.cspm.service import CloudPostureService
     from aqelyn.decision.service import DecisionIntelligenceService
     from aqelyn.detection.service import ThreatDetectionService
     from aqelyn.executive.service import ExecutiveIntelligenceService
@@ -583,6 +596,21 @@ def _register_runtime_services(
         close_store=close_vuln_store,
     )
     kernel.register(vuln_service)
+    cloud_service = CloudPostureService(
+        cloud_posture_engine,
+        store=cloud_normalization_store,
+        owner_services={
+            "inventory_engine": inventory_service,
+            "acg_engine": acg_service,
+            "compliance_engine": compliance_service,
+            "exposure_engine": exposure_service,
+            "iag_engine": iag_service,
+            "risk_engine": risk_service,
+            "trust_engine": trust_service,
+        },
+        close_store=close_cloud_normalization_store,
+    )
+    kernel.register(cloud_service)
     return (
         graph_service,
         trust_service,
@@ -606,6 +634,7 @@ def _register_runtime_services(
         inventory_service,
         exposure_service,
         vuln_service,
+        cloud_service,
     )
 
 
@@ -614,6 +643,16 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.assetconfig.drift import AssetConfigAnalyzer
     from aqelyn.assetconfig.memory import InMemoryBaselineStore, InMemoryDriftSnapshotStore
     from aqelyn.assetconfig.service import register_acg_events
+    from aqelyn.cspm import (
+        AssetConfigCloudBaselineRouter,
+        CloudNormalizationConfig,
+        CloudOwnerRouter,
+        CloudPostureEngine,
+        InMemoryCloudNormalizationStore,
+        InventoryCloudOwnerRouter,
+        SharedObjectCloudOwnerRouter,
+        register_cloud_events,
+    )
     from aqelyn.decision import (
         DecisionIntelligenceEngine,
         EmptyDecisionClaimSource,
@@ -716,6 +755,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_inventory_events(registry)
     register_exposure_events(registry)
     register_vuln_events(registry)
+    register_cloud_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -926,6 +966,24 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
+    cloud_normalization_store = InMemoryCloudNormalizationStore(mode=cfg.tenant_mode)
+    cloud_owner_routers: list[CloudOwnerRouter] = [
+        InventoryCloudOwnerRouter(inventory_engine),
+        SharedObjectCloudOwnerRouter("assetconfig", object_store),
+        SharedObjectCloudOwnerRouter("compliance", object_store),
+        SharedObjectCloudOwnerRouter("exposure", object_store),
+        SharedObjectCloudOwnerRouter("iag", object_store),
+        SharedObjectCloudOwnerRouter("risk", object_store),
+    ]
+    cloud_posture_engine = CloudPostureEngine(
+        cloud_normalization_store,
+        object_store=object_store,
+        evidence_store=evidence_store,
+        source_registry=trust_engine.registry,
+        config=CloudNormalizationConfig(),
+        owner_routers=cloud_owner_routers,
+        baseline_router=AssetConfigCloudBaselineRouter(acg_engine, acg_baseline_store),
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -950,6 +1008,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         inventory_engine_service,
         exposure_engine_service,
         vuln_engine_service,
+        cloud_posture_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1005,6 +1064,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_engine=exposure_engine,
         vuln_store=vuln_store,
         vuln_engine=vuln_engine,
+        cloud_normalization_store=cloud_normalization_store,
+        cloud_posture_engine=cloud_posture_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -1085,6 +1146,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         vuln_store=vuln_store,
         vuln_engine=vuln_engine,
         vuln_engine_service=vuln_engine_service,
+        cloud_normalization_store=cloud_normalization_store,
+        cloud_posture_engine=cloud_posture_engine,
+        cloud_posture_service=cloud_posture_service,
     )
 
 
@@ -1093,6 +1157,16 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.assetconfig.drift import AssetConfigAnalyzer
     from aqelyn.assetconfig.postgres import PostgresBaselineStore, PostgresDriftSnapshotStore
     from aqelyn.assetconfig.service import register_acg_events
+    from aqelyn.cspm import (
+        AssetConfigCloudBaselineRouter,
+        CloudNormalizationConfig,
+        CloudOwnerRouter,
+        CloudPostureEngine,
+        InventoryCloudOwnerRouter,
+        PostgresCloudNormalizationStore,
+        SharedObjectCloudOwnerRouter,
+        register_cloud_events,
+    )
     from aqelyn.decision import (
         DecisionIntelligenceEngine,
         EmptyDecisionClaimSource,
@@ -1202,6 +1276,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_inventory_events(registry)
     register_exposure_events(registry)
     register_vuln_events(registry)
+    register_cloud_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -1460,6 +1535,27 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
+    cloud_normalization_store = await PostgresCloudNormalizationStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    cloud_owner_routers: list[CloudOwnerRouter] = [
+        InventoryCloudOwnerRouter(inventory_engine),
+        SharedObjectCloudOwnerRouter("assetconfig", object_store),
+        SharedObjectCloudOwnerRouter("compliance", object_store),
+        SharedObjectCloudOwnerRouter("exposure", object_store),
+        SharedObjectCloudOwnerRouter("iag", object_store),
+        SharedObjectCloudOwnerRouter("risk", object_store),
+    ]
+    cloud_posture_engine = CloudPostureEngine(
+        cloud_normalization_store,
+        object_store=object_store,
+        evidence_store=evidence_store,
+        source_registry=trust_engine.registry,
+        config=CloudNormalizationConfig(),
+        owner_routers=cloud_owner_routers,
+        baseline_router=AssetConfigCloudBaselineRouter(acg_engine, acg_baseline_store),
+    )
     kernel = AQKernel(cfg, event_bus=bus)
     (
         knowledge_graph_service,
@@ -1484,6 +1580,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         inventory_engine_service,
         exposure_engine_service,
         vuln_engine_service,
+        cloud_posture_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1539,6 +1636,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_engine=exposure_engine,
         vuln_store=vuln_store,
         vuln_engine=vuln_engine,
+        cloud_normalization_store=cloud_normalization_store,
+        cloud_posture_engine=cloud_posture_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -1566,6 +1665,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_inventory_store=inventory_store.close,
         close_exposure_store=exposure_store.close,
         close_vuln_store=vuln_store.close,
+        close_cloud_normalization_store=cloud_normalization_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -1646,4 +1746,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         vuln_store=vuln_store,
         vuln_engine=vuln_engine,
         vuln_engine_service=vuln_engine_service,
+        cloud_normalization_store=cloud_normalization_store,
+        cloud_posture_engine=cloud_posture_engine,
+        cloud_posture_service=cloud_posture_service,
     )
