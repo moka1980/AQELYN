@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Final, Literal
@@ -63,6 +64,21 @@ def _known_strings(info: ValidationInfo, key: str) -> frozenset[str] | None:
     return frozenset(known)
 
 
+def _json_pointer(value: str, *, field: str) -> str:
+    _nonempty(value, field=field)
+    if not value.startswith("/"):
+        raise CloudConfigInvalid(f"{field} must be an absolute RFC 6901 JSON Pointer")
+    index = 0
+    while index < len(value):
+        if value[index] != "~":
+            index += 1
+            continue
+        if index + 1 >= len(value) or value[index + 1] not in {"0", "1"}:
+            raise CloudConfigInvalid(f"{field} contains an invalid JSON Pointer escape")
+        index += 2
+    return value
+
+
 def _flat_fact_value(value: object, *, key: str) -> None:
     """Normalized facts are flat, so top-level provenance binding covers every key.
 
@@ -70,10 +86,14 @@ def _flat_fact_value(value: object, *, key: str) -> None:
     where an invented verdict could hide (ECR-0023). Structured provider material
     belongs in the raw EA-0004 evidence block, not in normalized state.
     """
+    if isinstance(value, float) and not math.isfinite(value):
+        raise CloudConfigInvalid(f"native_facts[{key!r}] must be finite")
     if isinstance(value, str | int | float | bool) or value is None:
         return
     if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
         for index, item in enumerate(value):
+            if isinstance(item, float) and not math.isfinite(item):
+                raise CloudConfigInvalid(f"native_facts[{key!r}][{index}] must be finite")
             if not (isinstance(item, str | int | float | bool) or item is None):
                 raise CloudConfigInvalid(
                     f"native_facts[{key!r}][{index}] must be a scalar; "
@@ -276,6 +296,7 @@ class CloudNormalizationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type_map: dict[str, str] = Field(default_factory=dict)
+    fact_paths: dict[str, dict[str, str]] = Field(default_factory=dict)
     baseline_ids: list[str] = Field(default_factory=list)
     batch_size: int = 100
 
@@ -286,6 +307,27 @@ class CloudNormalizationConfig(BaseModel):
             _nonempty(resource_type, field="type_map resource type")
             _nonempty(object_type, field=f"type_map[{resource_type!r}]")
         return dict(values)
+
+    @field_validator("fact_paths")
+    @classmethod
+    def _fact_paths(cls, values: dict[str, dict[str, str]]) -> dict[str, dict[str, str]]:
+        selected: dict[str, dict[str, str]] = {}
+        for mapping_key, paths in values.items():
+            _nonempty(mapping_key, field="fact_paths mapping key")
+            normalized: dict[str, str] = {}
+            for fact_key, pointer in paths.items():
+                _nonempty(fact_key, field=f"fact_paths[{mapping_key!r}] fact key")
+                _reject_reserved_keys({fact_key: None}, path=f"fact_paths.{mapping_key}")
+                normalized[fact_key] = _json_pointer(
+                    pointer,
+                    field=f"fact_paths[{mapping_key!r}][{fact_key!r}]",
+                )
+            if len(normalized.values()) != len(set(normalized.values())):
+                raise CloudConfigInvalid(
+                    f"fact_paths[{mapping_key!r}] must not map one raw path more than once"
+                )
+            selected[mapping_key] = normalized
+        return selected
 
     @field_validator("baseline_ids")
     @classmethod
@@ -299,6 +341,12 @@ class CloudNormalizationConfig(BaseModel):
 
     @model_validator(mode="after")
     def _known_references(self, info: ValidationInfo) -> CloudNormalizationConfig:
+        orphaned_fact_maps = sorted(set(self.fact_paths) - set(self.type_map))
+        if orphaned_fact_maps:
+            raise CloudConfigInvalid(
+                f"fact_paths require matching type_map entries: {orphaned_fact_maps}"
+            )
+
         known_object_types = _known_strings(info, "known_object_types")
         if known_object_types is not None:
             for resource_type, object_type in self.type_map.items():
