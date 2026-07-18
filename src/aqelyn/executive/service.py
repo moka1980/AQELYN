@@ -197,6 +197,19 @@ class ExecutiveIntelligenceService:
                 detail="service not started",
                 dependencies=dependencies,
             )
+        if dependencies.get("exception_source") == "inert":
+            # S5 makes exceptions unsuppressible, so the refusing default blocks every
+            # assemble_report/issue_report. KPIs still compute, so the service stays
+            # ready — but "healthy" would overstate a runtime that cannot report.
+            return HealthStatus(
+                status="degraded",
+                ready=True,
+                detail=(
+                    "material exceptions are not wired to owner sources: KPIs compute, "
+                    "report assembly and issuance refuse (ECR-0013)"
+                ),
+                dependencies=dependencies,
+            )
         return HealthStatus(status="healthy", ready=True, dependencies=dependencies)
 
     async def compute_kpi(self, *, key: str, period: str, tenant_id: str | None) -> KPIRecord:
