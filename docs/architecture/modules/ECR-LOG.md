@@ -29,6 +29,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0022 | EA-0028 / IS-028 | Accepted | Make the normalized cloud record tenant-owned and every store read explicitly tenant-scoped; the Accepted draft otherwise could not satisfy CONVENTIONS §5 or AC-10 on Postgres. |
 | ECR-0023 | EA-0028 / IS-028 | Accepted | ECR-0021's provenance binding is top-level only, so an invented verdict one level down (`native_facts["tags"]["posture_grade"]`) still passes. `native_facts` values are constrained to scalars or lists of scalars: structured provider material belongs in raw EA-0004 evidence, and every normalized key is then provenance-bound. |
 | ECR-0024 | EA-0028 / IS-028 | Accepted | Make selective flattening explicit: config maps each normalized fact key to an RFC 6901 JSON Pointer in the handed-in raw provider record; generic provider-block flattening is forbidden. |
+| ECR-0025 | EA-0028 / IS-028 | Accepted | A configured fact path missing from a later snapshot silently deletes a previously-known fact. Absence is **unknown**, not a change: the fact is retained with its last-known value, marked `unreported`, and the object is flagged — never dropped without trace (the ECR-0014 rule at field level). |
 
 ---
 
@@ -900,3 +901,67 @@ invalid config.
 (`test_cspm_selective_flatten`), and updates C-025 Y2. It introduces no provider logic,
 verdict, or collection capability. Raw payloads remain intact in EA-0004 evidence; the
 configuration merely declares which observations are normalized for existing owners.
+
+---
+
+## ECR-0025 — a fact that stops being reported is unknown, not deleted
+
+**Raised by:** Claude Code (C-025 Y2 review, PR #155).
+**Severity:** blocking for C-025 Y3 — routing hands these facts to EA-0023/0012/0010, and
+a silently deleted fact reaches them as an absence of finding.
+
+**Problem.** ECR-0024 states that a missing configured path is "omitted rather than
+fabricated", which is right for a *first* observation. Y2 applies the same rule to a
+*subsequent* one: `_resolve_conflicts` reconciles only the keys present in both the
+stored and incoming fact sets, and returns the incoming set. A fact that was known and is
+absent from the next snapshot is therefore deleted with no conflict record, no flag, and
+no trace. Constructed against the shipped Y2 engine:
+
+```
+snapshot 1 facts : {'encryption_enabled': True, 'network_public': False, 'open_ports': [22, 443]}
+snapshot 2 facts : {'network_public': False, 'open_ports': [22, 443]}
+silently dropped : ['encryption_enabled']   conflicts recorded: 0   flagged: False
+```
+
+This is **ECR-0014's rule at field level**, and it fails the same way: absence read as
+fact. A provider API that omits a key during an incident, a narrowed IAM permission, or a
+transient partial response all present as "this resource no longer has that property."
+The consequence lands downstream — if `network_public: true` stops being reported,
+EA-0023 stops seeing the facet, and a disappearing exposure looks exactly like a
+remediated one. Silence becomes good news, in the layer explicitly built so that owners
+see cloud reality.
+
+Retaining the old value unconditionally is equally wrong: providers routinely omit a key
+when a feature is off, so a stale `True` would hide a genuine change. Absence is neither
+the old value nor a new one — **it is unknown**, and it must be represented as such rather
+than resolved in either direction. This follows EA-0023's own precedent (unmatched
+reachability is `unknown` and flagged, never defaulted) and EA-0025's (`unreported`, still
+counted, never decommissioned).
+
+**Resolution.**
+
+1. A configured fact path that produced a value previously and is **absent** from a later
+   snapshot SHALL NOT be silently removed. The fact is retained with its last-known value
+   and its original `field_provenance`, and marked **`unreported`** — carrying the
+   evidence id and `observed_at` of the last snapshot that did report it.
+2. The object SHALL be **flagged** when any fact is `unreported`, so the condition is
+   visible without inspecting individual facts.
+3. The transition SHALL be **recorded** in `conflicts` (the existing mechanism for
+   "recorded, not smoothed"), naming the field, the last reporting evidence, and the
+   snapshot that omitted it.
+4. `explain()` SHALL surface unreported facts, since "why does this object still claim
+   X?" is exactly the provenance question this engine exists to answer.
+5. A fact that returns in a later snapshot clears `unreported` through the normal
+   conflict path.
+6. **Downstream owners SHALL receive `unreported` facts as unknown, never as absence.**
+   Y3 routing must carry the marker; dropping it at the boundary reintroduces the defect
+   one layer later.
+
+**Impact.** Amends EA-0028 §4/§6 and FR-4, adds AC-21
+(`test_cspm_unreported_fact_retained`), and updates C-025 Y2/Y3. Implementation is Codex's
+(Y2 follow-on): it adds a representation for per-fact reporting state, which is a data-model
+change rather than a review fix.
+
+**Note on ECR-0024.** Its "omitted rather than fabricated" wording remains correct for a
+first observation and is not withdrawn — this ECR only settles what the same absence means
+on a *subsequent* one, which ECR-0024 did not address.

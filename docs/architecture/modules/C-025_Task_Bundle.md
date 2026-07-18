@@ -80,6 +80,14 @@ reliability+recency, **recorded**; unmapped type → `cloud_unknown`, flagged);
 `test_cspm_unknown_flagged`, `test_cspm_selective_flatten`,
 `test_cspm_store_contract[inmemory]`, `test_cspm_store_contract[postgres]`.
 
+**Y2 follow-on (ECR-0025):** a configured fact path that reported a value before and is
+absent from a later snapshot MUST NOT be dropped. Retain the last-known value + provenance,
+mark it `unreported` with the last reporting evidence, flag the object, record the
+transition in `conflicts`, and surface it in `explain()`. Absence is unknown, not a change
+— this is ECR-0014's rule at field level. **Y3 routing must carry the marker**; dropping it
+at the owner boundary reintroduces the defect one layer later.
+**Acceptance:** `test_cspm_unreported_fact_retained`.
+
 ## Y3 — Routing to owners + cloud baselines (delegate everything)
 
 **Spec:** §6, FR-6/7/8/9, D2/D4, NFR-1.
