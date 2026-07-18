@@ -36,7 +36,8 @@ EA-0021 → `src/aqelyn/forecast/` + `tests/forecast/`;
 EA-0022 → `src/aqelyn/executive/` + `tests/executive/`;
 EA-0023 → `src/aqelyn/exposure/` + `tests/exposure/`;
 EA-0024 → `src/aqelyn/vuln/` + `tests/vuln/`;
-EA-0025 → `src/aqelyn/inventory/` + `tests/inventory/`.
+EA-0025 → `src/aqelyn/inventory/` + `tests/inventory/`;
+EA-0027 → `src/aqelyn/idthreat/` + `tests/idthreat/`.
 
 ## Rules for AI agents and developers
 
@@ -75,6 +76,7 @@ EA-0025 → `src/aqelyn/inventory/` + `tests/inventory/`.
 | [EA-0024 Vulnerability Intelligence & Prioritization](EA-0024-vulnerability-intelligence-prioritization.spec.md) | EA-0024 | EA-0014, EA-0023, EA-0007, EA-0012, EA-0006, EA-0020, EA-0018 | [C-021](C-021_Task_Bundle.md) | Accepted (see ECR-0012) |
 | [EA-0025 Cyber Asset Discovery & Inventory Intelligence](EA-0025-cyber-asset-discovery-inventory-intelligence.spec.md) | EA-0025 | EA-0012, EA-0002, EA-0005, EA-0006, EA-0007, EA-0004 | [C-022](C-022_Task_Bundle.md) | Accepted (see ECR-0014) |
 | IS-026 Configuration Compliance & Drift — **restates EA-0012, no new module** ([conformance](IS-026_Conformance_Analysis.md)) | (EA-0012) | — | [C-023](C-023_Task_Bundle.md) | ECR-0015: do not build |
+| [EA-0027 Identity Threat Detection & Behavioral Analytics](EA-0027-identity-threat-detection-behavioral-analytics.spec.md) | EA-0027 | EA-0017, EA-0011, EA-0006, EA-0020, EA-0013, EA-0008 | [C-024](C-024_Task_Bundle.md) | Accepted (see ECR-0016) |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
@@ -82,7 +84,7 @@ specs (currently ECR-0001 against EA-0005).
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0027 (Identity Threat Detection & Behavioral Analytics) onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0028 (Cloud Security Posture Management) onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).
