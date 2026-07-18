@@ -27,6 +27,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0020 | EA-0028 / IS-028 | Accepted | Realize CSPM as a verdict-free normalization + routing layer over existing owners, with explicit partial-route outcomes and provider deletion mapped to EA-0025 `unreported`, never decommissioned by silence. |
 | ECR-0021 | EA-0028 / IS-028 | Accepted | Close the two soft spots in EA-0028's verdict boundary: `native_facts` keys MUST equal `field_provenance` keys (nothing enters normalized state without a declared raw source), and CSPM does **not** emit `aqelyn.cloud.misconfiguration_detected` — an EA-0012 cloud-baseline failure is EA-0012's event, filtered by cloud object_type. |
 | ECR-0022 | EA-0028 / IS-028 | Accepted | Make the normalized cloud record tenant-owned and every store read explicitly tenant-scoped; the Accepted draft otherwise could not satisfy CONVENTIONS §5 or AC-10 on Postgres. |
+| ECR-0023 | EA-0028 / IS-028 | Accepted | ECR-0021's provenance binding is top-level only, so an invented verdict one level down (`native_facts["tags"]["posture_grade"]`) still passes. `native_facts` values are constrained to scalars or lists of scalars: structured provider material belongs in raw EA-0004 evidence, and every normalized key is then provenance-bound. |
 
 ---
 
@@ -818,3 +819,50 @@ the existing store-mode rules.
 **Impact.** Amends EA-0028 §4/§5 and FR-10, adds AC-18
 (`test_cspm_tenant_model_guard`), and updates C-025 Y1/Y2 notes. No new capability
 or storage field beyond the platform-wide tenancy convention is introduced.
+
+---
+
+## ECR-0023 — normalized facts are flat, so provenance binding is total
+
+**Raised by:** Claude Code (C-025 Y1 review, PR #153). **Correcting my own ECR-0021.**
+**Severity:** blocking for C-025 Y2 — it constrains what the normalizer may emit, and
+Y2 writes that normalizer.
+
+**Problem.** ECR-0021 replaced a verdict denylist with a provenance binding and claimed
+"an invented verdict key has no raw source and cannot exist". Y1 implemented that
+faithfully — `set(native_facts) == set(field_provenance)` is enforced — but the binding
+is **top-level only**, and I did not say what happens below it. Constructed against the
+shipped Y1 model:
+
+```
+native_facts={"acl": "public"},                     provenance={}            -> refused
+native_facts={"policy": {"severity": "HIGH"}},      provenance={"policy":…}  -> refused (denylist)
+native_facts={"tags": {"posture_grade": "F"}},      provenance={"tags":…}    -> CONSTRUCTED
+native_facts={"a": {"b": {"risk_level": "crit"}}},  provenance={"a":…}       -> CONSTRUCTED
+native_facts={"rules": [{"verdict": "FAIL"}]},      provenance={"rules":…}   -> CONSTRUCTED
+```
+
+One level down, the only defence is the reserved-name denylist — the defence ECR-0021
+was written to stop relying on. And nesting is the normal case, not an edge case:
+provider attributes are structured, so most real `native_facts` will have depth.
+
+**Resolution.** `native_facts` values SHALL be **scalars (`str`/`int`/`float`/`bool`/
+`null`) or lists of scalars**. Nested mappings are rejected; structured provider material
+belongs in the **raw EA-0004 evidence block**, which the spec already preserves. With
+flat values, top-level key binding covers every key in normalized state and the guarantee
+is total rather than depth-0.
+
+This is also better normalization, not merely a stricter rule. A nested provider blob in
+`native_facts` is un-normalized data carried through the normalizer: EA-0023 wants
+`open_ports: [22, 3389]` and `ingress_cidrs: ["0.0.0.0/0"]`, not a copy of the
+security-group JSON. Flattening is the translation this engine exists to perform, and the
+raw block remains available to anyone who needs the original shape.
+
+**Impact.** Amends EA-0028 §4 and FR-3, adds AC-19 (`test_cspm_native_facts_flat`),
+updates C-025 Y1/Y2 notes, and adds the validator to the shipped Y1 model. The
+reserved-name denylist remains as a backstop for the flat keys themselves.
+
+**Method note.** This is the second ECR of mine that needed correcting against a shipped
+implementation (ECR-0017's null-evidence gloss was the first, fixed in #145). Both were
+found by constructing the forbidden state rather than by re-reading the ECR. A spec claim
+about what is "impossible" is worth exactly as much as the probe that tried it.
