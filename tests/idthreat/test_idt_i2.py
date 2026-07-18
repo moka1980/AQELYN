@@ -58,10 +58,12 @@ def test_idt_config_floors_immutable() -> None:
     """A constructed config cannot be lowered afterwards (S3/§11 — not knobs)."""
     config = _config()
 
+    # The type-ignores are themselves part of the proof: frozen makes the floors
+    # read-only to mypy, so lowering one fails static checking as well as runtime.
     with pytest.raises(ValidationError):
-        config.min_corroboration = 1
+        config.min_corroboration = 1  # type: ignore[misc]
     with pytest.raises(ValidationError):
-        config.min_confidence = 0.0
+        config.min_confidence = 0.0  # type: ignore[misc]
 
     assert config.min_corroboration == 2
     assert config.min_confidence == 0.75
