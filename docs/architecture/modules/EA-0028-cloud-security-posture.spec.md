@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (cloud resources are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0023 (exposure), EA-0011 (cloud identity), EA-0013 (risk)** — the owners it feeds; EA-0006 (source reliability), EA-0004 (evidence)
 **Consumed by:** the six owner engines above (as normalized cloud objects/signals); the cloud posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025, ECR-0026, ECR-0027, ECR-0026
+**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025, ECR-0026, ECR-0027
 **Build milestone:** C-025 (see `C-025_Task_Bundle.md`)
 **Definition of Ready:** see §8
 
