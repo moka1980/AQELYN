@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (cloud resources are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0023 (exposure), EA-0011 (cloud identity), EA-0013 (risk)** — the owners it feeds; EA-0006 (source reliability), EA-0004 (evidence)
 **Consumed by:** the six owner engines above (as normalized cloud objects/signals); the cloud posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024
+**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025, ECR-0024
 **Build milestone:** C-025 (see `C-025_Task_Bundle.md`)
 **Definition of Ready:** see §8
 
@@ -223,7 +223,7 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 - **FR-1** `normalize` SHALL accept handed-in descriptors only; the module SHALL make no cloud API call, hold no cloud credential, and expose no enumerate/scan method (§0.1).
 - **FR-2** Each descriptor SHALL be normalized to an `AQObject` with `provider`/`account`/`region` and `native_facts`; the raw block SHALL be preserved as evidence (D1).
 - **FR-3** Every normalized field SHALL carry `field_provenance` back to the raw provider field (D3). `set(native_facts)` SHALL equal `set(field_provenance)`, enforced at construction: a key with no declared raw source is unconstructable (**ECR-0021**). `native_facts` values SHALL be scalars or lists of scalars, so that binding covers **every** key in normalized state; structured provider material belongs in the raw EA-0004 evidence block (**ECR-0023**). `CloudNormalizationConfig.fact_paths` SHALL explicitly select each normalized key and its RFC 6901 JSON Pointer; the normalizer SHALL NOT copy or generically flatten the provider block (**ECR-0024**).
-- **FR-4** Cross-snapshot field conflicts SHALL resolve by EA-0006 reliability then recency and SHALL be **recorded**, not smoothed (D3).
+- **FR-4** Cross-snapshot field conflicts SHALL resolve by EA-0006 reliability then recency and SHALL be **recorded**, not smoothed (D3). A previously-reported fact that is **absent** from a later snapshot SHALL NOT be deleted: it is retained with its last-known value and provenance, marked `unreported` with the last reporting evidence, the object is flagged, and the transition is recorded in `conflicts`. Absence is **unknown**, never a change — and Y3 routing SHALL carry the marker so owners receive it as unknown (**ECR-0025**).
 - **FR-5** An unmapped `resource_type` SHALL become `cloud_unknown`, flagged; it SHALL NOT be dropped (§6).
 - **FR-6** `route` SHALL attempt every configured owner independently and record one `OwnerRouteOutcome` per owner plus an overall `complete` / `partial` / `failed` status; accepted and failed owners SHALL both remain visible. It SHALL NOT itself assess, score, or detect (D2/§0).
 - **FR-7** Cloud config assessment SHALL be performed by **EA-0012** using cloud `Baseline`s; the module SHALL NOT implement drift detection (D4).
@@ -265,6 +265,8 @@ cloud `Baseline`s over cloud-scoped assets — no drift logic here (D4).
 | AC-17 | `native_facts` keys ≡ `field_provenance` keys; an undeclared key is unconstructable (ECR-0021) | `test_cspm_native_facts_provenance_bound` |
 | AC-18 | Normalized records are tenant-owned; reads require scope (ECR-0022) | `test_cspm_tenant_model_guard` |
 | AC-19 | `native_facts` values are flat, so no key escapes provenance binding (ECR-0023) | `test_cspm_native_facts_flat` |
+| AC-20 | Only configured `fact_paths` are normalized; provider verdicts stay in raw evidence (ECR-0024) | `test_cspm_selective_flatten` |
+| AC-21 | A fact absent from a later snapshot is retained as `unreported` + flagged + recorded, never dropped (ECR-0025) | `test_cspm_unreported_fact_retained` |
 | AC-20 | Normalization extracts only configured fact paths; provider verdicts remain raw evidence (ECR-0024) | `test_cspm_selective_flatten` |
 
 ## 9. Error taxonomy (contributions)
