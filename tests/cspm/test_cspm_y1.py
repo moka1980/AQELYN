@@ -30,6 +30,11 @@ def _config_payload() -> dict[str, Any]:
             "aws:s3:bucket": "cloud_storage",
             "azure:network:security_group": "network_security_group",
         },
+        "fact_paths": {
+            "aws:s3:bucket": {
+                "encryption_enabled": "/configuration/encryptionEnabled",
+            }
+        },
         "baseline_ids": ["cis-aws-s3-v1"],
         "batch_size": 100,
     }
@@ -101,6 +106,23 @@ def test_cspm_config_invalid() -> None:
         CloudNormalizationConfig.model_validate(
             _config_payload(), context={"known_object_types": "cloud_storage"}
         )
+
+    orphaned_fact_map = _config_payload()
+    orphaned_fact_map["fact_paths"] = {"aws:ec2:instance": {"state": "/state/name"}}
+    with pytest.raises(CloudConfigInvalid, match="matching type_map"):
+        _config(orphaned_fact_map)
+
+    relative_pointer = _config_payload()
+    relative_pointer["fact_paths"] = {
+        "aws:s3:bucket": {"encryption_enabled": "configuration/encryptionEnabled"}
+    }
+    with pytest.raises(CloudConfigInvalid, match="absolute RFC 6901"):
+        _config(relative_pointer)
+
+    reserved_fact = _config_payload()
+    reserved_fact["fact_paths"] = {"aws:s3:bucket": {"Severity": "/Severity"}}
+    with pytest.raises(CloudConfigInvalid, match="reserved verdict key"):
+        _config(reserved_fact)
 
     extra_field = _config_payload()
     extra_field["mode"] = "assessment"
@@ -256,3 +278,9 @@ def test_cspm_native_facts_flat() -> None:
         nested["field_provenance"] = {"tags": "$.tags"}
         with pytest.raises(CloudConfigInvalid, match="belongs in raw evidence"):
             NormalizedCloudObject.model_validate(nested)
+
+    non_finite = _normalized_payload()
+    non_finite["native_facts"] = {"temperature": float("nan")}
+    non_finite["field_provenance"] = {"temperature": "$.temperature"}
+    with pytest.raises(CloudConfigInvalid, match="must be finite"):
+        NormalizedCloudObject.model_validate(non_finite)

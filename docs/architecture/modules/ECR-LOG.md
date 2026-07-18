@@ -28,6 +28,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0021 | EA-0028 / IS-028 | Accepted | Close the two soft spots in EA-0028's verdict boundary: `native_facts` keys MUST equal `field_provenance` keys (nothing enters normalized state without a declared raw source), and CSPM does **not** emit `aqelyn.cloud.misconfiguration_detected` — an EA-0012 cloud-baseline failure is EA-0012's event, filtered by cloud object_type. |
 | ECR-0022 | EA-0028 / IS-028 | Accepted | Make the normalized cloud record tenant-owned and every store read explicitly tenant-scoped; the Accepted draft otherwise could not satisfy CONVENTIONS §5 or AC-10 on Postgres. |
 | ECR-0023 | EA-0028 / IS-028 | Accepted | ECR-0021's provenance binding is top-level only, so an invented verdict one level down (`native_facts["tags"]["posture_grade"]`) still passes. `native_facts` values are constrained to scalars or lists of scalars: structured provider material belongs in raw EA-0004 evidence, and every normalized key is then provenance-bound. |
+| ECR-0024 | EA-0028 / IS-028 | Accepted | Make selective flattening explicit: config maps each normalized fact key to an RFC 6901 JSON Pointer in the handed-in raw provider record; generic provider-block flattening is forbidden. |
 
 ---
 
@@ -866,3 +867,36 @@ reserved-name denylist remains as a backstop for the flat keys themselves.
 implementation (ECR-0017's null-evidence gloss was the first, fixed in #145). Both were
 found by constructing the forbidden state rather than by re-reading the ECR. A spec claim
 about what is "impossible" is worth exactly as much as the probe that tried it.
+
+---
+
+## ECR-0024 — selective cloud flattening is an explicit provenance allowlist
+
+**Raised by:** Codex (C-025 Y2 implementation).
+**Status:** Accepted.
+**Severity:** blocking contract omission — Y2 cannot choose provider facts without
+either inventing an undocumented extraction convention or generically flattening raw
+provider verdicts into normalized state.
+
+**Problem.** ECR-0021/0023 make normalized state flat and provenance-bound, but the
+Accepted `CloudNormalizationConfig` says only which provider type maps to which object
+type. It does not say which raw provider paths become facts. A generic recursive
+flatten would assign provenance to everything, including AWS Config
+`complianceType`, Azure Policy `complianceState`, and Security Hub `Severity`; a hidden
+verdict denylist would recreate the maintenance problem ECR-0021 rejected. The desired
+selective extraction was therefore not representable in configuration.
+
+**Resolution.** Add `fact_paths: dict[str, dict[str, str]]` to
+`CloudNormalizationConfig`. The outer key uses the same provider/resource mapping key
+as `type_map`; each inner entry maps a normalized flat fact key to an RFC 6901 JSON
+Pointer into `CloudResourceDescriptor.raw`. The normalizer emits only those selected
+paths, and records the pointer verbatim in `field_provenance`. Missing paths are omitted
+rather than fabricated; selected mappings or lists containing structured values are
+rejected because ECR-0023 permits only scalars or lists of scalars. Fact-map entries
+without a corresponding `type_map` entry and malformed/non-absolute pointers are
+invalid config.
+
+**Impact.** Amends EA-0028 §4/§6, FR-3/FR-10, adds AC-20
+(`test_cspm_selective_flatten`), and updates C-025 Y2. It introduces no provider logic,
+verdict, or collection capability. Raw payloads remain intact in EA-0004 evidence; the
+configuration merely declares which observations are normalized for existing owners.

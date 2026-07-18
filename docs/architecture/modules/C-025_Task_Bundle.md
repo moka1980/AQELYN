@@ -2,7 +2,7 @@
 
 **Milestone:** C-025 (Cloud Security Posture Management, EA-0028)
 **For:** Codex (implementer) · Claude Code (reviewer)
-**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
+**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022/0023/0024 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
 **Definition of Done:** every ticket's acceptance tests pass on in-memory **and** Postgres; `ruff` clean; `mypy --strict` clean; **no cloud collection; no second inventory/baseline/compliance/exposure/identity/risk engine; no verdict field in a CSPM model; no provider-deleted input may decommission an asset**; nothing outside the spec; `make check` green; Claude Code sign-off per ticket.
 
 **Read EA-0028 §0 first.** "Cloud" is **a scope + a normalization layer**, not six
@@ -70,13 +70,14 @@ reads require an explicit tenant scope.
 **Spec:** §0.1, §6, FR-1/2/3/4/5/11, D1/D3, NFR-2/NFR-3.
 **Deliverables:** `normalize` (**handed-in only — no cloud API/enumerate/socket**;
 descriptor → `AQObject` with provider/account/region + `native_facts`; raw block
-as evidence; `field_provenance` per field; cross-snapshot conflicts by **EA-0006**
+as evidence; `field_provenance` per field selected by configured RFC 6901
+`fact_paths` (**never generic provider-block flattening; ECR-0024**); cross-snapshot conflicts by **EA-0006**
 reliability+recency, **recorded**; unmapped type → `cloud_unknown`, flagged);
 `CloudNormalizationStore` (in-memory + Postgres + DDL).
 **Depends on:** Y1.
 **Acceptance:** `test_cspm_no_collection`, `test_cspm_normalize_object`,
 `test_cspm_field_provenance`, `test_cspm_conflict_recorded`,
-`test_cspm_unknown_flagged`,
+`test_cspm_unknown_flagged`, `test_cspm_selective_flatten`,
 `test_cspm_store_contract[inmemory]`, `test_cspm_store_contract[postgres]`.
 
 ## Y3 — Routing to owners + cloud baselines (delegate everything)
