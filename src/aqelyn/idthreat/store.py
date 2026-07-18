@@ -21,6 +21,7 @@ from aqelyn.idthreat.models import (
     DetectionType,
     IdentityBasis,
     IdentityDetection,
+    IdentityReview,
     IdThreatConfig,
     SignalRef,
     independent_signal_count,
@@ -49,6 +50,15 @@ class IdentityDetectionStore(Protocol):
         limit: int = 100,
     ) -> list[IdentityDetection]: ...
 
+    async def record_review(self, review: IdentityReview) -> IdentityReview: ...
+
+    async def review_for(
+        self,
+        detection_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityReview | None: ...
+
 
 def validate_detection(
     detection: IdentityDetection,
@@ -65,6 +75,21 @@ def validate_detection(
     if not dignity_gate(stored.corroboration, stored.confidence, config):
         raise IdThreatConfigInvalid("identity detection confidence does not meet the dignity floor")
     return validate_replayable_detection(stored)
+
+
+def validate_new_detection(
+    detection: IdentityDetection,
+    *,
+    config: IdThreatConfig,
+) -> IdentityDetection:
+    stored = validate_detection(detection, config=config)
+    if stored.status != "open":
+        raise IdThreatConfigInvalid("new identity detections must have open status")
+    return stored
+
+
+def validate_review(review: IdentityReview) -> IdentityReview:
+    return IdentityReview.model_validate(review.model_dump(mode="json"))
 
 
 def validate_replayable_detection(detection: IdentityDetection) -> IdentityDetection:

@@ -2,7 +2,10 @@
 
 from aqelyn.idthreat.dignity import dignity_gate
 from aqelyn.idthreat.engine import (
+    IdentityEntitlementAnalyzer,
     IdentityEvidenceLookup,
+    IdentityEvidenceRecorder,
+    IdentityProfileSource,
     IdentityThreatEngine,
     IdentityTrustAssessor,
 )
@@ -17,6 +20,7 @@ from aqelyn.idthreat.models import (
     IdentityDetection,
     IdentityDetectionStatus,
     IdentityObservation,
+    IdentityReview,
     IdThreatConfig,
     SignalRef,
     independent_signal_count,
@@ -38,8 +42,12 @@ __all__ = [
     "IdentityDetection",
     "IdentityDetectionStatus",
     "IdentityDetectionStore",
+    "IdentityEntitlementAnalyzer",
     "IdentityEvidenceLookup",
+    "IdentityEvidenceRecorder",
     "IdentityObservation",
+    "IdentityProfileSource",
+    "IdentityReview",
     "IdentityThreatEngine",
     "IdentityTrustAssessor",
     "InMemoryIdentityDetectionStore",

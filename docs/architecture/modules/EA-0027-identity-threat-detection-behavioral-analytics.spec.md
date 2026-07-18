@@ -125,10 +125,15 @@ DetectionType = "impossible_travel" | "credential_reuse" | "session_hijack"
 SignalRef = { kind: str, ref: str, as_of: datetime, evidence_id: str | null }   # independent signal (S3)
 IdentityBasis = { kind: "profile"|"entitlement"|"event", ref: str,
                   as_of: datetime, evidence_id: str | null }                     # cited (S1/S7)
-IdentityObservation = { subject_ref: str, detection_type: DetectionType,
+IdentityObservation = { subject_ref: str, identity_id: str,  # typed EA-0011 obj_ ref (ECR-0019)
+                        detection_type: DetectionType,
                         signals: list[SignalRef], profile_ref: str,
                         profile_version: int, rule_ref: str, rule_version: int,
                         detected_at: datetime }                                  # ECR-0018
+
+IdentityReview = { detection_id: str, tenant_id: str | null, outcome: str,
+                   reviewed_by: ActorRef, reviewed_at: datetime,
+                   evidence_id: str }                                           # append-only (ECR-0019)
 
 IdentityDetection = { id, tenant_id, subject_ref: str,          # account/credential/session (S2)
                       detection_type: DetectionType,
@@ -162,6 +167,8 @@ class IdentityDetectionStore(Protocol):
     async def get(self, detection_id: str, *, tenant_id: str | None) -> IdentityDetection | None: ...
     async def query(self, *, tenant_id: str | None, subject_ref: str | None = None,
                     detection_type: DetectionType | None = None, limit: int = 100) -> list[IdentityDetection]: ...
+    async def record_review(self, review: IdentityReview) -> IdentityReview: ...
+    async def review_for(self, detection_id: str, *, tenant_id: str | None) -> IdentityReview | None: ...
 
 class IdentityThreatEngine(Protocol):
     async def detect(self, *, observation: IdentityObservation,
@@ -192,7 +199,9 @@ detection with < 2 corroboration or no basis.
 
 **Raise.** A material detection is raised as an EA-0013-consumable, **non-actionable**
 `Finding` (S8) — a question for a human. `review` records the human outcome before
-any EA-0008 consequence (S7).
+any EA-0008 consequence (S7). The outcome is first written as EA-0004 evidence and
+then appended as an `IdentityReview`; the original detection row is never updated,
+and reads materialize `status="reviewed"` from the append-only review (ECR-0019).
 
 **Never.** No per-person score is computed, stored, or served (S4); no individual's
 future behaviour is forecast (S1); no entitlement verdict or behavioural baseline is

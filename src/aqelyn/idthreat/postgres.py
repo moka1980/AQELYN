@@ -9,16 +9,24 @@ import asyncpg
 
 from aqelyn.conventions.errors import (
     CrossTenantReference,
+    IdentityNotFound,
     OptimisticConcurrencyConflict,
     StoreUnavailable,
 )
 from aqelyn.idthreat.ddl import DDL
-from aqelyn.idthreat.models import DetectionType, IdentityDetection, IdThreatConfig
+from aqelyn.idthreat.models import (
+    DetectionType,
+    IdentityDetection,
+    IdentityReview,
+    IdThreatConfig,
+)
 from aqelyn.idthreat.store import (
     validate_detection,
     validate_detection_id,
     validate_detection_type_filter,
     validate_limit,
+    validate_new_detection,
+    validate_review,
     validate_subject_filter,
     validate_tenant,
 )
@@ -26,6 +34,12 @@ from aqelyn.idthreat.store import (
 _COLUMNS = (
     "id, tenant_id, subject_ref, detection_type, statement, corroboration, confidence, "
     "basis, derivation, profile_ref, entitlement_refs, status, detected_at"
+)
+_SELECT_COLUMNS = (
+    "d.id, d.tenant_id, d.subject_ref, d.detection_type, d.statement, d.corroboration, "
+    "d.confidence, d.basis, d.derivation, d.profile_ref, d.entitlement_refs, "
+    "CASE WHEN r.detection_id IS NULL THEN d.status ELSE 'reviewed' END AS status, "
+    "d.detected_at"
 )
 
 
@@ -70,7 +84,7 @@ class PostgresIdentityDetectionStore:
         await self._pool.close()
 
     async def put(self, detection: IdentityDetection) -> IdentityDetection:
-        stored = validate_detection(detection, config=self.config)
+        stored = validate_new_detection(detection, config=self.config)
         async with self._pool.acquire() as conn, conn.transaction():
             row = await conn.fetchrow(
                 "SELECT tenant_id FROM aq_identity_detection WHERE id=$1 FOR UPDATE",
@@ -99,15 +113,17 @@ class PostgresIdentityDetectionStore:
         validate_detection_id(detection_id)
         selected_tenant = validate_tenant(tenant_id)
         args: list[Any] = [detection_id]
-        clauses = ["id=$1"]
+        clauses = ["d.id=$1"]
         if self.mode == "local":
-            clauses.append("tenant_id IS NULL")
+            clauses.append("d.tenant_id IS NULL")
         if selected_tenant is not None:
             args.append(selected_tenant)
-            clauses.append(f"tenant_id = ${len(args)}")
+            clauses.append(f"d.tenant_id = ${len(args)}")
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                f"SELECT {_COLUMNS} FROM aq_identity_detection WHERE {' AND '.join(clauses)}",
+                f"SELECT {_SELECT_COLUMNS} FROM aq_identity_detection d "
+                "LEFT JOIN aq_identity_review r ON r.detection_id=d.id "
+                f"WHERE {' AND '.join(clauses)}",
                 *args,
             )
         if row is None:
@@ -129,25 +145,78 @@ class PostgresIdentityDetectionStore:
         args: list[Any] = []
         clauses: list[str] = []
         if self.mode == "local":
-            clauses.append("tenant_id IS NULL")
+            clauses.append("d.tenant_id IS NULL")
         if selected_tenant is not None:
             args.append(selected_tenant)
-            clauses.append(f"tenant_id = ${len(args)}")
+            clauses.append(f"d.tenant_id = ${len(args)}")
         if selected_subject is not None:
             args.append(selected_subject)
-            clauses.append(f"subject_ref = ${len(args)}")
+            clauses.append(f"d.subject_ref = ${len(args)}")
         if selected_type is not None:
             args.append(selected_type)
-            clauses.append(f"detection_type = ${len(args)}")
+            clauses.append(f"d.detection_type = ${len(args)}")
         args.append(selected_limit)
         where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                f"SELECT {_COLUMNS} FROM aq_identity_detection "
-                f"{where}ORDER BY detected_at, id LIMIT ${len(args)}",
+                f"SELECT {_SELECT_COLUMNS} FROM aq_identity_detection d "
+                "LEFT JOIN aq_identity_review r ON r.detection_id=d.id "
+                f"{where}ORDER BY d.detected_at, d.id LIMIT ${len(args)}",
                 *args,
             )
         return [validate_detection(_row_to_detection(row), config=self.config) for row in rows]
+
+    async def record_review(self, review: IdentityReview) -> IdentityReview:
+        stored = validate_review(review)
+        async with self._pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT tenant_id FROM aq_identity_detection WHERE id=$1 FOR SHARE",
+                stored.detection_id,
+            )
+            if row is None:
+                raise IdentityNotFound(stored.detection_id)
+            if row["tenant_id"] != stored.tenant_id:
+                raise CrossTenantReference("identity review tenant does not match detection")
+            try:
+                await conn.execute(
+                    "INSERT INTO aq_identity_review "
+                    "(detection_id, tenant_id, outcome, reviewed_by, reviewed_at, evidence_id) "
+                    "VALUES ($1,$2,$3,$4,$5,$6)",
+                    stored.detection_id,
+                    stored.tenant_id,
+                    stored.outcome,
+                    json.dumps(stored.reviewed_by.model_dump(mode="json")),
+                    stored.reviewed_at,
+                    stored.evidence_id,
+                )
+            except asyncpg.UniqueViolationError as exc:
+                raise OptimisticConcurrencyConflict(
+                    "identity detection is already reviewed"
+                ) from exc
+        return stored.model_copy(deep=True)
+
+    async def review_for(
+        self,
+        detection_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityReview | None:
+        validate_detection_id(detection_id)
+        selected_tenant = validate_tenant(tenant_id)
+        args: list[Any] = [detection_id]
+        clauses = ["detection_id=$1"]
+        if self.mode == "local":
+            clauses.append("tenant_id IS NULL")
+        if selected_tenant is not None:
+            args.append(selected_tenant)
+            clauses.append(f"tenant_id = ${len(args)}")
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT detection_id, tenant_id, outcome, reviewed_by, reviewed_at, evidence_id "
+                f"FROM aq_identity_review WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        return None if row is None else _row_to_review(row)
 
 
 def _detection_args(detection: IdentityDetection) -> tuple[Any, ...]:
@@ -173,6 +242,12 @@ def _row_to_detection(row: asyncpg.Record) -> IdentityDetection:
     for key in ("corroboration", "basis", "derivation", "entitlement_refs"):
         data[key] = _json_value(data[key])
     return IdentityDetection.model_validate(data)
+
+
+def _row_to_review(row: asyncpg.Record) -> IdentityReview:
+    data: dict[str, Any] = dict(row)
+    data["reviewed_by"] = _json_value(data["reviewed_by"])
+    return IdentityReview.model_validate(data)
 
 
 def _json_value(value: Any) -> Any:
