@@ -24,6 +24,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0017 | EA-0027 / IS-027 | Accepted | Corroboration independence is keyed on the **signal** (`ref`, and `evidence_id` when present), not on `(kind, ref)` — one occurrence relabelled twice is **one** corroboration, so the ≥2 floor cannot degrade to 1. Undecidable ties count as one. |
 | ECR-0018 | EA-0027 / IS-027 | Accepted | Replace the under-specified `detect(subject_ref, signals, tenant_id)` input with a structured `IdentityObservation` carrying detection type and pinned profile/rule versions; the engine renders the account-scoped statement and basis. |
 | ECR-0019 | EA-0027 / IS-027 | Accepted | Make I4's IAG identity input and append-only right-of-reply record explicit: `IdentityObservation.identity_id` delegates to EA-0011; one evidenced `IdentityReview` materializes reviewed status without mutating the detection row. |
+| ECR-0020 | EA-0028 / IS-028 | Accepted | Realize CSPM as a verdict-free normalization + routing layer over existing owners, with explicit partial-route outcomes and provider deletion mapped to EA-0025 `unreported`, never decommissioned by silence. |
 
 ---
 
@@ -681,3 +682,49 @@ evidence, and remain non-actionable (`eligibility="none"`).
 **Impact.** Additive I4 contract and DDL only. It preserves I3's append-only gate,
 makes EA-0011 delegation possible without inference, and makes S7/FR-11/AC-12/14
 durable and testable. No Workflow execution or new scoring authority is introduced.
+
+---
+
+## ECR-0020 — CSPM is a verdict-free normalizer and router, not a parallel cloud stack
+
+**Raised by:** planning (IS-028 spec pass using the ECR-0015 event/type check).
+**Status:** Accepted.
+**Severity:** architectural — a cloud-specific copy of existing owners would split
+inventory, configuration, compliance, identity, exposure, and risk truth six ways.
+
+**Finding.** IS-028 is not a wholesale restatement: its cloud normalization and
+`cloud.misconfiguration.detected` integration are net-new. But each proposed
+"Cloud <capability> Engine" already has a platform owner. A cloud resource is an
+EA-0025 asset; cloud configuration is EA-0012 baseline data; CIS cloud frameworks
+belong to EA-0010; cloud IAM belongs to EA-0011; reachability belongs to EA-0023;
+and cloud findings aggregate through EA-0013. "Runs in AWS/Azure/GCP" is a scope
+and provenance property, not a new capability.
+
+**Resolution.** EA-0028 is a thin **normalization + routing layer**:
+`CloudResourceDescriptor` in, verdict-free `NormalizedCloudObject` out, then one
+explicit route outcome for every existing owner. It owns provider type mapping,
+field provenance, conflict recording through EA-0006 reliability, and preservation
+of handed-in raw evidence. It owns no assessment, score, compliance verdict,
+finding, action, inventory, or risk computation. `NormalizedCloudObject` and all
+other CSPM models use `extra="forbid"`; severity, score/risk-score,
+compliance-status, finding, and action fields are unrepresentable in CSPM-owned
+state, and those reserved keys are rejected recursively from nested normalized
+facts/provenance/conflicts. Provider verdict material remains only in raw EA-0004
+evidence. Routing reports `complete`, `partial`, or `failed` and names each
+accepted or failed owner, so a five-of-six handoff cannot be smoothed into success.
+
+**Lifecycle constraint.** The archive event `cloud.resource.deleted` is a
+handed-in provider observation, not decommission authority. It maps to EA-0025
+`mark_unreported` / `aqelyn.inventory.asset_unreported`. Decommission still
+requires positive evidence or an attributed EA-0008-gated decision under
+EA-0025 S3 / ECR-0014. CSPM registers no deletion assertion of its own.
+
+**Collection boundary.** Descriptors are handed in. Live cloud enumeration remains
+a connector-delivered, EA-0008-gated `cloud.enumerate` action; CSPM holds no cloud
+credential and opens no provider/network connection.
+
+**Impact.** Governs EA-0028 and C-025 only. The Accepted spec captures this in §0,
+D2/D5, FR-6/13/14, NFR-1, and AC-14/15/16. Proof is structural and behavioural per
+ECR-0007: forbidden verdict fields fail construction, delegation spies show the
+six owners perform analysis, route failure remains visible, and a lifecycle spy
+proves provider deletion calls only EA-0025's unreported path.
