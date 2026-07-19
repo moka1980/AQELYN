@@ -245,6 +245,7 @@ class ACGConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     batch_size: int = 100
+    assessable_object_types: list[str] = Field(default_factory=lambda: ["asset"])
     classification_rules: list[dict[str, Any]] = Field(default_factory=list)
     unknown_is_fail: bool = True
 
@@ -252,6 +253,16 @@ class ACGConfig(BaseModel):
     @classmethod
     def _batch_size(cls, value: object) -> int:
         return _require_positive_int(value, field="batch_size")
+
+    @field_validator("assessable_object_types")
+    @classmethod
+    def _assessable_object_types(cls, values: list[str]) -> list[str]:
+        if not values:
+            raise BaselineConfigInvalid("assessable_object_types must not be empty")
+        selected = [_require_nonempty(value, field="assessable_object_types") for value in values]
+        if len(selected) != len(set(selected)):
+            raise BaselineConfigInvalid("assessable_object_types must not contain duplicates")
+        return sorted(selected)
 
     @field_validator("classification_rules")
     @classmethod

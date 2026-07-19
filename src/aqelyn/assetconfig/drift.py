@@ -21,7 +21,13 @@ from aqelyn.assetconfig.store import (
     new_drift_snapshot_id,
 )
 from aqelyn.conventions import ActorRef, new_id, utc_now
-from aqelyn.conventions.errors import EvidenceRequired, ObjectNotFound, StoreUnavailable
+from aqelyn.conventions.errors import (
+    BaselineConfigInvalid,
+    BaselineNotFound,
+    EvidenceRequired,
+    ObjectNotFound,
+    StoreUnavailable,
+)
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
 from aqelyn.findings import Automation, Finding, FindingStore, Remediation
@@ -103,7 +109,14 @@ class AssetConfigAnalyzer:
         self, asset_id: str, *, tenant_id: str | None = None
     ) -> list[AssetDrift]:
         asset = await self._asset(asset_id, tenant_id=tenant_id)
-        return assess_asset(asset, await self._matching_baselines(asset), self.config)
+        if asset.object_type not in self.config.assessable_object_types:
+            raise BaselineNotFound(
+                f"object type {asset.object_type!r} is not configured for assessment"
+            )
+        drifts = assess_asset(asset, await self._matching_baselines(asset), self.config)
+        if not drifts:
+            raise BaselineNotFound(f"no baseline applies to object {asset.id}")
+        return drifts
 
     async def assess(
         self,
@@ -113,23 +126,36 @@ class AssetConfigAnalyzer:
         record_evidence: bool = True,
     ) -> DriftSnapshot:
         asset_drifts: list[AssetDrift] = []
+        assessed_objects = 0
+        object_types = _assessment_object_types(self.config, scope)
         async for page in _asset_pages(
             self.object_store,
             tenant_id=tenant_id,
             scope=scope,
             batch_size=self.config.batch_size,
+            object_types=object_types,
         ):
             for asset in sorted(page, key=lambda item: item.id):
+                assessed_objects += 1
                 asset_drifts.extend(
                     assess_asset(asset, await self._matching_baselines(asset), self.config)
                 )
+        if assessed_objects == 0:
+            raise BaselineNotFound("assessment matched no assessable objects")
+        if not asset_drifts:
+            raise BaselineNotFound("assessment applied no baseline to in-scope objects")
         asset_drifts.sort(key=lambda item: (item.asset_id, item.baseline_id))
         baseline_ids = sorted({item.baseline_id for item in asset_drifts})
         snapshot = DriftSnapshot(
             id=new_drift_snapshot_id(),
             tenant_id=tenant_id,
             run_at=utc_now(),
-            scope=_scope_dump(scope, tenant_id=tenant_id, batch_size=self.config.batch_size),
+            scope=_scope_dump(
+                scope,
+                tenant_id=tenant_id,
+                batch_size=self.config.batch_size,
+                object_types=object_types,
+            ),
             baseline_ids=baseline_ids,
             overall_score=_mean([item.score for item in asset_drifts], default=1.0),
             asset_drifts=asset_drifts,
@@ -207,7 +233,7 @@ class AssetConfigAnalyzer:
 
     async def _asset(self, asset_id: str, *, tenant_id: str | None) -> AQObject:
         asset = await self.object_store.get(asset_id, resolve_merged=False)
-        if asset is None or asset.object_type != ASSET_OBJECT_TYPE:
+        if asset is None or asset.object_type not in self.config.assessable_object_types:
             raise ObjectNotFound(asset_id)
         if tenant_id is not None and asset.tenant_id != tenant_id:
             raise ObjectNotFound(asset_id)
@@ -390,31 +416,44 @@ async def _asset_pages(
     tenant_id: str | None,
     scope: ObjectQuery | None,
     batch_size: int,
+    object_types: Sequence[str],
 ) -> AsyncIterator[list[AQObject]]:
-    cursor = scope.cursor if scope is not None else None
     remaining = scope.limit if scope is not None else None
-    seen_cursors: set[str] = set()
-    while True:
-        limit = batch_size if remaining is None else min(batch_size, remaining)
-        if limit < 1:
-            break
-        query = _asset_query(tenant_id=tenant_id, scope=scope, cursor=cursor, limit=limit)
-        rows, next_cursor = await object_store.query(query)
-        yield rows
-        if remaining is not None:
-            remaining -= len(rows)
-            if remaining <= 0:
+    if scope is not None and scope.cursor is not None and len(object_types) != 1:
+        raise BaselineConfigInvalid(
+            "a cursor requires one scoped object_type when multiple types are assessable"
+        )
+    for object_type in object_types:
+        cursor = scope.cursor if scope is not None else None
+        seen_cursors: set[str] = set()
+        while True:
+            limit = batch_size if remaining is None else min(batch_size, remaining)
+            if limit < 1:
                 break
-        if next_cursor is None or next_cursor in seen_cursors:
-            break
-        seen_cursors.add(next_cursor)
-        cursor = next_cursor
+            query = _asset_query(
+                tenant_id=tenant_id,
+                scope=scope,
+                object_type=object_type,
+                cursor=cursor,
+                limit=limit,
+            )
+            rows, next_cursor = await object_store.query(query)
+            yield rows
+            if remaining is not None:
+                remaining -= len(rows)
+                if remaining <= 0:
+                    return
+            if next_cursor is None or next_cursor in seen_cursors:
+                break
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
 
 
 def _asset_query(
     *,
     tenant_id: str | None,
     scope: ObjectQuery | None,
+    object_type: str,
     cursor: str | None,
     limit: int,
 ) -> ObjectQuery:
@@ -422,7 +461,7 @@ def _asset_query(
     data.update(
         {
             "tenant_id": tenant_id,
-            "object_type": ASSET_OBJECT_TYPE,
+            "object_type": object_type,
             "include_states": ("active",),
             "limit": limit,
             "cursor": cursor,
@@ -436,13 +475,47 @@ def _scope_dump(
     *,
     tenant_id: str | None,
     batch_size: int,
+    object_types: Sequence[str],
 ) -> dict[str, Any]:
-    return _asset_query(
-        tenant_id=tenant_id,
-        scope=scope,
-        cursor=scope.cursor if scope is not None else None,
-        limit=min(scope.limit, batch_size) if scope is not None else batch_size,
-    ).model_dump(mode="json")
+    data = (
+        ObjectQuery(tenant_id=tenant_id).model_dump(mode="json")
+        if scope is None
+        else scope.model_dump(mode="json")
+    )
+    data.update(
+        {
+            "tenant_id": tenant_id,
+            "object_type": object_types[0] if len(object_types) == 1 else None,
+            "include_states": ("active",),
+            "limit": min(scope.limit, batch_size) if scope is not None else batch_size,
+            "cursor": scope.cursor if scope is not None else None,
+            "assessable_object_types": list(object_types),
+        }
+    )
+    return data
+
+
+def _assessment_object_types(
+    config: ACGConfig,
+    scope: ObjectQuery | None,
+) -> tuple[str, ...]:
+    configured = tuple(config.assessable_object_types)
+    if scope is not None and scope.object_type is not None:
+        if scope.object_type not in configured:
+            raise BaselineConfigInvalid(
+                f"scope object_type {scope.object_type!r} is not configured for assessment"
+            )
+        if scope.object_type in scope.exclude_object_types:
+            raise BaselineNotFound("assessment scope excludes its selected object_type")
+        return (scope.object_type,)
+    selected = tuple(
+        object_type
+        for object_type in configured
+        if scope is None or object_type not in scope.exclude_object_types
+    )
+    if not selected:
+        raise BaselineNotFound("assessment scope contains no assessable object types")
+    return selected
 
 
 def _tenant_visible(baseline: Baseline, tenant_id: str | None) -> bool:
