@@ -95,7 +95,9 @@ remain distinct and evidence-recorded where the backbone is available;
 
 **Spec:** §6, FR-5/9/10/11/14, D4/D6, S4/S5.
 **Deliverables:** `component_vulns_to_prioritization` → **EA-0024** carrying the
-`ReachabilitySignal` (no second scorer); license **identification** here,
+`ReachabilitySignal` (no second scorer; `unknown` remains explicit and is
+excluded from the EA-0024 denominator rather than scored as low, ECR-0040);
+license **identification** here,
 `license_findings` → **EA-0010** for policy; risk aggregation → **EA-0013**;
 upgrade/removal = **proposed gated EA-0008 run**; `SupplyChainService`
 (`AQService`, name `"supplychain_engine"`) + `register_supplychain_events`; wired

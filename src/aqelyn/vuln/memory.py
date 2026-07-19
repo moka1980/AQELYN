@@ -9,6 +9,7 @@ from aqelyn.conventions import utc_now
 from aqelyn.conventions.errors import CrossTenantReference
 from aqelyn.vuln.models import DispositionKind, VulnerabilityRecord
 from aqelyn.vuln.store import (
+    validate_asset_ref_filter,
     validate_cve_filter,
     validate_disposition_filter,
     validate_query_limit,
@@ -48,11 +49,13 @@ class InMemoryVulnerabilityStore:
         *,
         tenant_id: str | None,
         cve_id: str | None = None,
+        asset_ref_id: str | None = None,
         disposition: DispositionKind | None = None,
         limit: int = 100,
     ) -> list[VulnerabilityRecord]:
         selected_tenant = validate_tenant(tenant_id)
         selected_cve_id = validate_cve_filter(cve_id)
+        selected_asset_ref_id = validate_asset_ref_filter(asset_ref_id)
         selected_disposition = validate_disposition_filter(disposition)
         selected_limit = validate_query_limit(limit)
         rows = [
@@ -60,6 +63,7 @@ class InMemoryVulnerabilityStore:
             for record in self._records.values()
             if self._visible(record.tenant_id, selected_tenant)
             and (selected_cve_id is None or record.cve_id == selected_cve_id)
+            and (selected_asset_ref_id is None or record.asset_ref.ref_id == selected_asset_ref_id)
             and (
                 selected_disposition is None
                 or (

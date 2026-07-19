@@ -43,6 +43,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0037 | EA-0030 | Accepted | Make Q2's Trust reconciliation durable and its store pagination honest: components pin the winning source/time and retain every conflict candidate, malformed documents persist as flagged quarantine records, and `SBOMStore.query` adopts EA-0002 D8 cursor semantics. |
 | ECR-0038 | EA-0030 | Accepted | Make Q3's truncation and path proof representable: `dependency_paths` returns paths plus `truncated`, and transitive reach embeds the exact EA-0005 path with a deterministic content-addressed `path_ref`. |
 | ECR-0039 | EA-0030 (+ EA-0004 boundary) | Accepted | Evidence hash-chain integrity is not attestation authenticity: Q4 verifies EA-0004 integrity first, delegates cryptographic/bundle authenticity to a typed verifier, and keeps missing/unavailable verification flagged `unverified` while completed mismatches are `failed`. |
+| ECR-0040 | EA-0030 + EA-0024 | Accepted | Preserve unknown component reachability through vulnerability prioritization: factors carry `known|unknown`, unknown factors remain in the derivation but are excluded from the score denominator; add an asset-scoped vulnerability query and explicit Q5 owner methods. |
 
 ---
 
@@ -1775,3 +1776,49 @@ unverified and Q5 health must expose that dependency.
 EA-0030 §4/§5/§6, FR-6, NFR-4, AC-7/8, failure handling, and C-027 Q4. EA-0004
 is unchanged: it remains the single integrity/evidence backbone and is not
 misrepresented as a cryptographic attestation engine.
+
+---
+
+## ECR-0040 - unknown component reachability must not become a low score
+
+**Raised by:** Codex (C-027 Q5 implementation against the shipped EA-0024
+factor and store contracts).
+**Severity:** blocking within Q5 - the accepted handoff cannot preserve its
+load-bearing distinction through the real owner API.
+
+**Problem 1.** EA-0030 FR-5 requires component vulnerabilities to reach EA-0024
+with a `ReachabilitySignal`, and Q3 distinguishes `unknown` from
+`unreachable`. EA-0024's `PriorityFactor` carries only a numeric `value`. Mapping
+unknown to `0.0` makes it byte-identical to a proved unreachable/low exposure
+factor and lowers the score. Refusing the whole priority would discard the
+known CVSS, EPSS, threat, mission, baseline, and Trust claims. Neither outcome
+preserves the actual state.
+
+**Problem 2.** `VulnerabilityStore.query` cannot filter by affected object. Q5
+would have to read a global bounded page and filter component vulnerabilities
+after the limit, recreating the starvation defect prohibited by EA-0002 D8.
+
+**Problem 3.** The accepted EA-0030 protocol omits `tenant_id` from
+`component_vulns_to_prioritization` and does not declare its required risk and
+remediation methods, although FR-10/11 and Q5 require those owner delegations.
+The implementation cannot make the reads tenant-scoped or expose the required
+capabilities through that interface as written.
+
+**Resolution.** Add `PriorityFactor.status: Literal["known", "unknown"]`,
+defaulting to `known` for backward compatibility. Unknown factors remain in the
+factor payload and EA-0020 derivation with their source, reason, configured raw
+weight, and `status="unknown"`, but receive zero normalized weight; known
+weights are renormalized. This makes missing reachability visible without
+rewarding it as low exposure. Add an optional, owner-typed
+`exposure_override` to EA-0024 `prioritize` so EA-0030 supplies the exact Q3
+result without a second scorer. Add `asset_ref_id` to the vulnerability-store
+query and apply it before `limit` in both backends. Add explicit `tenant_id` to
+the component-vulnerability route and declare the EA-0013 risk and EA-0008
+proposal methods in EA-0030's interface.
+
+**Impact.** Additive owner-contract changes. Existing EA-0024 callers and
+factors retain `known` behavior and their scores. Q5 tests drive the real
+EA-0024 engine and inspect the resulting replayable finding, proving an unknown
+reach factor remains unknown and contributes neither a favorable zero nor an
+invented value. Both vulnerability stores prove tenant- and asset-scoped
+filtering.

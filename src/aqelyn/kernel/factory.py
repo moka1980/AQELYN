@@ -115,6 +115,7 @@ if TYPE_CHECKING:
         SaaSPostureEngine,
         SaaSPostureService,
     )
+    from aqelyn.supplychain import SBOMStore, SupplyChainEngine, SupplyChainService
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.registry import ThreatSourceRegistry
     from aqelyn.threat.service import ThreatFusionService
@@ -213,6 +214,9 @@ class Runtime:
     saas_normalization_store: SaaSNormalizationStore
     saas_posture_engine: SaaSPostureEngine
     saas_posture_service: SaaSPostureService
+    supplychain_store: SBOMStore
+    supplychain_engine: SupplyChainEngine
+    supplychain_engine_service: SupplyChainService
 
 
 class _RuntimeService:
@@ -409,6 +413,8 @@ def _register_runtime_services(
     cloud_posture_engine: CloudPostureEngine,
     saas_normalization_store: SaaSNormalizationStore,
     saas_posture_engine: SaaSPostureEngine,
+    supplychain_store: SBOMStore,
+    supplychain_engine: SupplyChainEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -438,6 +444,7 @@ def _register_runtime_services(
     close_vuln_store: Callable[[], Awaitable[None]] | None = None,
     close_cloud_normalization_store: Callable[[], Awaitable[None]] | None = None,
     close_saas_normalization_store: Callable[[], Awaitable[None]] | None = None,
+    close_supplychain_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -463,6 +470,7 @@ def _register_runtime_services(
     VulnerabilityIntelligenceService,
     CloudPostureService,
     SaaSPostureService,
+    SupplyChainService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.cspm.service import CloudPostureService
@@ -481,6 +489,7 @@ def _register_runtime_services(
     from aqelyn.risk.service import RiskIntelligenceService
     from aqelyn.soc.service import SecurityOperationsService
     from aqelyn.sspm.service import SaaSPostureService
+    from aqelyn.supplychain.service import SupplyChainService
     from aqelyn.threat.service import ThreatFusionService
     from aqelyn.vuln.service import VulnerabilityIntelligenceService
 
@@ -687,6 +696,21 @@ def _register_runtime_services(
         close_store=close_saas_normalization_store,
     )
     kernel.register(saas_service)
+    supplychain_service = SupplyChainService(
+        supplychain_engine,
+        store=supplychain_store,
+        owner_services={
+            "knowledge_graph": graph_service,
+            "inventory_engine": inventory_service,
+            "vuln_engine": vuln_service,
+            "compliance_engine": compliance_service,
+            "risk_engine": risk_service,
+            "trust_engine": trust_service,
+            "workflow_engine": workflow_service,
+        },
+        close_store=close_supplychain_store,
+    )
+    kernel.register(supplychain_service)
     return (
         graph_service,
         trust_service,
@@ -712,6 +736,7 @@ def _register_runtime_services(
         vuln_service,
         cloud_service,
         saas_service,
+        supplychain_service,
     )
 
 
@@ -806,6 +831,12 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         SharedObjectSaaSOwnerRouter,
         register_saas_events,
     )
+    from aqelyn.supplychain import (
+        InMemorySBOMStore,
+        SupplyChainConfig,
+        SupplyChainEngine,
+        register_supplychain_events,
+    )
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.registry import InMemoryThreatSourceRegistry
     from aqelyn.threat.service import register_threat_events
@@ -843,6 +874,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_vuln_events(registry)
     register_cloud_events(registry)
     register_saas_events(registry)
+    register_supplychain_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -1085,6 +1117,27 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
+    supplychain_store = InMemorySBOMStore(mode=cfg.tenant_mode)
+    supplychain_engine = SupplyChainEngine(
+        supplychain_store,
+        inventory=inventory_engine,
+        source_registry=trust_engine.registry,
+        object_store=object_store,
+        graph=knowledge_graph,
+        evidence_store=evidence_store,
+        vulnerability_store=vuln_store,
+        vulnerability_owner=vuln_engine,
+        license_policy_owner=compliance_engine.policy_engine,
+        finding_store=finding_store,
+        risk_owner=risk_engine,
+        workflow_engine=workflow_engine,
+        config=SupplyChainConfig(
+            license_policy_id=cfg.supplychain_license_policy_id,
+            sensitive_scopes=cfg.supplychain_sensitive_scopes,
+            max_depth=cfg.supplychain_max_depth,
+            batch_size=cfg.supplychain_batch_size,
+        ),
+    )
     cloud_normalization_store = InMemoryCloudNormalizationStore(mode=cfg.tenant_mode)
     cloud_owner_routers: list[CloudOwnerRouter] = [
         InventoryCloudOwnerRouter(inventory_engine),
@@ -1129,6 +1182,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         vuln_engine_service,
         cloud_posture_service,
         saas_posture_service,
+        supplychain_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1188,6 +1242,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cloud_posture_engine=cloud_posture_engine,
         saas_normalization_store=saas_normalization_store,
         saas_posture_engine=saas_posture_engine,
+        supplychain_store=supplychain_store,
+        supplychain_engine=supplychain_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -1274,6 +1330,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         saas_normalization_store=saas_normalization_store,
         saas_posture_engine=saas_posture_engine,
         saas_posture_service=saas_posture_service,
+        supplychain_store=supplychain_store,
+        supplychain_engine=supplychain_engine,
+        supplychain_engine_service=supplychain_engine_service,
     )
 
 
@@ -1370,6 +1429,12 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         SharedObjectSaaSOwnerRouter,
         register_saas_events,
     )
+    from aqelyn.supplychain import (
+        PostgresSBOMStore,
+        SupplyChainConfig,
+        SupplyChainEngine,
+        register_supplychain_events,
+    )
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.postgres import PostgresThreatSourceRegistry
     from aqelyn.threat.service import register_threat_events
@@ -1412,6 +1477,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_vuln_events(registry)
     register_cloud_events(registry)
     register_saas_events(registry)
+    register_supplychain_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -1705,6 +1771,30 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
+    supplychain_store = await PostgresSBOMStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    supplychain_engine = SupplyChainEngine(
+        supplychain_store,
+        inventory=inventory_engine,
+        source_registry=trust_engine.registry,
+        object_store=object_store,
+        graph=knowledge_graph,
+        evidence_store=evidence_store,
+        vulnerability_store=vuln_store,
+        vulnerability_owner=vuln_engine,
+        license_policy_owner=compliance_engine.policy_engine,
+        finding_store=finding_store,
+        risk_owner=risk_engine,
+        workflow_engine=workflow_engine,
+        config=SupplyChainConfig(
+            license_policy_id=cfg.supplychain_license_policy_id,
+            sensitive_scopes=cfg.supplychain_sensitive_scopes,
+            max_depth=cfg.supplychain_max_depth,
+            batch_size=cfg.supplychain_batch_size,
+        ),
+    )
     cloud_normalization_store = await PostgresCloudNormalizationStore.connect(
         cfg.database_url,
         mode=cfg.tenant_mode,
@@ -1752,6 +1842,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         vuln_engine_service,
         cloud_posture_service,
         saas_posture_service,
+        supplychain_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1811,6 +1902,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cloud_posture_engine=cloud_posture_engine,
         saas_normalization_store=saas_normalization_store,
         saas_posture_engine=saas_posture_engine,
+        supplychain_store=supplychain_store,
+        supplychain_engine=supplychain_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -1840,6 +1933,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_vuln_store=vuln_store.close,
         close_cloud_normalization_store=cloud_normalization_store.close,
         close_saas_normalization_store=saas_normalization_store.close,
+        close_supplychain_store=supplychain_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -1926,4 +2020,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         saas_normalization_store=saas_normalization_store,
         saas_posture_engine=saas_posture_engine,
         saas_posture_service=saas_posture_service,
+        supplychain_store=supplychain_store,
+        supplychain_engine=supplychain_engine,
+        supplychain_engine_service=supplychain_engine_service,
     )

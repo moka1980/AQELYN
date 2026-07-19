@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from aqelyn.conventions import ActorRef, new_id, require_typed_id, utc_now
 from aqelyn.conventions.errors import (
@@ -41,6 +41,7 @@ class PriorityFactor:
     value: float
     source: str
     reason: str
+    status: Literal["known", "unknown"] = "known"
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "value", _unit_factor(self.value, field="priority factor"))
@@ -48,6 +49,8 @@ class PriorityFactor:
             raise VulnConfigInvalid("priority factor source must not be empty")
         if not self.reason.strip():
             raise VulnConfigInvalid("priority factor reason must not be empty")
+        if self.status not in {"known", "unknown"}:
+            raise VulnConfigInvalid("priority factor status must be known or unknown")
 
 
 class ThreatExploitProvider(Protocol):
@@ -161,11 +164,12 @@ class VulnerabilityIntelligenceEngine:
         vulnerability_id: str,
         *,
         tenant_id: str | None,
+        exposure_override: PriorityFactor | None = None,
     ) -> VulnPriority:
         current = await self.store.get(vulnerability_id, tenant_id=tenant_id)
         if current is None:
             raise VulnNotFound(vulnerability_id)
-        factors = await self._factors_for(current)
+        factors = await self._factors_for(current, exposure_override=exposure_override)
         score, factor_payload = _compose_score(current, factors=factors, config=self.config)
         priority = _priority_for_score(score)
         derivation = _priority_derivation(
@@ -289,17 +293,29 @@ class VulnerabilityIntelligenceEngine:
                 return record
         return None
 
-    async def _factors_for(self, vulnerability: VulnerabilityRecord) -> dict[str, PriorityFactor]:
+    async def _factors_for(
+        self,
+        vulnerability: VulnerabilityRecord,
+        *,
+        exposure_override: PriorityFactor | None = None,
+    ) -> dict[str, PriorityFactor]:
         threat = (
             await self.threat_provider.exploitation_factor(vulnerability)
             if self.threat_provider is not None
             else PriorityFactor(0.0, "threat:unavailable", "No EA-0014 threat signal supplied.")
         )
-        exposure = (
-            await self.exposure_provider.reachability_factor(vulnerability)
-            if self.exposure_provider is not None
-            else PriorityFactor(0.0, "exposure:unavailable", "No EA-0023 exposure signal supplied.")
-        )
+        exposure = exposure_override
+        if exposure is None:
+            exposure = (
+                await self.exposure_provider.reachability_factor(vulnerability)
+                if self.exposure_provider is not None
+                else PriorityFactor(
+                    0.0,
+                    "exposure:unavailable",
+                    "No EA-0023 exposure signal supplied.",
+                    status="unknown",
+                )
+            )
         baseline = (
             await self.baseline_provider.blocking_factor(vulnerability)
             if self.baseline_provider is not None
@@ -537,7 +553,11 @@ def _compose_score(
     factors: dict[str, PriorityFactor],
     config: VulnConfig,
 ) -> tuple[float, dict[str, Any]]:
-    total_weight = sum(config.score_weights.get(name, 0.0) for name in _FACTOR_ORDER)
+    total_weight = sum(
+        config.score_weights.get(name, 0.0)
+        for name in _FACTOR_ORDER
+        if factors[name].status == "known"
+    )
     if total_weight <= 0.0:
         raise VulnConfigInvalid("score_weights must contain at least one positive V3 factor")
     score_unit = 0.0
@@ -545,7 +565,7 @@ def _compose_score(
     for name in _FACTOR_ORDER:
         factor = factors[name]
         weight = config.score_weights.get(name, 0.0)
-        normalized_weight = weight / total_weight
+        normalized_weight = weight / total_weight if factor.status == "known" else 0.0
         contribution = factor.value * normalized_weight
         score_unit += contribution
         payload[name] = {
@@ -555,6 +575,7 @@ def _compose_score(
             "raw_weight": round(weight, 6),
             "contribution": round(contribution, 6),
             "reason": factor.reason,
+            "status": factor.status,
         }
     payload["cvss"]["carried_value"] = vulnerability.cvss.value
     payload["cvss"]["carried_vector"] = vulnerability.cvss.vector

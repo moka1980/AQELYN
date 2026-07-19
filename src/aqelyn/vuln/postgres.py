@@ -11,6 +11,7 @@ from aqelyn.conventions.errors import CrossTenantReference, StoreUnavailable
 from aqelyn.vuln.ddl import DDL
 from aqelyn.vuln.models import DispositionKind, VulnerabilityRecord
 from aqelyn.vuln.store import (
+    validate_asset_ref_filter,
     validate_cve_filter,
     validate_disposition_filter,
     validate_query_limit,
@@ -101,11 +102,13 @@ class PostgresVulnerabilityStore:
         *,
         tenant_id: str | None,
         cve_id: str | None = None,
+        asset_ref_id: str | None = None,
         disposition: DispositionKind | None = None,
         limit: int = 100,
     ) -> list[VulnerabilityRecord]:
         selected_tenant = validate_tenant(tenant_id)
         selected_cve_id = validate_cve_filter(cve_id)
+        selected_asset_ref_id = validate_asset_ref_filter(asset_ref_id)
         selected_disposition = validate_disposition_filter(disposition)
         selected_limit = validate_query_limit(limit)
         args: list[Any] = []
@@ -118,6 +121,9 @@ class PostgresVulnerabilityStore:
         if selected_cve_id is not None:
             args.append(selected_cve_id)
             clauses.append(f"cve_id = ${len(args)}")
+        if selected_asset_ref_id is not None:
+            args.append(selected_asset_ref_id)
+            clauses.append(f"asset_ref->>'ref_id' = ${len(args)}")
         if selected_disposition is not None:
             args.append(selected_disposition)
             clauses.append(f"disposition->>'kind' = ${len(args)}")
