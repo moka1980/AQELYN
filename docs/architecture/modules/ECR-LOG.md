@@ -35,6 +35,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0028 | EA-0012 + EA-0028 | Accepted | Complete ECR-0027: plumb ACG/CSPM config through both runtime factories; apply query budgets independently per object type; persist complete, per-type baseline coverage; distinguish empty scope from missing baselines; and amend EA-0012's owner contract. |
 | ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 | ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
+| ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Proposed | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
 
 ---
 
@@ -1371,3 +1372,81 @@ prove assessments and certifications include later pages. EA-0015 threat hunts p
 post-query attribute non-matches until the requested result bound is filled or the estate ends.
 EA-0014 retains its configured correlation cap, pages past expired indicators, and marks
 `MatchReport.truncated=true` whenever unprocessed indicator or asset rows remain.
+
+---
+
+## ECR-0031 — the page sweep traded a silent cap for unbounded per-request work
+
+**Raised by:** Claude Code (post-merge review of PR #165, main @2d76d2b).
+**Severity:** blocking for EA-0015 — `hunt` is an interactive analyst operation whose cost is now
+proportional to estate size, and EA-0015's own D7/NFR-3 still promise a bounded query.
+
+PR #165 resolves ECR-0030 as raised, and thoroughly. EA-0002 gains **D8**, **FR-13**, **FR-14**
+and **AC-13/AC-14**, stated as a contract rather than a fix ("`next_cursor` is non-null exactly
+when another matching object exists"; "filtering after the page limit is therefore forbidden"),
+with adversarial-ordering proofs on both backends. EA-0010, EA-0011, EA-0014 and EA-0015 carry
+change-control lines. Governance and IAG genuinely page. `MatchReport.truncated` now unions the
+indicator and asset page bounds instead of only the KG's. Codex also found and fixed something I
+did not ask for and had missed: expired indicator pages could starve live indicators out of the
+budget entirely. Verified here: **673 passed** in-memory, **930 passed / 3 skipped on live
+Postgres 16 + Redis 7**.
+
+**The regression.** Two of the swept loops now continue until their result quota is filled *or the
+estate is exhausted*, with no ceiling on the work in between. Measured against real engines with a
+counting `ObjectStore`:
+
+`SecurityOperationsEngine.hunt`, `attribute_equals` matching nothing (the shape an analyst uses to
+disprove a hypothesis):
+
+```
+estate    queries   rows scanned   elapsed
+  500        10          500        0.76s
+ 1000        20         1000        3.31s
+ 2000        40         2000       10.11s      → 0 matches
+```
+
+`threat.correlate`, all indicators expired (the shape of a stale feed):
+
+```
+estate    queries   rows scanned   elapsed
+  500         6          500        0.22s
+ 1000        11         1000        0.76s
+ 2000        21         2000        3.42s      → 0 matches
+```
+
+Both were one query before #165. Both are now O(estate), and the wall-clock is superlinear on the
+in-memory backend. Ten seconds to answer "no" on a 2 000-object estate extrapolates badly: the
+cost is paid on exactly the queries that find nothing, which is most hunts.
+
+EA-0015 **D7** ("Threat hunting is bounded, saved queries") and **NFR-3** ("intake/correlation/hunt
+process in bounded batches") are unchanged. **FR-8** was amended to "follow object pages until its
+match limit is filled or the estate is exhausted", which describes the new loop but contradicts the
+decision and the non-functional target above it. The requirement moved; the promise did not.
+
+**This is ECR-0001 again.** `paths()` was bounded by `max_depth`/`max_paths` and still had
+unbounded worst-case effort, so it got `max_work` — "bounded, never hang". A result-count bound is
+not a work bound when the filter is selective. The platform already has the right shape for the
+honest version of this: `DriftSnapshot` pages under a budget and, when the budget is exhausted with
+rows remaining, returns what it found as `coverage_complete=false, reason="truncated"`. Reachability
+of a late match and boundedness are not in tension — declaring the bound satisfies both.
+
+**Resolution.**
+
+1. **`hunt` pages under a work budget.** A configured maximum pages/objects examined per hunt
+   (default in the low thousands, hard-capped), reached → stop and report. EA-0015 D7/NFR-3/FR-8
+   are reconciled to one statement.
+2. **`hunt` gains a truncation channel.** It currently returns a bare `list[dict]`: exactly `limit`
+   matches is indistinguishable from `limit` matches and more, and after (1) an exhausted budget
+   has no way to be said at all. EA-0014 got `truncated` in this same sweep; EA-0015 needs the
+   equivalent, or the budget it hits will be invisible — the defect ECR-0027 through ECR-0030 were
+   spent removing.
+3. **`_active_indicators` takes the same budget**, setting `indicators_truncated=true` when it
+   stops early. The plumbing already exists — `MatchReport.truncated` is wired.
+4. **(Separate, non-blocking.)** `InMemoryObjectStore.query` sorts every matching row and
+   deep-copies the whole match set on each call, before slicing to the page. That is what makes the
+   paged loops quadratic rather than linear. Copy the selected page only. This is a test/dev-runtime
+   cost, not a production one, but it is what turns the measurements above from bad into alarming.
+
+**Impact.** Amends EA-0015 D7/NFR-3/FR-8 and its hunt return type, amends EA-0014 FR-6, adds a
+work-budget config to both, and one acceptance test per module proving a budget-exhausted run is
+reported and not silently short. Implementation is Codex's.
