@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), EA-0002 (indicators/actors/campaigns as objects), EA-0005 (correlate indicators↔assets), EA-0004 (threat evidence), the Finding model; feeds EA-0013 (threat-intel risk signal), EA-0007 (mission weighting)
 **Consumed by:** EA-0013 Risk Intelligence (the reserved threat-intel signal seam), the threat UI (indicators, actors, campaigns, matches — a WCAG 2.2 AA surface), the Finding pipeline (matched threats → findings), EA-0010 reporting
 **Status:** Accepted
-**Change control:** ECR-0030 (object-page bounds are surfaced; expired indicators cannot starve live ones)
+**Change control:** ECR-0030 (object-page bounds are surfaced; expired indicators cannot starve live ones); ECR-0031 (indicator-enumeration work budget)
 **Build milestone:** C-011 (see `C-011_Task_Bundle.md`)
 **Definition of Ready:** see §11
 
@@ -90,7 +90,8 @@ ThreatMatch  = { indicator_id: str, asset_id: str, match_type: str,
 MatchReport  = { matches: list[ThreatMatch], evaluated: int, truncated: bool }
 
 FusionConfig = { source_reliability: dict[str, float], recency_half_life_days: float,
-                 correlation: dict, min_match_confidence: float,
+                 correlation: dict, correlation_max_work: int = 5_000,
+                 min_match_confidence: float,
                  quarantine_on_malformed: bool }
 ```
 
@@ -139,10 +140,12 @@ model (D3). Deterministic.
 domain/hash appearing in asset `attributes`, or graph reachability). Each
 `ThreatMatch` carries `confidence ≥ min_match_confidence`, the matched asset, an
 evidence ref, and a `reason`. The configured correlation limit bounds indicator
-and asset candidates; if another object page remains, `truncated=true`. Expired
-indicator pages are advanced until a live candidate is found, the limit is
-filled, or the filtered indicator set is exhausted. `truncated` also inherits
-from KG (ECR-0030).
+and asset candidates; indicator enumeration additionally examines at most
+`correlation_max_work` objects (default `5_000`, hard cap `100_000`). If another
+object page remains when either bound is reached, `truncated=true`. Expired
+indicator pages are advanced until a live candidate is found, the limit or work
+budget is filled, or the filtered indicator set is exhausted. `truncated` also
+inherits from KG (ECR-0030/ECR-0031).
 
 **Findings + signal.** Each match ≥ threshold → a finding (severity from
 indicator confidence × asset criticality), evidence = the indicator's source +
@@ -159,12 +162,12 @@ a threat-intel `SignalRef` supplied to EA-0013 (D6). Actions delegate to Workflo
 - **FR-3** Indicators SHALL be deduplicated by natural key `(indicator_type, value)` across feeds, unioning sources (D2).
 - **FR-4** `score_confidence` SHALL be deterministic from source reliability + corroboration + recency; identical inputs → identical score (D3).
 - **FR-5** `correlate` SHALL match indicators against estate assets, each match carrying the asset, an evidence ref, `confidence`, and a `reason` (D4/D5).
-- **FR-6** Correlation SHALL be tenant-scoped and bounded (configured object cap + KG caps); `truncated` SHALL be true when either source has an unprocessed object page or KG truncates, and expired indicators SHALL NOT starve later live indicators (ECR-0030).
+- **FR-6** Correlation SHALL be tenant-scoped and bounded (configured object cap + `correlation_max_work` + KG caps); `truncated` SHALL be true when either source has an unprocessed object page or KG truncates, and expired indicators SHALL NOT starve later live indicators within the work budget (ECR-0030/ECR-0031).
 - **FR-7** `matches_to_findings` SHALL raise a finding per qualifying match (mission-weighted severity, evidence-cited) and SHALL supply a threat-intel `SignalRef` to EA-0013 (D6); actions SHALL be proposed via Workflow, never executed (§0).
 - **FR-8** Every indicator and match SHALL reference its source evidence (EA-0004) (D5).
 - **FR-9** The engine SHALL NOT mutate non-threat objects or execute any action; it writes threat objects, evidence, and (via pipeline) findings only.
 - **FR-10** Expired indicators (`expires_at` past) SHALL be excluded from correlation by default, flagged.
-- **FR-11** Invalid config (`min_match_confidence` outside `[0,1]`, `recency_half_life_days ≤ 0`, unknown source reliability out of range) SHALL raise `ThreatConfigInvalid`.
+- **FR-11** Invalid config (`min_match_confidence` outside `[0,1]`, `recency_half_life_days ≤ 0`, `correlation_max_work` outside `1..100_000`, unknown source reliability out of range) SHALL raise `ThreatConfigInvalid`.
 - **FR-12** `ThreatSourceRegistry` in-memory and Postgres implementations SHALL pass one contract suite. (Threat objects persist via the existing object store.)
 - **FR-13** `ThreatFusionService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 
@@ -172,7 +175,7 @@ a threat-intel `SignalRef` supplied to EA-0013 (D6). Actions delegate to Workflo
 
 - **NFR-1 (no network/credentials)** no code path in this engine opens a socket, makes an HTTP request, or reads a feed credential; enforced by test/grep.
 - **NFR-2 (determinism)** identical feed records + config → identical indicators/scores/matches (excluding ids/timestamps).
-- **NFR-3 (bounded)** ingest and correlation process in bounded batches; inherits KG caps.
+- **NFR-3 (bounded)** ingest and correlation process in bounded batches; indicator enumeration examines at most `correlation_max_work` objects and inherits KG caps.
 - **NFR-4 (portability & typing)** in-memory + Postgres registry pass one suite; `mypy --strict` + `ruff` clean.
 
 ## 8. Acceptance Criteria ↔ Tests (Definition of Ready)
@@ -195,6 +198,7 @@ a threat-intel `SignalRef` supplied to EA-0013 (D6). Actions delegate to Workflo
 | AC-14 | Source registry in-memory & Postgres pass one suite | `test_tif_source_contract[inmemory]` / `[postgres]` |
 | AC-15 | Registers as AQService with health | `test_tif_service_health` |
 | AC-16 | Object-page cap is explicit and expired pages do not starve live indicators | `test_tif_object_page_limit_reports_truncated[inmemory|postgres]`, `test_tif_expired_page_does_not_starve_active_indicator[inmemory|postgres]` |
+| AC-17 | Expired-indicator enumeration stops at its work budget and reports truncation | `test_tif_indicator_work_budget[inmemory|postgres]` |
 
 ## 9. Error taxonomy (contributions)
 

@@ -25,6 +25,7 @@ THREAT_OBJECT_TYPES: tuple[str, ...] = (
     THREAT_ACTOR_OBJECT_TYPE,
     THREAT_CAMPAIGN_OBJECT_TYPE,
 )
+MAX_CORRELATION_WORK = 100_000
 
 
 def _require_nonempty(value: str, *, field: str) -> str:
@@ -226,6 +227,7 @@ class FusionConfig(BaseModel):
     source_reliability: dict[str, float] = Field(default_factory=dict)
     recency_half_life_days: float = 30.0
     correlation: dict[str, Any] = Field(default_factory=dict)
+    correlation_max_work: int = 5_000
     min_match_confidence: float = 0.5
     quarantine_on_malformed: bool = True
 
@@ -248,6 +250,15 @@ class FusionConfig(BaseModel):
     @classmethod
     def _min_match_confidence(cls, value: float) -> float:
         return _require_unit_interval(value, field="min_match_confidence")
+
+    @field_validator("correlation_max_work", mode="before")
+    @classmethod
+    def _correlation_max_work(cls, value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ThreatConfigInvalid("correlation_max_work must be >= 1")
+        if value > MAX_CORRELATION_WORK:
+            raise ThreatConfigInvalid(f"correlation_max_work must be <= {MAX_CORRELATION_WORK}")
+        return value
 
     @model_validator(mode="after")
     def _correlation_mapping(self) -> FusionConfig:

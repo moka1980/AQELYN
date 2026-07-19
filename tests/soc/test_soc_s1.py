@@ -141,6 +141,10 @@ def test_soc_config_invalid() -> None:
         SOCConfig(incident_window_seconds=0)
     with pytest.raises(SOCConfigInvalid, match="batch_size"):
         SOCConfig(batch_size=0)
+    with pytest.raises(SOCConfigInvalid, match="hunt_max_work"):
+        SOCConfig(hunt_max_work=0)
+    with pytest.raises(SOCConfigInvalid, match="hunt_max_work"):
+        SOCConfig(hunt_max_work=100_001)
     with pytest.raises(SOCConfigInvalid, match="correlation must be a mapping"):
         SOCConfig.model_validate({"correlation": ["asset"]})
     with pytest.raises(SOCConfigInvalid, match=r"correlation\.group_by"):

@@ -6,13 +6,20 @@ import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.graph import InMemoryKnowledgeGraph, KnowledgeGraph, PostgresKnowledgeGraph
-from aqelyn.objects import AQObject, AQRelationship, InMemoryObjectStore, ObjectStore, SourceRef
+from aqelyn.objects import (
+    AQObject,
+    AQRelationship,
+    InMemoryObjectStore,
+    ObjectQuery,
+    ObjectStore,
+    SourceRef,
+)
 from aqelyn.objects.postgres import PostgresObjectStore
 from aqelyn.objects.registry import ObjectTypeRegistry
 from aqelyn.threat import FeedRecord, FusionConfig, ThreatFusionEngine
@@ -29,6 +36,20 @@ class ThreatGraphHarness:
     kind: str
     object_store: ObjectStore
     graph: KnowledgeGraph
+
+
+class _CountingObjectStore:
+    def __init__(self, inner: ObjectStore) -> None:
+        self.inner = inner
+        self.queries_by_type: dict[str | None, int] = {}
+        self.rows_by_type: dict[str | None, int] = {}
+
+    async def query(self, query: ObjectQuery) -> tuple[list[AQObject], str | None]:
+        object_type = query.object_type
+        self.queries_by_type[object_type] = self.queries_by_type.get(object_type, 0) + 1
+        rows, cursor = await self.inner.query(query)
+        self.rows_by_type[object_type] = self.rows_by_type.get(object_type, 0) + len(rows)
+        return rows, cursor
 
 
 @pytest.fixture(params=["inmemory", "postgres"], ids=["inmemory", "postgres"])
@@ -313,6 +334,36 @@ async def test_tif_expired_page_does_not_starve_active_indicator(
         (active.id, asset.id)
     ]
     assert report.evaluated == 1
+
+
+async def test_tif_indicator_work_budget(threat_graph_harness: ThreatGraphHarness) -> None:
+    engine = _engine(
+        threat_graph_harness,
+        config=FusionConfig(correlation={"limit": 1}, correlation_max_work=2),
+    )
+    for index in range(3):
+        await engine.ingest(
+            [
+                _record(
+                    raw={
+                        "type": "domain",
+                        "value": f"expired-{index}.example",
+                        "expires_at": (NOW - timedelta(days=1)).isoformat(),
+                    }
+                )
+            ],
+            tenant_id=TENANT_A,
+        )
+    spy = _CountingObjectStore(threat_graph_harness.object_store)
+    engine.object_store = cast(ObjectStore, spy)
+
+    report = await engine.correlate(tenant_id=TENANT_A, now=NOW)
+
+    assert report.matches == []
+    assert report.evaluated == 0
+    assert report.truncated is True
+    assert spy.queries_by_type["threat_indicator"] == 2
+    assert spy.rows_by_type["threat_indicator"] == 2
 
 
 def _engine(

@@ -154,6 +154,7 @@ class ThreatFusionEngine:
             tenant_id=tenant_id,
             scope=scope,
             config=self.config.correlation,
+            max_work=self.config.correlation_max_work,
             min_match_confidence=self.config.min_match_confidence,
             now=now,
         )

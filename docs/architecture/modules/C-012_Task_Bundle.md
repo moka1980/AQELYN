@@ -74,6 +74,17 @@ read-only).
 **Depends on:** S4.
 **Acceptance:** `test_soc_service_health`.
 
+## Post-delivery follow-up — ECR-0031
+
+Add `SOCConfig.hunt_max_work` (default `5_000`, hard cap `100_000`) and replace
+the bare hunt match list with `HuntResult { matches, evaluated, truncated }`.
+The no-match path SHALL stop at the work budget and report that the result is
+partial when more object pages remain.
+
+**Acceptance:** `test_soc_config_invalid`,
+`test_soc_hunt_work_budget[inmemory]`,
+`test_soc_hunt_work_budget[postgres]`.
+
 ---
 
 ## Review protocol (Claude Code) — the response boundary gets the hard look

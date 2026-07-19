@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from bisect import bisect_right, insort
 from typing import Any
 
 from aqelyn.conventions import ActorRef, new_id, utc_now
@@ -34,6 +35,7 @@ class InMemoryObjectStore:
         event_sink: ObjectEventSink | None = None,
     ) -> None:
         self._objs: dict[str, AQObject] = {}
+        self._object_ids: list[str] = []
         self._rels: dict[str, AQRelationship] = {}
         self._nk: dict[tuple[str | None, str, str], str] = {}
         self._history: dict[str, list[dict[str, Any]]] = {}
@@ -128,6 +130,7 @@ class InMemoryObjectStore:
         created.created_at = now
         created.updated_at = now
         self._objs[created.id] = created
+        insort(self._object_ids, created.id)
         self._index_nk(created)
         self._write_history(created)
         await self._emit(
@@ -161,8 +164,12 @@ class InMemoryObjectStore:
     async def query(self, q: ObjectQuery) -> tuple[list[AQObject], str | None]:
         if self.mode == "enterprise" and q.tenant_id is None:
             raise TenantScopeRequired("query must be tenant-scoped in enterprise mode")
-        rows: list[AQObject] = []
-        for obj in self._objs.values():
+        selected: list[AQObject] = []
+        start = 0 if q.cursor is None else bisect_right(self._object_ids, q.cursor)
+        has_more = False
+        for index in range(start, len(self._object_ids)):
+            object_id = self._object_ids[index]
+            obj = self._objs[object_id]
             if self.mode == "local" and obj.tenant_id is not None:
                 continue
             if q.tenant_id is not None and obj.tenant_id != q.tenant_id:
@@ -180,13 +187,12 @@ class InMemoryObjectStore:
                 for nk in obj.natural_keys
             ):
                 continue
-            rows.append(copy.deepcopy(obj))
-        rows.sort(key=lambda o: o.id)
-        if q.cursor is not None:
-            rows = [obj for obj in rows if obj.id > q.cursor]
-        selected = rows[: q.limit]
-        next_cursor = selected[-1].id if len(rows) > q.limit and selected else None
-        return selected, next_cursor
+            if len(selected) == q.limit:
+                has_more = True
+                break
+            selected.append(obj)
+        next_cursor = selected[-1].id if has_more and selected else None
+        return [copy.deepcopy(obj) for obj in selected], next_cursor
 
     async def relate(self, rel: AQRelationship) -> AQRelationship:
         frm = self._objs.get(rel.from_id)

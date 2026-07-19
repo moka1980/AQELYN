@@ -1,5 +1,6 @@
 """T2 acceptance tests for EA-0002 (§16). Run against in-memory and Postgres."""
 
+import copy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -229,6 +230,31 @@ async def test_uom_query_filters_before_limit(object_store: Any) -> None:
 
     assert [obj.id for obj in labelled] == [target.id]
     assert [obj.id for obj in natural_keyed] == [target.id]
+
+
+async def test_uom_inmemory_query_copies_selected_page_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = InMemoryObjectStore()
+    for index in range(10):
+        await store.upsert(_obj(id=_object_id(index + 1)))
+
+    real_deepcopy = copy.deepcopy
+    copied_objects = 0
+
+    def tracking_deepcopy(value: Any) -> Any:
+        nonlocal copied_objects
+        if isinstance(value, AQObject):
+            copied_objects += 1
+        return real_deepcopy(value)
+
+    monkeypatch.setattr("aqelyn.objects.memory.copy.deepcopy", tracking_deepcopy)
+
+    rows, cursor = await store.query(ObjectQuery(limit=2))
+
+    assert len(rows) == 2
+    assert cursor is not None
+    assert copied_objects == 2
 
 
 async def test_uom_enterprise_requires_scope() -> None:

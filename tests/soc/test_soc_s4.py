@@ -88,6 +88,8 @@ class _ObjectStoreSpy:
     def __init__(self, inner: ObjectStore) -> None:
         self.inner = inner
         self.mutations = 0
+        self.queries = 0
+        self.queried_rows = 0
 
     async def get(self, object_id: str, *, resolve_merged: bool = True) -> AQObject | None:
         return await self.inner.get(object_id, resolve_merged=resolve_merged)
@@ -101,7 +103,10 @@ class _ObjectStoreSpy:
         return await self.inner.update(obj, expected_version=expected_version)
 
     async def query(self, q: ObjectQuery) -> tuple[list[AQObject], str | None]:
-        return await self.inner.query(q)
+        self.queries += 1
+        rows, cursor = await self.inner.query(q)
+        self.queried_rows += len(rows)
+        return rows, cursor
 
     async def relate(self, rel: AQRelationship) -> AQRelationship:
         self.mutations += 1
@@ -300,7 +305,7 @@ async def test_soc_hunt_readonly(soc_harness: SOCHarness) -> None:
     spy = _ObjectStoreSpy(soc_harness.object_store)
     engine = _engine(soc_harness, object_store=spy, config=SOCConfig(batch_size=1))
 
-    matches = await engine.hunt(
+    result = await engine.hunt(
         Hunt(
             tenant_id=None,
             name="Prod Linux exposure",
@@ -315,11 +320,12 @@ async def test_soc_hunt_readonly(soc_harness: SOCHarness) -> None:
         )
     )
 
-    assert len(matches) == 1
-    assert matches[0]["kind"] == "object"
-    assert matches[0]["object_type"] == "generic"
-    assert matches[0]["labels"] == {"env": "prod"}
-    attributes = matches[0]["attributes"]
+    assert len(result.matches) == 1
+    assert result.truncated is True
+    assert result.matches[0]["kind"] == "object"
+    assert result.matches[0]["object_type"] == "generic"
+    assert result.matches[0]["labels"] == {"env": "prod"}
+    attributes = result.matches[0]["attributes"]
     assert isinstance(attributes, dict)
     assert attributes["os"] == "linux"
     assert spy.mutations == 0
@@ -338,7 +344,7 @@ async def test_soc_hunt_pages_for_late_match(soc_harness: SOCHarness) -> None:
     )
     engine = _engine(soc_harness, config=SOCConfig(batch_size=1))
 
-    matches = await engine.hunt(
+    result = await engine.hunt(
         Hunt(
             tenant_id=None,
             name="Late page match",
@@ -348,7 +354,40 @@ async def test_soc_hunt_pages_for_late_match(soc_harness: SOCHarness) -> None:
         )
     )
 
-    assert [match["object_id"] for match in matches] == [expected.id]
+    assert [match["object_id"] for match in result.matches] == [expected.id]
+    assert result.evaluated == 2
+    assert result.truncated is False
+
+
+async def test_soc_hunt_work_budget(soc_harness: SOCHarness) -> None:
+    for name in ("first", "second", "third"):
+        await _add_object(
+            soc_harness.object_store,
+            name,
+            attributes={"os": "windows"},
+        )
+    spy = _ObjectStoreSpy(soc_harness.object_store)
+    engine = _engine(
+        soc_harness,
+        object_store=spy,
+        config=SOCConfig(batch_size=10, hunt_max_work=2),
+    )
+
+    result = await engine.hunt(
+        Hunt(
+            tenant_id=None,
+            name="Bounded no-match hunt",
+            hypothesis="No matching object should exhaust the bounded work budget.",
+            query={"attribute_equals": {"os": "linux"}, "limit": 10},
+            saved_by=ANALYST,
+        )
+    )
+
+    assert result.matches == []
+    assert result.evaluated == 2
+    assert result.truncated is True
+    assert spy.queries == 1
+    assert spy.queried_rows == 2
 
 
 async def test_soc_no_side_effects(soc_harness: SOCHarness) -> None:
