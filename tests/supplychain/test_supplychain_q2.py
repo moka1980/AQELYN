@@ -21,6 +21,7 @@ from aqelyn.conventions.errors import (
     SupplyChainConfigInvalid,
     TenantScopeRequired,
 )
+from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.graph import InMemoryKnowledgeGraph
 from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
 from aqelyn.objects import InMemoryObjectStore
@@ -85,6 +86,7 @@ async def _harness(kind: str) -> AsyncIterator[_Harness]:
         source_registry=registry,
         object_store=object_store,
         graph=InMemoryKnowledgeGraph(object_store),
+        evidence_store=InMemoryEvidenceStore(mode="enterprise"),
     )
     try:
         yield _Harness(store, inventory_store, object_store, registry, engine)

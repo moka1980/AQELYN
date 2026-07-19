@@ -42,6 +42,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0036 | EA-0029 | Accepted | Make Z3's owner references and blast-radius read tenant-correct: `SaaSRoutingResult.inventory_ref` is an EA-0025 `ast_` id (not an EA-0002 `obj_` id), and `integration_blast_radius` requires explicit `tenant_id` so it cannot read the tenant-scoped integration store through an unscoped interface. |
 | ECR-0037 | EA-0030 | Accepted | Make Q2's Trust reconciliation durable and its store pagination honest: components pin the winning source/time and retain every conflict candidate, malformed documents persist as flagged quarantine records, and `SBOMStore.query` adopts EA-0002 D8 cursor semantics. |
 | ECR-0038 | EA-0030 | Accepted | Make Q3's truncation and path proof representable: `dependency_paths` returns paths plus `truncated`, and transitive reach embeds the exact EA-0005 path with a deterministic content-addressed `path_ref`. |
+| ECR-0039 | EA-0030 (+ EA-0004 boundary) | Accepted | Evidence hash-chain integrity is not attestation authenticity: Q4 verifies EA-0004 integrity first, delegates cryptographic/bundle authenticity to a typed verifier, and keeps missing/unavailable verification flagged `unverified` while completed mismatches are `failed`. |
 
 ---
 
@@ -1728,3 +1729,49 @@ match; direct, unreachable, and unknown signals cannot carry a graph path.
 **Impact.** Q3-only additive model changes before any reachability record is
 persisted or routed to EA-0024. EA-0030 §4/§5/§6, FR-3/4, AC-4/5, and C-027 Q3
 are amended. No owner contract changes: traversal still delegates to EA-0005.
+
+---
+
+## ECR-0039 - evidence integrity is not attestation authenticity
+
+**Raised by:** Codex (C-027 Q4 implementation against the shipped EA-0004
+contract).
+**Severity:** blocking within Q4 - the Accepted wording would allow a false
+`verified` result from a capability EA-0004 explicitly does not implement.
+
+**Problem.** EA-0030 says signature/hash verification happens "via EA-0004".
+The shipped EA-0004 `verify()` contract recomputes evidence content and
+hash-chain integrity only. EA-0004 D4 explicitly reserves signing and external
+anchoring for a later ADR; `EvidenceRecord.signature` is nullable data and no
+signature, Sigstore-bundle, publisher-key, or SLSA-verification interface
+exists. Therefore `EvidenceStore.verify(...).ok` proves that AQELYN's evidence
+record was not altered; it does not prove the publisher signature is authentic.
+
+The result type compounds the gap: `ProvenanceAttestation.evidence_id` is
+nullable while `ProvenanceResult.evidence_id` is required, so the mandated
+`unverified` outcome cannot be represented when EA-0004 is unavailable. It also
+has no structural flag distinguishing unverified/failed from trusted output.
+
+**Resolution.** Q4 performs two explicit stages. First, any cited evidence is
+tenant/object/raw-content-bound and checked by EA-0004, so valid evidence for
+different attestation bytes cannot be laundered into the result. Second, a
+typed, kind-specific `ProvenanceVerifier` checks attestation authenticity. No
+configured verifier or a retriable verifier/backbone outage yields flagged
+`unverified`; a completed
+authenticity mismatch or broken cited evidence yields flagged `failed`.
+Successful and failed results are appended to EA-0004 when available. A
+`verified` result is invalid without recorded result evidence; `evidence_id` is
+nullable only so the fail-safe unverified/failed outcomes remain representable
+during an evidence outage. `basis_evidence_id` preserves the handed-in claim's
+source separately from the result evidence.
+
+No default verifier guesses from caller-supplied booleans or treats a hash-chain
+pass as a signature pass. Algorithm/key/bundle implementations plug into the
+typed verifier seam; until one is configured, runtime behavior is explicitly
+unverified and Q5 health must expose that dependency.
+
+**Impact.** Adds a Q4-only verifier protocol and tightens
+`ProvenanceResult`; no existing persisted provenance result exists. Amends
+EA-0030 §4/§5/§6, FR-6, NFR-4, AC-7/8, failure handling, and C-027 Q4. EA-0004
+is unchanged: it remains the single integrity/evidence backbone and is not
+misrepresented as a cryptographic attestation engine.

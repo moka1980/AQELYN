@@ -83,8 +83,10 @@ EA-0005 `Path`, and `path_ref` content-addresses that path (ECR-0038).
 ## Q4 — Provenance verification (unverified ≠ trusted)
 
 **Spec:** §1 (S3), §6, FR-6, D5, NFR-4.
-**Deliverables:** `verify_provenance` via the **EA-0004** hash-chain/attestation
-backbone (the EA-0016 precedent); `verified|unverified|failed`, evidence-recorded;
+**Deliverables:** `verify_provenance` uses **EA-0004** for cited/result evidence
+integrity and a kind-specific `ProvenanceVerifier` for authenticity (ECR-0039);
+EA-0004 integrity alone never means a valid signature. `verified|unverified|failed`
+remain distinct and evidence-recorded where the backbone is available;
 **unverified flagged, never assumed trusted**; failed signature **surfaced**.
 **Depends on:** Q3.
 **Acceptance:** `test_sc_provenance_verify`, `test_sc_provenance_failure`.

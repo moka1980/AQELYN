@@ -1,4 +1,4 @@
-"""Supply-chain SBOM ingestion, dependency graph, and reachability (EA-0030 Q2/Q3)."""
+"""Supply-chain SBOM, dependency, and provenance engine (EA-0030 Q2-Q4)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from aqelyn.conventions.errors import (
     StoreUnavailable,
     SupplyChainConfigInvalid,
 )
+from aqelyn.evidence import EvidenceStore
 from aqelyn.graph import KnowledgeGraph, Path
 from aqelyn.inventory import AssetRecord, DiscoverySource
 from aqelyn.objects import AQObject, AQRelationship, NaturalKey, ObjectStore, SourceRef
@@ -24,6 +25,9 @@ from aqelyn.supplychain.models import (
     ComponentConflictCandidate,
     DependencyPathResult,
     DependencyRelationship,
+    ProvenanceAttestation,
+    ProvenanceResult,
+    ProvenanceStatus,
     QuarantinedSBOM,
     ReachabilitySignal,
     SBOMDocument,
@@ -32,6 +36,7 @@ from aqelyn.supplychain.models import (
     path_ref,
 )
 from aqelyn.supplychain.parse import parse_sbom
+from aqelyn.supplychain.provenance import ProvenanceVerifier, verify_attestation
 from aqelyn.supplychain.store import SBOMStore
 from aqelyn.trust import SourceReliabilityRegistry
 
@@ -75,6 +80,8 @@ class SupplyChainEngine:
         source_registry: SourceReliabilityRegistry,
         object_store: ObjectStore,
         graph: KnowledgeGraph,
+        evidence_store: EvidenceStore,
+        provenance_verifier: ProvenanceVerifier | None = None,
         config: SupplyChainConfig | None = None,
     ) -> None:
         self.store = store
@@ -82,6 +89,8 @@ class SupplyChainEngine:
         self.source_registry = source_registry
         self.object_store = object_store
         self.graph = graph
+        self.evidence_store = evidence_store
+        self.provenance_verifier = provenance_verifier
         self.config = config or SupplyChainConfig()
         ensure_supplychain_object_type(object_store)
 
@@ -275,6 +284,71 @@ class SupplyChainEngine:
             reason="complete EA-0005 traversal found no path from a direct component",
         )
 
+    async def verify_provenance(
+        self,
+        attestations: Sequence[ProvenanceAttestation],
+        *,
+        tenant_id: str | None,
+    ) -> list[ProvenanceResult]:
+        selected_tenant = require_tenant_id(tenant_id)
+        if len(attestations) > self.config.batch_size:
+            raise SupplyChainConfigInvalid(
+                "provenance attestation count exceeds the configured batch_size"
+            )
+
+        results: list[ProvenanceResult] = []
+        components: dict[str, SoftwareComponent] = {}
+        statuses: dict[str, list[ProvenanceStatus]] = {}
+        for attestation in attestations:
+            component = components.get(attestation.component_purl)
+            if component is None:
+                component = await self.store.get_component(
+                    attestation.component_purl,
+                    tenant_id=selected_tenant,
+                )
+                if component is None:
+                    raise ComponentNotFound(attestation.component_purl)
+                components[attestation.component_purl] = component
+            result = await verify_attestation(
+                attestation,
+                component=component,
+                evidence_store=self.evidence_store,
+                verifier=self.provenance_verifier,
+                actor=_SUPPLYCHAIN_ACTOR,
+            )
+            results.append(result)
+            statuses.setdefault(component.purl, []).append(result.status)
+
+        for purl in sorted(statuses):
+            component = components[purl]
+            status = _aggregate_provenance_status(statuses[purl])
+            updated = await self.store.put_component(
+                component.model_copy(update={"provenance_status": status}, deep=True)
+            )
+            confidence = (await self.source_registry.get(source_id=updated.source_id)).weight
+            stored_object = await self.object_store.upsert(
+                _component_object(updated, confidence=confidence)
+            )
+            if stored_object.id != updated.object_id:
+                raise StoreUnavailable(
+                    "EA-0002 resolved the component purl to a different object id"
+                )
+            assets = await self.inventory.ingest(
+                reports=[_inventory_report(updated)],
+                source=DiscoverySource(
+                    source_id=updated.source_id,
+                    reliability=confidence,
+                    health="ok",
+                    as_of=updated.observed_at,
+                ),
+                tenant_id=selected_tenant,
+            )
+            if len(assets) != 1:
+                raise StoreUnavailable(
+                    "EA-0025 inventory did not accept a provenance status update"
+                )
+        return [result.model_copy(deep=True) for result in results]
+
     async def _materialize_dependency_graph(
         self,
         components: Sequence[SoftwareComponent],
@@ -457,6 +531,14 @@ def _unknown_reachability(
     )
 
 
+def _aggregate_provenance_status(statuses: Sequence[ProvenanceStatus]) -> ProvenanceStatus:
+    if "failed" in statuses:
+        return "failed"
+    if "unverified" in statuses:
+        return "unverified"
+    return "verified"
+
+
 def _inventory_report(component: SoftwareComponent) -> dict[str, Any]:
     prefix, payload = parse_id(component.object_id)
     if prefix != "obj":
@@ -475,6 +557,7 @@ def _inventory_report(component: SoftwareComponent) -> dict[str, Any]:
         "supplier": component.supplier,
         "hashes": dict(component.hashes),
         "provenance_status": component.provenance_status,
+        "flagged": component.provenance_status != "verified",
         "direct": component.direct,
         "conflicts": [conflict.model_dump(mode="json") for conflict in component.conflicts],
     }

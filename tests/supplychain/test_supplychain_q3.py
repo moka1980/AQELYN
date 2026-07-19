@@ -9,6 +9,7 @@ import pytest
 
 from aqelyn.conventions import new_id
 from aqelyn.conventions.errors import SupplyChainConfigInvalid
+from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.graph import EdgeView, ImpactHit, ImpactResult, KnowledgeGraph, NodeView, Path
 from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
 from aqelyn.objects import InMemoryObjectStore
@@ -113,6 +114,7 @@ def _engine(
         source_registry=InMemorySourceReliabilityRegistry(default_reliability=0.8),
         object_store=object_store,
         graph=graph,
+        evidence_store=InMemoryEvidenceStore(),
         config=SupplyChainConfig(max_depth=max_depth, batch_size=100),
     )
 

@@ -6,7 +6,8 @@
 **Status:** Accepted
 **Build milestone:** C-027 (see `C-027_Task_Bundle.md`)
 **Change control:** ECR-0037 (durable Trust reconciliation + D8 store pagination),
-ECR-0038 (truncation-bearing path result + content-addressed reachability path)
+ECR-0038 (truncation-bearing path result + content-addressed reachability path),
+ECR-0039 (evidence integrity is not signature authenticity)
 **Definition of Ready:** see §12
 
 ---
@@ -141,8 +142,10 @@ ReachabilitySignal = { component_purl: str, cve_id: str,
 
 ProvenanceAttestation = { component_purl: str, kind: str,            # slsa|sigstore|signature
                           raw: dict, evidence_id: str | null }        # handed in
+ProvenanceCheck = { valid: bool, detail: str }                        # trusted verifier output
 ProvenanceResult = { component_purl: str, status: "verified"|"unverified"|"failed",
-                     detail: str, evidence_id: str }                 # EA-0004-backed (S3)
+                     detail: str, evidence_id: str | null,
+                     basis_evidence_id: str | null, flagged: bool }  # EA-0004-backed (S3/ECR-0039)
 
 SupplyChainAssessment = { id, tenant_id, run_at, subject_ref: str,
                           components: int, direct: int, transitive: int,
@@ -172,6 +175,10 @@ class SBOMStore(Protocol):
     async def quarantine(self, item: QuarantinedSBOM) -> QuarantinedSBOM: ...
     async def get_quarantine(self, doc_id: str, *,
                              tenant_id: str | None) -> QuarantinedSBOM | None: ...
+
+class ProvenanceVerifier(Protocol):
+    async def verify(self, attestation: ProvenanceAttestation, *,
+                     component: SoftwareComponent) -> ProvenanceCheck: ...
 
 class SupplyChainEngine(Protocol):
     async def ingest_sbom(self, doc: SBOMDocument, *,
@@ -218,9 +225,17 @@ computed path is not proof of no path) (S2).
 actually reachable" — a genuinely better priority than CVSS-on-a-transitive-dep
 (S2/D4).
 
-**Provenance.** `verify_provenance` checks each attestation's signature/hash via
-the **EA-0004** backbone; `verified`/`unverified`/`failed`, evidence-recorded; an
-`unverified` component is flagged, **never assumed trusted** (S3).
+**Provenance.** `verify_provenance` first checks any cited evidence through the
+**EA-0004** integrity backbone, then delegates signature/bundle authenticity to a
+kind-specific `ProvenanceVerifier` (ECR-0039). Cited evidence must match the
+tenant, component object, and exact handed-in attestation content; a valid
+record for different bytes cannot be reused. EA-0004 integrity success alone
+is never called signature success. A missing/unavailable verifier or unavailable
+backbone yields flagged `unverified`; an authenticity mismatch yields flagged
+`failed`; both outcomes are distinct from `verified`. Results are appended to
+EA-0004 and a `verified` result is unconstructable without recorded result
+evidence. Failed verification remains surfaced even if result recording is
+temporarily unavailable (S3).
 
 **License + assess.** Identify licenses per component (new); `license_findings`
 raises findings that **EA-0010** scores against license policy. `assess`
@@ -237,7 +252,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 - **FR-3** Dependencies SHALL be **EA-0002 edges**; transitive reach SHALL use **EA-0005** traversal bounded by `max_depth`; `dependency_paths` SHALL return `DependencyPathResult` and propagate the owner's `truncated` signal; the module SHALL NOT implement graph traversal (S1/D3/ECR-0038).
 - **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`, default to `unknown`, and SHALL NEVER report `unknown` as `unreachable` (absence of a computed path ≠ no path). A transitive signal SHALL embed the exact EA-0005 `Path`; `path_ref` SHALL be its deterministic content address, and a mismatched path/reference pair SHALL be unconstructable (ECR-0038).
 - **FR-5** Component CVEs SHALL be routed to **EA-0024** with a `ReachabilitySignal`; the module SHALL NOT implement a second vulnerability scorer (S2/D4).
-- **FR-6** `verify_provenance` SHALL use the **EA-0004** hash-chain/attestation backbone; an unverifiable component SHALL be `unverified` (flagged), never assumed trusted; a failed signature SHALL be surfaced (S3).
+- **FR-6** `verify_provenance` SHALL verify cited/result evidence through **EA-0004** and SHALL use a kind-specific `ProvenanceVerifier` for attestation authenticity; cited evidence SHALL match the tenant, component object, and exact handed-in attestation content, and EA-0004 hash-chain success SHALL NOT be interpreted as signature success (ECR-0039). A missing/unavailable verifier or unavailable backbone SHALL yield `unverified` (flagged), never trusted; an authenticity mismatch SHALL yield `failed` (flagged) and remain surfaced. A `verified` result SHALL require an EA-0004-recorded result evidence id.
 - **FR-7** Unparseable/partial SBOMs SHALL be persisted as flagged `QuarantinedSBOM` records before `SBOMParseError` is raised; no component from that document is accepted (D1/ECR-0037).
 - **FR-8** Conflicting SBOMs for one artifact SHALL be reconciled by EA-0006 reliability, with winning source metadata and every candidate persisted in `ComponentConflict`; equal-reliability disagreements remain explicitly unresolved (S6/ECR-0037).
 - **FR-9** License *identification* SHALL be performed here; license *policy scoring* SHALL be **EA-0010**; the module SHALL NOT implement license policy (D6/S5).
@@ -253,7 +268,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 - **NFR-1 (reachability honesty — structural)** `unknown` reach is a distinct value from `unreachable`; a component/CVE whose reachability was not computed is never presented as safe; verified behaviourally (default `unknown`, not `unreachable`), per **ECR-0007** and the ECR-0035 precedent.
 - **NFR-2 (no rebuild)** graph → EA-0005, CVE prioritization → EA-0024, inventory → EA-0025, license policy → EA-0010, risk → EA-0013, attestation → EA-0004; delegation spies prove it.
 - **NFR-3 (no fetch)** socket spy proves zero outbound; no registry/build method.
-- **NFR-4 (provenance not assumed)** unverified ≠ trusted; proven by test.
+- **NFR-4 (provenance not assumed)** unverified ≠ trusted; no-verifier and backbone-unavailable paths are proven behaviorally, and evidence integrity alone cannot produce `verified` (ECR-0039).
 - **NFR-5 (bounded & typed)** batched, depth-capped; store passes one suite; `mypy --strict` + `ruff` clean.
 
 ## 8. Acceptance Criteria ↔ Tests (Definition of Ready)
@@ -266,8 +281,8 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 | AC-4 | Dependencies are EA-0002 edges; reach delegates to EA-0005 and propagates truncation | `test_sc_dependency_graph` |
 | AC-5 | Reachability defaults to unknown; truncation is unknown, never unreachable; transitive paths are content-addressed | `test_sc_reachability_unknown_not_safe` |
 | AC-6 | Component CVEs → EA-0024 w/ reachability signal | `test_sc_vulns_to_ea0024` |
-| AC-7 | Provenance verify via EA-0004; unverified flagged | `test_sc_provenance_verify` |
-| AC-8 | Failed signature surfaced, not suppressed | `test_sc_provenance_failure` |
+| AC-7 | An authenticity pass becomes verified only with an EA-0004-recorded result; substituted attestation bytes remain unverified | `test_sc_provenance_verify` |
+| AC-8 | Missing/unavailable verification remains flagged unverified; an authenticity mismatch is flagged failed and surfaced | `test_sc_provenance_failure` |
 | AC-9 | Unparseable SBOM quarantined | `test_sc_quarantine` |
 | AC-10 | Conflicting SBOMs reconciled by Trust | `test_sc_sbom_conflict` |
 | AC-11 | License identified here; policy → EA-0010 | `test_sc_license_delegates` |
@@ -300,8 +315,9 @@ namespace.) Component-CVE events stay EA-0024's; risk events stay EA-0013's (§0
 - EA-0005/EA-0024/EA-0025 unavailable → `StoreUnavailable`; service `degraded`;
   reachability marked `unknown` (not `unreachable`), components stored, gap
   surfaced — **a partial supply-chain picture is never presented as clean** (S2).
-- Provenance backbone unavailable → components marked `unverified` (flagged), not
-  `verified` — absence of verification is not verification (S3).
+- Provenance backbone or kind-specific verifier unavailable → components marked
+  `unverified` (flagged), not `verified`; a completed authenticity mismatch is
+  `failed`, not folded into unverified (S3/ECR-0039).
 - A dep whose reachability exceeds `max_depth` → assessment `truncated`, surfaced;
   work that never ran remains `pending`, never clean-looking `complete`.
 - Remediation proposal failure → finding stands, delegation failure surfaced, no

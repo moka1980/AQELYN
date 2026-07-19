@@ -434,23 +434,52 @@ class ProvenanceAttestation(BaseModel):
         return _evidence_id(value)
 
 
+class ProvenanceCheck(BaseModel):
+    """Authenticity result from a kind-specific attestation verifier."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    valid: bool
+    detail: str
+
+    @field_validator("detail")
+    @classmethod
+    def _detail(cls, value: str) -> str:
+        return _nonempty(value, field="provenance check detail")
+
+
 class ProvenanceResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     component_purl: str
     status: ProvenanceStatus
     detail: str
-    evidence_id: str
+    evidence_id: str | None = None
+    basis_evidence_id: str | None = None
+    flagged: bool = True
 
     @field_validator("component_purl", "detail")
     @classmethod
     def _required_text(cls, value: str) -> str:
         return _nonempty(value, field="provenance result field")
 
-    @field_validator("evidence_id")
+    @field_validator("evidence_id", "basis_evidence_id")
     @classmethod
-    def _result_evidence_id(cls, value: str) -> str:
-        return require_typed_id(value, "evd", field="evidence_id")
+    def _result_evidence_id(cls, value: str | None) -> str | None:
+        return _evidence_id(value)
+
+    @model_validator(mode="after")
+    def _status_consistency(self) -> ProvenanceResult:
+        if self.status == "verified":
+            if self.evidence_id is None:
+                raise SupplyChainConfigInvalid(
+                    "verified provenance requires recorded result evidence"
+                )
+            if self.flagged:
+                raise SupplyChainConfigInvalid("verified provenance cannot remain flagged")
+        elif not self.flagged:
+            raise SupplyChainConfigInvalid("unverified or failed provenance must remain flagged")
+        return self
 
 
 class SupplyChainAssessment(BaseModel):
