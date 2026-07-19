@@ -39,6 +39,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0032 | EA-0028 + EA-0029 | Proposed | Consider extracting a shared posture-normalization base once CSPM and SSPM are both green. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
+| ECR-0036 | EA-0029 | Accepted | Make Z3's owner references and blast-radius read tenant-correct: `SaaSRoutingResult.inventory_ref` is an EA-0025 `ast_` id (not an EA-0002 `obj_` id), and `integration_blast_radius` requires explicit `tenant_id` so it cannot read the tenant-scoped integration store through an unscoped interface. |
 
 ---
 
@@ -1629,3 +1630,34 @@ reason: §4 declares only the two fields, so Z1 implemented what was written. Th
 
 **Impact.** One field on one model, its validator, four spec lines, two ACs. Landed before Z2
 persisted the shape or Z3+ consumers could read an empty list as fact.
+
+---
+
+## ECR-0036 - SSPM owner references and blast-radius reads must retain tenant scope
+
+**Raised by:** Codex (C-026 Z3 implementation against the real EA-0025 and SSPM
+store contracts).
+**Severity:** blocking within Z3 - both defects prevent the accepted owner
+composition from being implemented without weakening an existing contract.
+
+**Problem 1.** `SaaSRoutingResult.inventory_ref` shared one validator with
+`integration_ref`, requiring both to use the `obj_` prefix. The real EA-0025
+inventory adapter returns an `AssetRecord.id`, whose owner contract requires an
+`ast_` prefix. A real-owner routing test therefore failed while the Z2 spy passed
+because it echoed the normalized object's `obj_` id.
+
+**Problem 2.** The accepted interface declared
+`integration_blast_radius(integration_id)` without tenant scope, while FR-12 and
+`SaaSNormalizationStore.get_integration` require every integration read to carry
+explicit `tenant_id`. Implementing the signature literally would create an
+unscoped read path through a tenant-owned store.
+
+**Resolution.** Validate `inventory_ref` as `ast_` and `integration_ref` as
+`obj_`. Add required keyword-only `tenant_id` to `integration_blast_radius` and
+validate it before reading the store. Tests route through the real inventory
+owner and prove a cross-tenant integration read cannot be expressed through the
+public method.
+
+**Impact.** Two type-boundary corrections before Z3 has any downstream consumer;
+no persistence or schema change. The changes make the accepted composition and
+FR-12 simultaneously satisfiable.

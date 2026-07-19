@@ -346,7 +346,7 @@ def test_sspm_provenance_blast_radius_and_routing_guards() -> None:
         object_id=new_id("obj"),
         routed_to=["inventory", "assetconfig"],
         routing_pending=["exposure"],
-        inventory_ref=new_id("obj"),
+        inventory_ref=new_id("ast"),
         known_surface_refs=[new_id("obj")],
     )
     assert result.routing_pending == ["exposure"]
