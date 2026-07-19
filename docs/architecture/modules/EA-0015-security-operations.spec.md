@@ -4,6 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), the Finding model (alerts), EA-0008 (response = gated Workflow runs), EA-0013 (risk context), EA-0014 (threat matches), EA-0005 (investigation pivots), EA-0007 (prioritization + owner notify), EA-0004 (case-timeline evidence)
 **Consumed by:** the analyst workspace + executive dashboard UI (queues, cases, timelines — a WCAG 2.2 AA surface), reporting, auditors (incident/case evidence packages)
 **Status:** Accepted
+**Change control:** ECR-0030 (hunts follow object pages until their result bound is satisfied)
 **Build milestone:** C-012 (see `C-012_Task_Bundle.md`)
 **Definition of Ready:** see §11
 
@@ -152,7 +153,10 @@ Workflow run and records a `ResponseAction` tracking its status; nothing execute
 here (§0/D6). The incident timeline records each proposal.
 
 **Hunt.** `hunt` runs a bounded, tenant-scoped saved query over objects/findings/
-threat data (KG-assisted), returning matches; never mutates.
+threat data (KG-assisted), returning matches; never mutates. Object pages are
+followed until the requested match limit is filled or the filtered estate is
+exhausted, so a page containing only post-query attribute non-matches cannot
+hide a later match (ECR-0030).
 
 ## 7. Requirements
 
@@ -165,7 +169,7 @@ threat data (KG-assisted), returning matches; never mutates.
 - **FR-5** `investigate` SHALL run a Knowledge-Graph pivot and attach the result to the case as evidence (D5).
 - **FR-6** `propose_response` SHALL create a **proposed** EA-0008 Workflow run per action and SHALL NOT execute any action directly (§0/D6); it SHALL track each run's status via `ResponseAction`.
 - **FR-7** Every material case step SHALL be evidence-bound; a case SHALL reconstruct fully from its timeline + evidence (D3).
-- **FR-8** `hunt` SHALL run bounded, tenant-scoped queries and SHALL NOT mutate any record (D7).
+- **FR-8** `hunt` SHALL run bounded, tenant-scoped queries, follow object pages until its match limit is filled or the estate is exhausted, and SHALL NOT mutate any record (D7/ECR-0030).
 - **FR-9** All operations SHALL be tenant-scoped; no cross-tenant alert/incident/asset appears (D8).
 - **FR-10** The engine SHALL mutate only its own alert/incident/case records (+ evidence + proposed runs); it SHALL NOT mutate findings/objects/risks or execute actions.
 - **FR-11** Invalid config (`incident_window_seconds ≤ 0`, `batch_size ≤ 0`, malformed correlation) SHALL raise `SOCConfigInvalid`.
@@ -198,6 +202,7 @@ threat data (KG-assisted), returning matches; never mutates.
 | AC-13 | Invalid config rejected | `test_soc_config_invalid` |
 | AC-14 | In-memory & Postgres SOCStore pass one suite | `test_soc_store_contract[inmemory]` / `[postgres]` |
 | AC-15 | Registers as AQService with health | `test_soc_service_health` |
+| AC-16 | Hunt reaches a matching object after a non-matching object page | `test_soc_hunt_pages_for_late_match[inmemory]` / `[postgres]` |
 
 ## 9. Error taxonomy (contributions)
 

@@ -19,7 +19,14 @@ from aqelyn.iag import (
     IAGConfig,
     IdentityAccessAnalyzer,
 )
-from aqelyn.objects import AQObject, AQRelationship, InMemoryObjectStore, ObjectStore, SourceRef
+from aqelyn.objects import (
+    AQObject,
+    AQRelationship,
+    InMemoryObjectStore,
+    ObjectQuery,
+    ObjectStore,
+    SourceRef,
+)
 from aqelyn.policy import Condition, Policy, PolicyEngine, Rule, Target
 
 SYS = ActorRef(actor_type="system", actor_id="iag-i2-test")
@@ -309,6 +316,31 @@ async def test_iag_analyze_deterministic(graph_harness: Any) -> None:
     second = await analyzer.analyze_risk(tenant_id=None)
 
     assert first.model_dump(mode="json") == second.model_dump(mode="json")
+
+
+async def test_iag_pages_full_scope(graph_harness: Any) -> None:
+    store = cast(ObjectStore, graph_harness.object_store)
+    accounts = [
+        await _add_obj(
+            store,
+            ACCOUNT_OBJECT_TYPE,
+            f"dormant-{index}",
+            attrs={"last_used_at": (utc_now() - timedelta(days=120)).isoformat()},
+        )
+        for index in range(3)
+    ]
+    analyzer = _analyzer(
+        store,
+        cast(KnowledgeGraph, _EmptyGraph()),
+        config=IAGConfig(dormant_days=90),
+    )
+
+    report = await analyzer.analyze_risk(tenant_id=None, scope=ObjectQuery(limit=1))
+
+    assert report.evaluated == 3
+    assert {risk.subject_id for risk in report.risks if risk.kind == "dormant"} == {
+        account.id for account in accounts
+    }
 
 
 async def test_iag_tenant_isolation() -> None:

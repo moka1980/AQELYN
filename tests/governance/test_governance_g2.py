@@ -215,6 +215,20 @@ async def test_gov_bounded_batches() -> None:
     assert snapshot.control_results[0].failed == 1
 
 
+async def test_gov_pages_full_estate(graph_harness: Any) -> None:
+    store = cast(ObjectStore, graph_harness.object_store)
+    for index in range(3):
+        await store.upsert(_obj(f"object-{index}", attrs={"mfa_enabled": index != 2}))
+    engine = _engine(store, config=_config(batch_size=1))
+
+    snapshot = await engine.assess(tenant_id=None, record_evidence=False)
+
+    result = snapshot.control_results[0]
+    assert result.evaluated == 3
+    assert result.passed == 2
+    assert result.failed == 1
+
+
 async def test_gov_tenant_isolation() -> None:
     store = InMemoryObjectStore(mode="enterprise")
     tenant_a = await store.upsert(_obj("tenant-a", tenant_id=TENANT_A, attrs={"mfa_enabled": True}))

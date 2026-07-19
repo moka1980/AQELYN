@@ -297,29 +297,43 @@ class SecurityOperationsEngine:
             query.get("attribute_equals"), field="hunt.attribute_equals"
         )
 
-        objects, _ = await self.object_store.query(
-            ObjectQuery(
-                tenant_id=hunt.tenant_id,
-                object_type=object_type,
-                labels=labels,
-                include_states=include_states,
-                limit=limit,
+        matches: list[dict[str, object]] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while len(matches) < limit:
+            objects, next_cursor = await self.object_store.query(
+                ObjectQuery(
+                    tenant_id=hunt.tenant_id,
+                    object_type=object_type,
+                    labels=labels,
+                    include_states=include_states,
+                    limit=limit,
+                    cursor=cursor,
+                )
             )
-        )
-        matches: list[dict[str, object]] = [
-            {
-                "kind": "object",
-                "object_id": obj.id,
-                "object_type": obj.object_type,
-                "display_name": obj.display_name,
-                "labels": dict(obj.labels),
-                "attributes": dict(obj.attributes),
-                "reason": f"Matched bounded hunt query {hunt.id}",
-            }
-            for obj in objects
-            if _attributes_match(obj.attributes, attribute_equals)
-        ]
-        return matches[:limit]
+            for obj in objects:
+                if not _attributes_match(obj.attributes, attribute_equals):
+                    continue
+                matches.append(
+                    {
+                        "kind": "object",
+                        "object_id": obj.id,
+                        "object_type": obj.object_type,
+                        "display_name": obj.display_name,
+                        "labels": dict(obj.labels),
+                        "attributes": dict(obj.attributes),
+                        "reason": f"Matched bounded hunt query {hunt.id}",
+                    }
+                )
+                if len(matches) == limit:
+                    break
+            if len(matches) == limit or next_cursor is None:
+                break
+            if next_cursor in seen_cursors:
+                raise StoreUnavailable("ObjectStore returned a repeated pagination cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        return matches
 
     def explain(self, incident: Incident) -> dict[str, object]:
         return explain_incident(incident)

@@ -34,7 +34,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0027 | EA-0028 + EA-0012 | Accepted | `apply_cloud_baselines` can never assess a cloud object: EA-0012's asset query hard-forces `object_type="asset"` while CSPM normalizes to `cloud_*`. It returns a clean-looking empty snapshot. EA-0012 gains a configured set of assessable object types, and an assessment that applied no baseline to in-scope objects must be surfaced, never reported clean. |
 | ECR-0028 | EA-0012 + EA-0028 | Accepted | Complete ECR-0027: plumb ACG/CSPM config through both runtime factories; apply query budgets independently per object type; persist complete, per-type baseline coverage; distinguish empty scope from missing baselines; and amend EA-0012's owner contract. |
 | ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
-| ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0026, EA-0017) | Proposed | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
+| ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
 
 ---
 
@@ -1361,3 +1361,13 @@ owner-contract change.
 backends, and requires coverage checks in EA-0010, EA-0011, plus a decision for `soc` and
 `threat.correlate`. Implementation is Codex's — it touches a core owner's contract and four
 consuming modules.
+
+**Accepted resolution.** EA-0002 now owns the stable id-ordered pagination contract: filters are
+applied before the page limit, `cursor` is an exclusive continuation token, and `next_cursor` is
+returned exactly when another matching row exists. The shared in-memory/Postgres contract suite
+proves label and natural-key filtering plus multi-page exhaustion. EA-0010 and EA-0011 exhaust
+object pages in bounded batches and fail closed on a repeated cursor; real-store acceptance tests
+prove assessments and certifications include later pages. EA-0015 threat hunts page past
+post-query attribute non-matches until the requested result bound is filled or the estate ends.
+EA-0014 retains its configured correlation cap, pages past expired indicators, and marks
+`MatchReport.truncated=true` whenever unprocessed indicator or asset rows remain.

@@ -27,6 +27,10 @@ from aqelyn.objects import (
 SYS = ActorRef(actor_type="system", actor_id="test")
 
 
+def _object_id(index: int) -> str:
+    return f"obj_018f0000000070008000{index:012x}"
+
+
 def _obj(**kw: Any) -> AQObject:
     now = datetime.now(UTC)
     base: dict[str, Any] = {
@@ -163,17 +167,20 @@ async def test_uom_query_cursor_paginates_after_filters(object_store: Any) -> No
     for index in range(3):
         await object_store.upsert(
             _obj(
-                display_name=f"kept-{index}",
-                labels={"keep": "yes"},
-                natural_keys=[NaturalKey(namespace="page", value=f"kept-{index}")],
+                id=_object_id(index + 1),
+                object_type="device",
+                display_name=f"filtered-{index}",
+                attributes={"hostname": f"filtered-{index}"},
+                labels={"keep": "no"},
             )
         )
     for index in range(3):
         await object_store.upsert(
             _obj(
-                object_type="device",
-                attributes={"hostname": f"filtered-{index}"},
-                labels={"keep": "no"},
+                id=_object_id(index + 10),
+                display_name=f"kept-{index}",
+                labels={"keep": "yes"},
+                natural_keys=[NaturalKey(namespace="page", value=f"kept-{index}")],
             )
         )
 
@@ -192,6 +199,36 @@ async def test_uom_query_cursor_paginates_after_filters(object_store: Any) -> No
         "kept-2",
     }
     assert len({obj.id for obj in [*first, *second]}) == 3
+
+
+async def test_uom_query_filters_before_limit(object_store: Any) -> None:
+    await object_store.upsert(
+        _obj(
+            id=_object_id(1),
+            display_name="earlier-non-match",
+            labels={"keep": "no"},
+            natural_keys=[NaturalKey(namespace="filter", value="other")],
+        )
+    )
+    target = await object_store.upsert(
+        _obj(
+            id=_object_id(2),
+            display_name="later-match",
+            labels={"keep": "yes"},
+            natural_keys=[NaturalKey(namespace="filter", value="target")],
+        )
+    )
+
+    labelled, _ = await object_store.query(ObjectQuery(labels={"keep": "yes"}, limit=1))
+    natural_keyed, _ = await object_store.query(
+        ObjectQuery(
+            natural_key=NaturalKey(namespace="filter", value="target"),
+            limit=1,
+        )
+    )
+
+    assert [obj.id for obj in labelled] == [target.id]
+    assert [obj.id for obj in natural_keyed] == [target.id]
 
 
 async def test_uom_enterprise_requires_scope() -> None:

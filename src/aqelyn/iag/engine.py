@@ -423,8 +423,10 @@ async def _identity_pages(
         query = _query_for_identity_page(tenant_id=tenant_id, scope=scope, cursor=cursor)
         rows, next_cursor = await object_store.query(query)
         yield rows
-        if next_cursor is None or next_cursor in seen_cursors:
+        if next_cursor is None:
             break
+        if next_cursor in seen_cursors:
+            raise StoreUnavailable("ObjectStore returned a repeated pagination cursor")
         seen_cursors.add(next_cursor)
         cursor = next_cursor
 

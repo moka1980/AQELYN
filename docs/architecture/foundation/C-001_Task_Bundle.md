@@ -82,7 +82,9 @@ optimistic concurrency, tenant scoping.
 `test_uom_requires_provenance`, `test_uom_soft_delete_and_history`,
 `test_uom_merge_survivor_redirect`, `test_uom_tenant_scoping`,
 `test_uom_history_append_only`, `test_uom_store_contract[inmemory|postgres]`,
-`test_uom_cross_tenant_edge_rejected`.
+`test_uom_cross_tenant_edge_rejected`,
+`test_uom_query_cursor_paginates_after_filters[inmemory|postgres]`,
+`test_uom_query_filters_before_limit[inmemory|postgres]` (ECR-0030).
 
 ## T3 — Event Envelope & Bus  ✅ DONE
 

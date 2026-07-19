@@ -4,6 +4,7 @@
 **Depends on:** ADR-0001 (Runtime & Stack) — Python 3.12, PostgreSQL 16, modular monolith
 **Consumed by:** EA-0003 (Events), EA-0004 (Evidence), EA-0005 (Knowledge Graph), Finding schema, and every asset/identity engine (EA-0052+)
 **Status:** Accepted
+**Change control:** ECR-0030 (stable cursor pagination; all filters apply before the page limit)
 **Definition of Ready:** see §16
 
 ---
@@ -65,6 +66,10 @@ language (EA-0005), and any collection/scanning logic.
 - **D6 — Typed, sortable identifiers.** See §5.
 - **D7 — Extensible via a type registry, closed via validation.** New object
   types are added by registration + schema, never by loosening the base model.
+- **D8 — Pagination is stable and filter-complete.** `query` orders by object id;
+  `cursor` resumes strictly after the named id; all predicates, including
+  `labels` and `natural_key`, are applied before `limit`; and `next_cursor` is
+  non-null exactly when another matching object exists (ECR-0030).
 
 ## 5. Identifiers
 
@@ -280,6 +285,13 @@ class ObjectStore(Protocol):
     async def history(self, object_id: str) -> list[dict]: ...        # append-only audit rows
 ```
 
+`ObjectQuery.limit` is the maximum size of one returned page, not a total-estate
+claim. A consumer that needs the complete matching set follows `next_cursor`
+until it is `None`, preserving every other query field. Cursors are exclusive
+and stable under the id ordering. Returning `next_cursor=None` asserts that no
+later object matches the full query; filtering after the page limit is therefore
+forbidden (D8/ECR-0030).
+
 ## 14. Persistence (PostgreSQL 16)
 
 ```sql
@@ -375,6 +387,8 @@ CREATE INDEX ix_history_object ON aq_object_history (object_id, version);
 - **FR-10** Every mutation SHALL append one `aq_object_history` row capturing the post-change snapshot, version, actor, and time.
 - **FR-11** `relationships()` SHALL return edges by direction and optional `relation_type`, excluding non-active edges by default.
 - **FR-12** Cross-tenant relationships SHALL be rejected at write.
+- **FR-13** `query` SHALL honor `cursor` as an exclusive id-ordered continuation and return `next_cursor` exactly when another object matches the complete query (D8).
+- **FR-14** Every query predicate, including `labels` and `natural_key`, SHALL be applied before `limit`; a matching object outside an unfiltered SQL window SHALL NOT be reported absent (D8).
 
 ### Non-functional (initial targets — validated by the C-001 skeleton, then confirmed on M-tier hardware)
 
@@ -403,6 +417,8 @@ below to a named test. Each acceptance criterion becomes ≥1 test.
 | AC-10 | Every mutation appends exactly one history row | `test_uom_history_append_only` |
 | AC-11 | In-memory and PostgreSQL stores pass the same contract suite | `test_uom_store_contract[inmemory]` / `[postgres]` |
 | AC-12 | Cross-tenant relationship rejected | `test_uom_cross_tenant_edge_rejected` |
+| AC-13 | Cursor pages exhaust the full filtered result on both backends | `test_uom_query_cursor_paginates_after_filters[inmemory]` / `[postgres]` |
+| AC-14 | Label and natural-key predicates apply before the page limit | `test_uom_query_filters_before_limit[inmemory]` / `[postgres]` |
 
 ## 17. Error taxonomy (this spec's contributions)
 

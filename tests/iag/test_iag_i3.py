@@ -224,6 +224,31 @@ async def test_iag_open_certification(graph_harness: Any) -> None:
     assert await cert_store.get(cert.id) == cert
 
 
+async def test_iag_certification_pages_full_scope(graph_harness: Any) -> None:
+    store = cast(ObjectStore, graph_harness.object_store)
+    expected_identity_ids: set[str] = set()
+    for index in range(2):
+        identity = await _add_obj(store, IDENTITY_OBJECT_TYPE, f"Identity {index}")
+        account = await _add_obj(store, ACCOUNT_OBJECT_TYPE, f"account-{index}")
+        role = await _add_obj(store, ROLE_OBJECT_TYPE, f"Role {index}")
+        entitlement = await _add_obj(store, ENTITLEMENT_OBJECT_TYPE, f"entitlement-{index}")
+        await _relate(store, identity, account, HAS_ACCOUNT)
+        await _relate(store, account, role, HAS_ROLE)
+        await _relate(store, role, entitlement, GRANTS_ENTITLEMENT)
+        expected_identity_ids.add(identity.id)
+    engine = _engine(store, cast(KnowledgeGraph, graph_harness.graph))
+
+    cert = await engine.open_certification(
+        tenant_id=None,
+        name="Paged access review",
+        scope=ObjectQuery(limit=1),
+        by=SYS,
+    )
+
+    assert {item.identity_id for item in cert.items} == expected_identity_ids
+    assert len(cert.items) == 2
+
+
 async def test_iag_decide_item_evidence(graph_harness: Any) -> None:
     store = cast(ObjectStore, graph_harness.object_store)
     await _access_graph(store)
