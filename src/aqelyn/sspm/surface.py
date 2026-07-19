@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from aqelyn.conventions.errors import StoreUnavailable
 from aqelyn.exposure import AssetRef, ExposureBasis, KnownSurfaceRecord, KnownSurfaceSource
 from aqelyn.sspm.store import SaaSNormalizationStore
 
@@ -27,6 +28,7 @@ class SaaSIntegrationKnownSurfaceSource:
         upstream_rows = list(await self.upstream.list_known_surface(tenant_id=tenant_id))
         integrations = []
         cursor: str | None = None
+        seen_cursors: set[str] = set()
         while True:
             page, cursor = await self.store.query_integrations(
                 tenant_id=tenant_id,
@@ -37,6 +39,11 @@ class SaaSIntegrationKnownSurfaceSource:
             integrations.extend(page)
             if cursor is None:
                 break
+            if cursor in seen_cursors:
+                raise StoreUnavailable(
+                    "SaaSNormalizationStore returned a repeated pagination cursor"
+                )
+            seen_cursors.add(cursor)
 
         by_ref = {row.asset_ref.ref_id: row.model_copy(deep=True) for row in upstream_rows}
         for integration in integrations:

@@ -12,7 +12,11 @@ from typing import Protocol, cast
 import pytest
 
 from aqelyn.conventions import ActorRef, new_id
-from aqelyn.conventions.errors import CrossTenantReference, IntegrationNotFound
+from aqelyn.conventions.errors import (
+    CrossTenantReference,
+    IntegrationNotFound,
+    StoreUnavailable,
+)
 from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.exposure import (
     AssetRef,
@@ -164,6 +168,24 @@ class _OneRowIntegrationStore:
             limit=min(limit, 1),
             cursor=cursor,
         )
+
+
+@dataclass
+class _RepeatingCursorStore:
+    cursor: str = field(default_factory=lambda: new_id("obj"))
+    reads: int = 0
+
+    async def query_integrations(
+        self,
+        *,
+        tenant_id: str | None,
+        over_scoped: OverScopedStatus | None = None,
+        limit: int = 1000,
+        cursor: str | None = None,
+    ) -> tuple[list[SaaSIntegration], str | None]:
+        del tenant_id, over_scoped, limit, cursor
+        self.reads += 1
+        return [], self.cursor
 
 
 def _config() -> SaaSConfig:
@@ -476,6 +498,19 @@ async def test_sspm_grant_is_known_surface(kind: str) -> None:
         assert by_ref[first.object_id].basis[0].kind == "access"
         assert by_ref[first.object_id].basis[0].evidence_id == first.evidence_id
         assert paged.reads == 2
+
+
+async def test_sspm_known_surface_rejects_repeated_cursor() -> None:
+    store = _RepeatingCursorStore()
+    source = SaaSIntegrationKnownSurfaceSource(
+        StaticKnownSurfaceSource([]),
+        cast(SaaSNormalizationStore, store),
+    )
+
+    with pytest.raises(StoreUnavailable, match="repeated pagination cursor"):
+        await source.list_known_surface(tenant_id=TENANT)
+
+    assert store.reads == 2
 
 
 async def test_sspm_claim_confidence_not_vendor_score() -> None:
