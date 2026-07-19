@@ -5,6 +5,7 @@
 **Consumed by:** EA-0024 (components as vuln-bearing assets), EA-0013 (risk signal), the supply-chain UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
 **Build milestone:** C-027 (see `C-027_Task_Bundle.md`)
+**Change control:** ECR-0037 (durable Trust reconciliation + D8 store pagination)
 **Definition of Ready:** see §12
 
 ---
@@ -116,7 +117,14 @@ SoftwareComponent = { object_id, tenant_id, purl: str,               # package U
                       licenses: list[str],                            # identified (D6)
                       supplier: str | null, hashes: dict,
                       provenance_status: "verified"|"unverified"|"failed",  # S3
-                      direct: bool, evidence_id: str }
+                      direct: bool, source_id: str, observed_at: datetime,
+                      evidence_id: str, conflicts: list[ComponentConflict] }
+ComponentConflict = { fields: list[str], candidates: list[ComponentConflictCandidate],
+                      resolved_by: str | null, resolved_evidence_id: str | null,
+                      unresolved: bool, reason: str }                 # ECR-0037
+QuarantinedSBOM = { doc_id, tenant_id, source_id, observed_at, evidence_id,
+                    raw: dict, reason: str, flagged: true,
+                    quarantined_at: datetime }                        # ECR-0037
 
 DependencyRelationship = { from_purl: str, to_purl: str,
                            version_constraint: str | null, scope: str,   # runtime|dev|optional
@@ -152,8 +160,14 @@ class SBOMStore(Protocol):
     async def put_component(self, c: SoftwareComponent) -> SoftwareComponent: ...   # purl dedupe
     async def get_component(self, purl: str, *, tenant_id: str | None) -> SoftwareComponent | None: ...
     async def put_assessment(self, a: SupplyChainAssessment) -> SupplyChainAssessment: ...
+    async def get_assessment(self, assessment_id: str, *,
+                             tenant_id: str | None) -> SupplyChainAssessment | None: ...
     async def query(self, *, tenant_id: str | None, provenance: str | None = None,
-                    limit: int = 1000) -> list[SoftwareComponent]: ...
+                    limit: int = 1000, cursor: str | None = None
+                    ) -> tuple[list[SoftwareComponent], str | None]: ...  # ECR-0037/D8
+    async def quarantine(self, item: QuarantinedSBOM) -> QuarantinedSBOM: ...
+    async def get_quarantine(self, doc_id: str, *,
+                             tenant_id: str | None) -> QuarantinedSBOM | None: ...
 
 class SupplyChainEngine(Protocol):
     async def ingest_sbom(self, doc: SBOMDocument, *,
@@ -219,13 +233,13 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 - **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`, default to `unknown`, and SHALL NEVER report `unknown` as `unreachable` (absence of a computed path ≠ no path).
 - **FR-5** Component CVEs SHALL be routed to **EA-0024** with a `ReachabilitySignal`; the module SHALL NOT implement a second vulnerability scorer (S2/D4).
 - **FR-6** `verify_provenance` SHALL use the **EA-0004** hash-chain/attestation backbone; an unverifiable component SHALL be `unverified` (flagged), never assumed trusted; a failed signature SHALL be surfaced (S3).
-- **FR-7** Unparseable/partial SBOMs SHALL be quarantined and flagged, never silently accepted (D1).
-- **FR-8** Conflicting SBOMs for one artifact SHALL be reconciled by EA-0006 reliability, recorded not smoothed (S6).
+- **FR-7** Unparseable/partial SBOMs SHALL be persisted as flagged `QuarantinedSBOM` records before `SBOMParseError` is raised; no component from that document is accepted (D1/ECR-0037).
+- **FR-8** Conflicting SBOMs for one artifact SHALL be reconciled by EA-0006 reliability, with winning source metadata and every candidate persisted in `ComponentConflict`; equal-reliability disagreements remain explicitly unresolved (S6/ECR-0037).
 - **FR-9** License *identification* SHALL be performed here; license *policy scoring* SHALL be **EA-0010**; the module SHALL NOT implement license policy (D6/S5).
 - **FR-10** Dependency upgrade/removal SHALL be a **proposed gated EA-0008 run**; the module SHALL change nothing (S4).
 - **FR-11** Supply-chain risk aggregation SHALL be **EA-0013**; the module SHALL NOT implement a risk scorer (S5).
 - **FR-12** All operations SHALL be tenant-scoped and bounded; invalid config (unknown format, `max_depth ≤ 0`, `batch_size ≤ 0`) SHALL raise `SupplyChainConfigInvalid`.
-- **FR-13** `SBOMStore` in-memory and Postgres implementations SHALL pass one contract suite.
+- **FR-13** `SBOMStore` in-memory and Postgres implementations SHALL pass one contract suite; component queries use an exclusive object-id cursor, apply all filters before `limit`, and return `next_cursor` exactly when another matching component exists (EA-0002 D8/ECR-0037).
 - **FR-14** `SupplyChainService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 - **FR-15** `SupplyChainAssessment.assessment_status` SHALL default to `pending`; it SHALL be `complete` only after all in-scope work finishes and `truncated` whenever a configured bound stops the assessment.
 
@@ -259,6 +273,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 | AC-16 | Store in-memory & Postgres pass one suite | `test_sc_store_contract[inmemory]` / `[postgres]` |
 | AC-17 | Registers as AQService with health | `test_sc_service_health` |
 | AC-18 | Assessment defaults pending; bounded partial work is truncated, never complete | `test_sc_assessment_status_not_clean` |
+| AC-19 | Store pagination is stable and filter-complete on both backends | `test_sc_store_contract[inmemory]` / `[postgres]` |
 
 ## 9. Error taxonomy (contributions)
 

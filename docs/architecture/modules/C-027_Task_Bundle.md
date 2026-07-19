@@ -60,7 +60,9 @@ EA-0013. If they appear, the milestone has gone wrong.
 **Deliverables:** SPDX + CycloneDX parsers → `SoftwareComponent`s (dedupe by
 `purl`, route to **EA-0025**) + `DependencyRelationship` edges; **no fetch/clone/
 registry**; unparseable → **quarantine, flagged**; conflicting SBOMs reconciled by
-**EA-0006**; `SBOMStore` (in-memory + Postgres + DDL).
+**EA-0006**; `SBOMStore` (in-memory + Postgres + DDL), including EA-0002
+D8-style filter-complete cursor pagination and durable conflict/quarantine
+records (ECR-0037).
 **Depends on:** Q1.
 **Acceptance:** `test_sc_no_fetch`, `test_sc_parse_formats`,
 `test_sc_components_to_inventory`, `test_sc_quarantine`, `test_sc_sbom_conflict`,

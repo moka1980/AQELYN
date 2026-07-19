@@ -1,5 +1,7 @@
 """Software Supply Chain Security and SBOM Intelligence public API (EA-0030)."""
 
+from aqelyn.supplychain.engine import ComponentInventoryOwner, SupplyChainEngine
+from aqelyn.supplychain.memory import InMemorySBOMStore
 from aqelyn.supplychain.models import (
     VALID_ASSESSMENT_STATUSES,
     VALID_DEPENDENCY_SCOPES,
@@ -8,12 +10,15 @@ from aqelyn.supplychain.models import (
     VALID_REACHABILITY_STATUSES,
     VALID_SBOM_FORMATS,
     AssessmentStatus,
+    ComponentConflict,
+    ComponentConflictCandidate,
     DependencyRelationship,
     DependencyScope,
     ProvenanceAttestation,
     ProvenanceKind,
     ProvenanceResult,
     ProvenanceStatus,
+    QuarantinedSBOM,
     ReachabilitySignal,
     ReachabilityStatus,
     SBOMDocument,
@@ -22,6 +27,9 @@ from aqelyn.supplychain.models import (
     SupplyChainAssessment,
     SupplyChainConfig,
 )
+from aqelyn.supplychain.parse import ParsedSBOM, parse_sbom
+from aqelyn.supplychain.postgres import PostgresSBOMStore
+from aqelyn.supplychain.store import SBOMStore
 
 __all__ = [
     "VALID_ASSESSMENT_STATUSES",
@@ -31,17 +39,27 @@ __all__ = [
     "VALID_REACHABILITY_STATUSES",
     "VALID_SBOM_FORMATS",
     "AssessmentStatus",
+    "ComponentConflict",
+    "ComponentConflictCandidate",
+    "ComponentInventoryOwner",
     "DependencyRelationship",
     "DependencyScope",
+    "InMemorySBOMStore",
+    "ParsedSBOM",
+    "PostgresSBOMStore",
     "ProvenanceAttestation",
     "ProvenanceKind",
     "ProvenanceResult",
     "ProvenanceStatus",
+    "QuarantinedSBOM",
     "ReachabilitySignal",
     "ReachabilityStatus",
     "SBOMDocument",
     "SBOMFormat",
+    "SBOMStore",
     "SoftwareComponent",
     "SupplyChainAssessment",
     "SupplyChainConfig",
+    "SupplyChainEngine",
+    "parse_sbom",
 ]
