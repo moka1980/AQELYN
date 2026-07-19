@@ -159,6 +159,41 @@ async def test_uom_exclude_object_types(object_store: Any) -> None:
     assert all(o.object_type != "device" for o in rows)
 
 
+async def test_uom_query_cursor_paginates_after_filters(object_store: Any) -> None:
+    for index in range(3):
+        await object_store.upsert(
+            _obj(
+                display_name=f"kept-{index}",
+                labels={"keep": "yes"},
+                natural_keys=[NaturalKey(namespace="page", value=f"kept-{index}")],
+            )
+        )
+    for index in range(3):
+        await object_store.upsert(
+            _obj(
+                object_type="device",
+                attributes={"hostname": f"filtered-{index}"},
+                labels={"keep": "no"},
+            )
+        )
+
+    first, cursor = await object_store.query(ObjectQuery(labels={"keep": "yes"}, limit=2))
+    second, done = await object_store.query(
+        ObjectQuery(labels={"keep": "yes"}, limit=2, cursor=cursor)
+    )
+
+    assert cursor is not None
+    assert done is None
+    assert len(first) == 2
+    assert len(second) == 1
+    assert {obj.display_name for obj in [*first, *second]} == {
+        "kept-0",
+        "kept-1",
+        "kept-2",
+    }
+    assert len({obj.id for obj in [*first, *second]}) == 3
+
+
 async def test_uom_enterprise_requires_scope() -> None:
     store = InMemoryObjectStore(registry=ObjectTypeRegistry(), mode="enterprise")
     with pytest.raises(TenantScopeRequired):

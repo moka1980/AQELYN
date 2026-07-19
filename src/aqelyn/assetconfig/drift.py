@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from aqelyn.assetconfig.classify import classify
@@ -46,6 +47,13 @@ _SEVERITY_SCORES: dict[str, float] = {
     "high": 75.0,
     "critical": 100.0,
 }
+
+
+@dataclass(frozen=True)
+class _AssetPage:
+    object_type: str
+    rows: list[AQObject]
+    truncated: bool = False
 
 
 class _PriorityItem(Protocol):
@@ -128,6 +136,7 @@ class AssetConfigAnalyzer:
         tenant_id: str | None,
         scope: ObjectQuery | None = None,
         record_evidence: bool = True,
+        use_scope_limit: bool = True,
     ) -> DriftSnapshot:
         asset_drifts: list[AssetDrift] = []
         object_types = _assessment_object_types(self.config, scope)
@@ -136,22 +145,26 @@ class AssetConfigAnalyzer:
         unassessed_by_type: dict[str, set[str]] = {
             object_type: set() for object_type in object_types
         }
-        async for object_type, page in _asset_pages(
+        truncated_types: set[str] = set()
+        async for page in _asset_pages(
             self.object_store,
             tenant_id=tenant_id,
             scope=scope,
             batch_size=self.config.batch_size,
             object_types=object_types,
+            use_scope_limit=use_scope_limit,
         ):
-            for asset in sorted(page, key=lambda item: item.id):
-                if asset.id in in_scope_by_type[object_type]:
+            if page.truncated:
+                truncated_types.add(page.object_type)
+            for asset in sorted(page.rows, key=lambda item: item.id):
+                if asset.id in in_scope_by_type[page.object_type]:
                     continue
-                in_scope_by_type[object_type].add(asset.id)
+                in_scope_by_type[page.object_type].add(asset.id)
                 baselines = await self._matching_baselines(asset)
                 if not baselines:
-                    unassessed_by_type[object_type].add(asset.id)
+                    unassessed_by_type[page.object_type].add(asset.id)
                     continue
-                assessed_by_type[object_type].add(asset.id)
+                assessed_by_type[page.object_type].add(asset.id)
                 asset_drifts.extend(assess_asset(asset, baselines, self.config))
 
         objects_in_scope = sum(len(object_ids) for object_ids in in_scope_by_type.values())
@@ -181,9 +194,11 @@ class AssetConfigAnalyzer:
                 objects_in_scope=len(in_scope_by_type[object_type]),
                 objects_assessed=len(assessed_by_type[object_type]),
                 unassessed_object_ids=sorted(unassessed_by_type[object_type]),
+                truncated=object_type in truncated_types,
             )
             for object_type in object_types
         ]
+        coverage_complete = not truncated_types
         snapshot = DriftSnapshot(
             id=new_drift_snapshot_id(),
             tenant_id=tenant_id,
@@ -191,13 +206,14 @@ class AssetConfigAnalyzer:
             scope=_scope_dump(
                 scope,
                 tenant_id=tenant_id,
-                batch_size=self.config.batch_size,
                 object_types=object_types,
+                include_scope_limit=scope is not None and use_scope_limit,
             ),
             baseline_ids=baseline_ids,
             overall_score=_mean([item.score for item in asset_drifts], default=1.0),
             asset_drifts=asset_drifts,
-            coverage_complete=True,
+            coverage_complete=coverage_complete,
+            coverage_incomplete_reason=None if coverage_complete else "truncated",
             objects_in_scope=objects_in_scope,
             objects_assessed=objects_assessed,
             unassessed_object_ids=unassessed_object_ids,
@@ -329,6 +345,7 @@ class AssetConfigAnalyzer:
                 "overall_score": snapshot.overall_score,
                 "asset_drifts": [drift.model_dump(mode="json") for drift in snapshot.asset_drifts],
                 "coverage_complete": snapshot.coverage_complete,
+                "coverage_incomplete_reason": snapshot.coverage_incomplete_reason,
                 "objects_in_scope": snapshot.objects_in_scope,
                 "objects_assessed": snapshot.objects_assessed,
                 "unassessed_object_ids": snapshot.unassessed_object_ids,
@@ -467,13 +484,14 @@ async def _asset_pages(
     scope: ObjectQuery | None,
     batch_size: int,
     object_types: Sequence[str],
-) -> AsyncIterator[tuple[str, list[AQObject]]]:
+    use_scope_limit: bool,
+) -> AsyncIterator[_AssetPage]:
     if scope is not None and scope.cursor is not None and len(object_types) != 1:
         raise BaselineConfigInvalid(
             "a cursor requires one scoped object_type when multiple types are assessable"
         )
     for object_type in object_types:
-        remaining = scope.limit if scope is not None else None
+        remaining = scope.limit if scope is not None and use_scope_limit else None
         cursor = scope.cursor if scope is not None else None
         seen_cursors: set[str] = set()
         while True:
@@ -488,11 +506,14 @@ async def _asset_pages(
                 limit=limit,
             )
             rows, next_cursor = await object_store.query(query)
-            yield object_type, rows
+            truncated = False
             if remaining is not None:
                 remaining -= len(rows)
                 if remaining <= 0:
+                    truncated = next_cursor is not None
+                    yield _AssetPage(object_type=object_type, rows=rows, truncated=truncated)
                     break
+            yield _AssetPage(object_type=object_type, rows=rows)
             if next_cursor is None or next_cursor in seen_cursors:
                 break
             seen_cursors.add(next_cursor)
@@ -524,23 +545,23 @@ def _scope_dump(
     scope: ObjectQuery | None,
     *,
     tenant_id: str | None,
-    batch_size: int,
     object_types: Sequence[str],
+    include_scope_limit: bool,
 ) -> dict[str, Any]:
-    data = (
-        ObjectQuery(tenant_id=tenant_id).model_dump(mode="json")
-        if scope is None
-        else scope.model_dump(mode="json")
-    )
+    data = {} if scope is None else scope.model_dump(mode="json")
     data.update(
         {
             "tenant_id": tenant_id,
             "object_type": object_types[0] if len(object_types) == 1 else None,
             "include_states": ("active",),
-            "limit": scope.limit if scope is not None else batch_size,
             "cursor": scope.cursor if scope is not None else None,
         }
     )
+    if include_scope_limit:
+        if scope is not None:
+            data["limit"] = scope.limit
+    else:
+        data.pop("limit", None)
     return data
 
 

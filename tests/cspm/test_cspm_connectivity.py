@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import pytest
+
 from aqelyn.assetconfig import (
     ACGConfig,
     AssetConfigAnalyzer,
@@ -83,16 +85,21 @@ def _cloud_config(
     )
 
 
-def _descriptor(source_id: str) -> CloudResourceDescriptor:
+def _descriptor(
+    source_id: str,
+    *,
+    resource_id: str = "arn:aws:s3:::connectivity-test",
+    encrypted: bool = False,
+) -> CloudResourceDescriptor:
     return CloudResourceDescriptor(
         provider="aws",
         account="123456789012",
         region="eu-north-1",
         resource_type="s3:bucket",
-        resource_id="arn:aws:s3:::connectivity-test",
+        resource_id=resource_id,
         raw={
             "configuration": {
-                "encryptionEnabled": False,
+                "encryptionEnabled": encrypted,
                 "network": {"public": True},
             }
         },
@@ -215,6 +222,51 @@ async def test_cspm_cloud_baseline_assessed_end_to_end() -> None:
     assert snapshot.asset_drifts[0].asset_id == normalized.object_id
     assert snapshot.asset_drifts[0].failed == 1
     assert snapshot.overall_score == 0.0
+
+
+async def test_cspm_cloud_baseline_without_scope_pages_to_exhaustion() -> None:
+    runtime = create_inmemory_runtime(
+        AQELYNConfig(
+            backend="memory",
+            tenant_mode="enterprise",
+            acg_batch_size=25,
+            acg_assessable_object_types=["asset", "cloud_storage"],
+            acg_classification_rules=_acg_config().classification_rules,
+            cspm_type_map={"aws:s3:bucket": "cloud_storage"},
+            cspm_fact_paths={
+                "aws:s3:bucket": {
+                    "encryption_enabled": "/configuration/encryptionEnabled",
+                    "network_public": "/configuration/network/public",
+                }
+            },
+            cspm_baseline_ids=[BASELINE_ID],
+        )
+    )
+    await runtime.acg_baseline_store.put(_baseline())
+    for index in range(101):
+        await runtime.cloud_posture_engine.normalize(
+            [
+                _descriptor(
+                    new_id("src"),
+                    resource_id=f"arn:aws:s3:::connectivity-{index:03d}",
+                    encrypted=index != 100,
+                )
+            ],
+            tenant_id=TENANT,
+        )
+
+    snapshot_id = await runtime.cloud_posture_engine.apply_cloud_baselines(tenant_id=TENANT)
+
+    snapshot = await runtime.acg_snapshot_store.get(snapshot_id)
+    assert snapshot is not None
+    assert snapshot.coverage_complete is True
+    assert snapshot.coverage_incomplete_reason is None
+    assert "limit" not in snapshot.scope
+    assert snapshot.objects_in_scope == 101
+    assert snapshot.objects_assessed == 101
+    assert len(snapshot.asset_drifts) == 101
+    assert snapshot.overall_score == pytest.approx(100 / 101)
+    assert any(drift.failed == 1 for drift in snapshot.asset_drifts)
 
 
 async def test_cspm_inventory_connectivity_end_to_end() -> None:

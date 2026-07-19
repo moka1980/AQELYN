@@ -33,7 +33,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0026 | EA-0028 / IS-028 | Accepted | Y3 routes a typed, evidence-backed `CloudRouteEnvelope` containing the full normalized object to owner adapters. The six heterogeneous owner APIs are not rewritten, and no adapter may strip ECR-0025's `unreported_facts`; provider deletion is recovered from the pinned evidence and maps only to inventory `mark_unreported`. |
 | ECR-0027 | EA-0028 + EA-0012 | Accepted | `apply_cloud_baselines` can never assess a cloud object: EA-0012's asset query hard-forces `object_type="asset"` while CSPM normalizes to `cloud_*`. It returns a clean-looking empty snapshot. EA-0012 gains a configured set of assessable object types, and an assessment that applied no baseline to in-scope objects must be surfaced, never reported clean. |
 | ECR-0028 | EA-0012 + EA-0028 | Accepted | Complete ECR-0027: plumb ACG/CSPM config through both runtime factories; apply query budgets independently per object type; persist complete, per-type baseline coverage; distinguish empty scope from missing baselines; and amend EA-0012's owner contract. |
-| ECR-0029 | EA-0012 + EA-0028 | Proposed | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
+| ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 
 ---
 
@@ -1271,3 +1271,14 @@ larger than 100 objects.
 `ObjectTypeAssessmentCoverage` and its consistency validator, amends EA-0028's baseline-router
 scope handling, adds an AC driving an estate larger than the default limit. Implementation is
 Codex's.
+
+**Accepted resolution.** `ObjectQuery.cursor` is now honored by both object-store backends so
+unbounded assessments can page to exhaustion. A caller-supplied scope limit remains a bound, but if
+that bound is exhausted while more rows remain, the resulting `DriftSnapshot` is persisted as
+`coverage_complete=false`, `coverage_incomplete_reason="truncated"`, with the truncated object
+type named by `ObjectTypeAssessmentCoverage.truncated=true`. Historical unknown coverage remains
+readable as `coverage_complete=false` with no reason and empty coverage fields, while new writes
+must be either complete or explicitly truncated. `AssetConfigCloudBaselineRouter.apply` treats a
+missing caller `limit` as unbounded, even after it adds the EA-0028 label filter; a no-scope CSPM
+baseline run over more than the old default 100 objects now assesses every page and omits `limit`
+from the stored scope.

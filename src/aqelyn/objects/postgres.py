@@ -282,7 +282,23 @@ class PostgresObjectStore:
         if q.exclude_object_types:
             args.append(list(q.exclude_object_types))
             clauses.append(f"object_type <> ALL(${len(args)}::text[])")
-        args.append(q.limit)
+        if q.labels:
+            args.append(json.dumps(q.labels))
+            clauses.append(f"labels @> ${len(args)}::jsonb")
+        if q.natural_key is not None:
+            args.extend([q.natural_key.namespace, q.natural_key.value])
+            clauses.append(
+                "EXISTS ("
+                "SELECT 1 FROM aq_object_natural_key nk "
+                "WHERE nk.object_id = aq_object.id "
+                f"AND nk.namespace = ${len(args) - 1} "
+                f"AND nk.value = ${len(args)}"
+                ")"
+            )
+        if q.cursor is not None:
+            args.append(q.cursor)
+            clauses.append(f"id > ${len(args)}")
+        args.append(q.limit + 1)
         sql = (
             f"SELECT {_COLS} FROM aq_object WHERE {' AND '.join(clauses)} "
             f"ORDER BY id LIMIT ${len(args)}"
@@ -290,16 +306,9 @@ class PostgresObjectStore:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
         out = [_row_to_obj(r) for r in rows]
-        if q.labels:
-            out = [o for o in out if all(o.labels.get(k) == v for k, v in q.labels.items())]
-        if q.natural_key is not None:
-            nk = q.natural_key
-            out = [
-                o
-                for o in out
-                if any(k.namespace == nk.namespace and k.value == nk.value for k in o.natural_keys)
-            ]
-        return out, None
+        selected = out[: q.limit]
+        next_cursor = selected[-1].id if len(out) > q.limit and selected else None
+        return selected, next_cursor
 
     async def relate(self, rel: AQRelationship) -> AQRelationship:
         async with self._pool.acquire() as conn, conn.transaction():

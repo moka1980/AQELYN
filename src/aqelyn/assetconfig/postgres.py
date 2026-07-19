@@ -27,8 +27,8 @@ from aqelyn.conventions.errors import (
 _BASELINE_COLS = "id, name, asset_class, version, checks, tenant_id, set_by, set_at"
 _SNAPSHOT_COLS = (
     "id, tenant_id, run_at, scope, baseline_ids, overall_score, asset_drifts, "
-    "coverage_complete, objects_in_scope, objects_assessed, unassessed_object_ids, "
-    "coverage_by_object_type, evidence_id"
+    "coverage_complete, coverage_incomplete_reason, objects_in_scope, objects_assessed, "
+    "unassessed_object_ids, coverage_by_object_type, evidence_id"
 )
 
 
@@ -173,7 +173,7 @@ class PostgresDriftSnapshotStore:
             try:
                 await conn.execute(
                     f"INSERT INTO aq_acg_drift_snapshot ({_SNAPSHOT_COLS}) VALUES "
-                    "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
+                    "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
                     stored.id,
                     stored.tenant_id,
                     stored.run_at,
@@ -182,6 +182,7 @@ class PostgresDriftSnapshotStore:
                     stored.overall_score,
                     json.dumps([drift.model_dump(mode="json") for drift in stored.asset_drifts]),
                     stored.coverage_complete,
+                    stored.coverage_incomplete_reason,
                     stored.objects_in_scope,
                     stored.objects_assessed,
                     json.dumps(stored.unassessed_object_ids),

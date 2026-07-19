@@ -55,6 +55,7 @@ class AssetConfigCloudBaselineRouter:
                 raise CloudConfigInvalid(f"cloud baseline unavailable: {baseline_id!r}")
 
         query_data = {} if scope is None else dict(scope)
+        use_scope_limit = "limit" in query_data
         labels = query_data.get("labels")
         if labels is not None and not isinstance(labels, Mapping):
             raise CloudConfigInvalid("cloud baseline scope labels must be a mapping")
@@ -75,7 +76,11 @@ class AssetConfigCloudBaselineRouter:
             source_id=self.engine.source_id,
             config=self.engine.config,
         )
-        snapshot = await delegated.assess(tenant_id=tenant_id, scope=query)
+        snapshot = await delegated.assess(
+            tenant_id=tenant_id,
+            scope=query,
+            use_scope_limit=use_scope_limit,
+        )
         return snapshot.id
 
 

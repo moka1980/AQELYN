@@ -55,8 +55,10 @@ def validate_baseline(baseline: Baseline) -> Baseline:
 
 def validate_snapshot(snapshot: DriftSnapshot) -> DriftSnapshot:
     validated = DriftSnapshot.model_validate(snapshot.model_dump(mode="json"))
-    if not validated.coverage_complete:
-        raise BaselineConfigInvalid("new drift snapshots require complete coverage")
+    if not validated.coverage_complete and validated.coverage_incomplete_reason != "truncated":
+        raise BaselineConfigInvalid(
+            "new drift snapshots require complete coverage or explicit truncation"
+        )
     return validated
 
 

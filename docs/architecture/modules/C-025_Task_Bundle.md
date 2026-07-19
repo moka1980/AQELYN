@@ -2,7 +2,7 @@
 
 **Milestone:** C-025 (Cloud Security Posture Management, EA-0028)
 **For:** Codex (implementer) · Claude Code (reviewer)
-**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020 through ECR-0028 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
+**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020 through ECR-0029 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
 **Definition of Done:** every ticket's acceptance tests pass on in-memory **and** Postgres; `ruff` clean; `mypy --strict` clean; **no cloud collection; no second inventory/baseline/compliance/exposure/identity/risk engine; no verdict field in a CSPM model; no provider-deleted input may decommission an asset**; nothing outside the spec; `make check` green; Claude Code sign-off per ticket.
 
 **Read EA-0028 §0 first.** "Cloud" is **a scope + a normalization layer**, not six
@@ -204,3 +204,24 @@ change:
 `test_acg_assess_refuses_zero_coverage`,
 `test_acg_assess_asset_refuses_no_baseline`, `test_acg_snapshot_coverage_invalid`, and both
 snapshot-store backends.
+
+## Y4 follow-on (ECR-0029) — do not call a truncated prefix complete
+
+ECR-0028 made coverage explicit but still let a page budget disappear. A type whose explicit
+`ObjectQuery.limit` is exhausted while more rows remain is truncated, not complete; a no-scope
+CSPM baseline run must assess the whole cloud estate rather than silently accepting
+`ObjectQuery`'s default limit.
+
+1. Honor `ObjectQuery.cursor` in both object-store backends so ACG can page to exhaustion.
+2. Add `coverage_incomplete_reason="truncated"` to newly truncated snapshots and
+   `ObjectTypeAssessmentCoverage.truncated=true` on each truncated type. Complete snapshots cannot
+   carry truncation, and a truncated snapshot must name a truncated type.
+3. Keep historical unknown coverage readable as `coverage_complete=false` with no reason and empty
+   coverage fields, but require new persisted snapshots to be either complete or explicitly
+   truncated.
+4. Treat absent caller `limit` in `apply_cloud_baselines` as unbounded, even after adding the
+   EA-0028 label filter; do not record a synthetic limit in the snapshot scope.
+
+**Acceptance:** `test_uom_query_cursor_paginates_after_filters`,
+`test_acg_explicit_scope_limit_marks_truncated_coverage`,
+`test_cspm_cloud_baseline_without_scope_pages_to_exhaustion`, and both snapshot-store backends.

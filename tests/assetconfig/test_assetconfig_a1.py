@@ -159,3 +159,45 @@ def test_acg_snapshot_coverage_invalid() -> None:
                 )
             ],
         )
+
+    with pytest.raises(BaselineConfigInvalid, match="cannot contain truncation"):
+        DriftSnapshot(
+            id="drift-snapshot-invalid-complete-truncated",
+            run_at=datetime.now(UTC),
+            scope={"object_type": "asset"},
+            baseline_ids=["cis-linux-server"],
+            overall_score=1.0,
+            asset_drifts=[drift],
+            coverage_complete=True,
+            objects_in_scope=1,
+            objects_assessed=1,
+            coverage_by_object_type=[
+                ObjectTypeAssessmentCoverage(
+                    object_type="asset",
+                    objects_in_scope=1,
+                    objects_assessed=1,
+                    truncated=True,
+                )
+            ],
+        )
+
+    with pytest.raises(BaselineConfigInvalid, match="must name a truncated object type"):
+        DriftSnapshot(
+            id="drift-snapshot-invalid-truncated-missing-type",
+            run_at=datetime.now(UTC),
+            scope={"object_type": "asset"},
+            baseline_ids=["cis-linux-server"],
+            overall_score=1.0,
+            asset_drifts=[drift],
+            coverage_complete=False,
+            coverage_incomplete_reason="truncated",
+            objects_in_scope=1,
+            objects_assessed=1,
+            coverage_by_object_type=[
+                ObjectTypeAssessmentCoverage(
+                    object_type="asset",
+                    objects_in_scope=1,
+                    objects_assessed=1,
+                )
+            ],
+        )
