@@ -62,6 +62,10 @@ class AQELYNConfig(BaseSettings):
     sspm_sensitive_scopes: list[str] = Field(default_factory=list)
     sspm_batch_size: int = 100
     sspm_integration_max_nodes: int = 10_000
+    supplychain_license_policy_id: str | None = None
+    supplychain_sensitive_scopes: list[str] = Field(default_factory=list)
+    supplychain_max_depth: int = 6
+    supplychain_batch_size: int = 100
 
     @classmethod
     def load(cls) -> AQELYNConfig:

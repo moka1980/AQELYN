@@ -25,6 +25,7 @@ class VulnerabilityStore(Protocol):
         *,
         tenant_id: str | None,
         cve_id: str | None = None,
+        asset_ref_id: str | None = None,
         disposition: DispositionKind | None = None,
         limit: int = 100,
     ) -> list[VulnerabilityRecord]: ...
@@ -50,6 +51,15 @@ def validate_cve_filter(value: str | None) -> str | None:
     selected = value.strip()
     if not selected:
         raise VulnConfigInvalid("cve_id filter must not be empty")
+    return selected
+
+
+def validate_asset_ref_filter(value: str | None) -> str | None:
+    if value is None:
+        return None
+    selected = value.strip()
+    if not selected:
+        raise VulnConfigInvalid("asset_ref_id filter must not be empty")
     return selected
 
 

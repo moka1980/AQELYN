@@ -38,10 +38,16 @@ from aqelyn.supplychain.models import (
 from aqelyn.supplychain.parse import ParsedSBOM, parse_sbom
 from aqelyn.supplychain.postgres import PostgresSBOMStore
 from aqelyn.supplychain.provenance import ProvenanceVerifier, verify_attestation
+from aqelyn.supplychain.service import (
+    SUPPLYCHAIN_EVENTS,
+    SupplyChainService,
+    register_supplychain_events,
+)
 from aqelyn.supplychain.store import SBOMStore
 
 __all__ = [
     "SOFTWARE_COMPONENT_OBJECT_TYPE",
+    "SUPPLYCHAIN_EVENTS",
     "VALID_ASSESSMENT_STATUSES",
     "VALID_DEPENDENCY_SCOPES",
     "VALID_PROVENANCE_KINDS",
@@ -74,8 +80,10 @@ __all__ = [
     "SupplyChainAssessment",
     "SupplyChainConfig",
     "SupplyChainEngine",
+    "SupplyChainService",
     "ensure_supplychain_object_type",
     "parse_sbom",
     "path_ref",
+    "register_supplychain_events",
     "verify_attestation",
 ]

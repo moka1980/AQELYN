@@ -7,7 +7,8 @@
 **Build milestone:** C-027 (see `C-027_Task_Bundle.md`)
 **Change control:** ECR-0037 (durable Trust reconciliation + D8 store pagination),
 ECR-0038 (truncation-bearing path result + content-addressed reachability path),
-ECR-0039 (evidence integrity is not signature authenticity)
+ECR-0039 (evidence integrity is not signature authenticity),
+ECR-0040 (unknown reachability preserved through EA-0024 prioritization)
 **Definition of Ready:** see §12
 
 ---
@@ -188,11 +189,15 @@ class SupplyChainEngine(Protocol):
     async def reachability(self, component_purl: str, cve_id: str, *,
                            tenant_id: str | None) -> ReachabilitySignal: ...        # S2
     async def component_vulns_to_prioritization(self, purls: Sequence[str], *,
-                                                by: ActorRef) -> list[str]: ...     # -> EA-0024 (D4/S2)
+                                                tenant_id: str | None,
+                                                by: ActorRef) -> list[str]: ...     # -> EA-0024 (D4/S2/ECR-0040)
     async def verify_provenance(self, attestations: Sequence[ProvenanceAttestation], *,
                                 tenant_id: str | None) -> list[ProvenanceResult]: ... # EA-0004 (S3)
     async def assess(self, *, subject_ref: str, tenant_id: str | None) -> SupplyChainAssessment: ...
     async def license_findings(self, *, tenant_id: str | None, by: ActorRef) -> list[str]: ...  # id here; policy EA-0010
+    async def aggregate_risk(self, *, tenant_id: str | None) -> str: ...             # -> EA-0013
+    async def propose_remediation(self, component_purl: str, *, action: str,
+                                  tenant_id: str | None, by: ActorRef) -> str: ...   # -> EA-0008 propose only
     def explain(self, sig: ReachabilitySignal) -> dict: ...
 ```
 
@@ -223,7 +228,9 @@ computed path is not proof of no path) (S2).
 `component_vulns_to_prioritization` hands them to **EA-0024** with the
 `ReachabilitySignal` so EA-0024's derivation can weigh "is the vulnerable code
 actually reachable" — a genuinely better priority than CVSS-on-a-transitive-dep
-(S2/D4).
+(S2/D4). An `unknown` signal remains an explicitly unknown EA-0024 factor and is
+excluded from the score denominator; it is never converted to a low/zero
+exposure claim (ECR-0040).
 
 **Provenance.** `verify_provenance` first checks any cited evidence through the
 **EA-0004** integrity backbone, then delegates signature/bundle authenticity to a
@@ -251,7 +258,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 - **FR-2** Parsed components SHALL be `SoftwareComponent`s deduped by `purl` and routed to **EA-0025**; the module SHALL NOT implement its own inventory/lifecycle (D2/S5).
 - **FR-3** Dependencies SHALL be **EA-0002 edges**; transitive reach SHALL use **EA-0005** traversal bounded by `max_depth`; `dependency_paths` SHALL return `DependencyPathResult` and propagate the owner's `truncated` signal; the module SHALL NOT implement graph traversal (S1/D3/ECR-0038).
 - **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`, default to `unknown`, and SHALL NEVER report `unknown` as `unreachable` (absence of a computed path ≠ no path). A transitive signal SHALL embed the exact EA-0005 `Path`; `path_ref` SHALL be its deterministic content address, and a mismatched path/reference pair SHALL be unconstructable (ECR-0038).
-- **FR-5** Component CVEs SHALL be routed to **EA-0024** with a `ReachabilitySignal`; the module SHALL NOT implement a second vulnerability scorer (S2/D4).
+- **FR-5** Component CVEs SHALL be routed to **EA-0024** with a `ReachabilitySignal`; an `unknown` signal SHALL remain an explicitly unknown factor in the EA-0024 derivation and SHALL NOT lower the priority as if reachability were disproved. The module SHALL NOT implement a second vulnerability scorer (S2/D4/ECR-0040).
 - **FR-6** `verify_provenance` SHALL verify cited/result evidence through **EA-0004** and SHALL use a kind-specific `ProvenanceVerifier` for attestation authenticity; cited evidence SHALL match the tenant, component object, and exact handed-in attestation content, and EA-0004 hash-chain success SHALL NOT be interpreted as signature success (ECR-0039). A missing/unavailable verifier or unavailable backbone SHALL yield `unverified` (flagged), never trusted; an authenticity mismatch SHALL yield `failed` (flagged) and remain surfaced. A `verified` result SHALL require an EA-0004-recorded result evidence id.
 - **FR-7** Unparseable/partial SBOMs SHALL be persisted as flagged `QuarantinedSBOM` records before `SBOMParseError` is raised; no component from that document is accepted (D1/ECR-0037).
 - **FR-8** Conflicting SBOMs for one artifact SHALL be reconciled by EA-0006 reliability, with winning source metadata and every candidate persisted in `ComponentConflict`; equal-reliability disagreements remain explicitly unresolved (S6/ECR-0037).
@@ -280,7 +287,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 | AC-3 | Components deduped by purl, routed to EA-0025 | `test_sc_components_to_inventory` |
 | AC-4 | Dependencies are EA-0002 edges; reach delegates to EA-0005 and propagates truncation | `test_sc_dependency_graph` |
 | AC-5 | Reachability defaults to unknown; truncation is unknown, never unreachable; transitive paths are content-addressed | `test_sc_reachability_unknown_not_safe` |
-| AC-6 | Component CVEs → EA-0024 w/ reachability signal | `test_sc_vulns_to_ea0024` |
+| AC-6 | Component CVEs → real EA-0024 owner with reachability; unknown remains explicit and non-favourable in the replayable factor set | `test_sc_vulns_to_ea0024` |
 | AC-7 | An authenticity pass becomes verified only with an EA-0004-recorded result; substituted attestation bytes remain unverified | `test_sc_provenance_verify` |
 | AC-8 | Missing/unavailable verification remains flagged unverified; an authenticity mismatch is flagged failed and surfaced | `test_sc_provenance_failure` |
 | AC-9 | Unparseable SBOM quarantined | `test_sc_quarantine` |
