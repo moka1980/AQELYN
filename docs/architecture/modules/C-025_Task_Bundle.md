@@ -119,6 +119,16 @@ into the kernel factory.
 **Depends on:** Y3.
 **Acceptance:** `test_cspm_service_health`.
 
+## Post-delivery follow-up — ECR-0033
+
+Upgrade `CloudNormalizationStore.query` to the EA-0002 D8 pagination shape:
+stable id order, filters before limit, exclusive cursor, and a non-null
+`next_cursor` exactly when another matching record exists. C-026 Z2 implements
+this alongside the new SSPM store so the limit-only contract is not copied.
+
+**Acceptance:** `test_cspm_store_pagination[inmemory]`,
+`test_cspm_store_pagination[postgres]`.
+
 ---
 
 ## Review protocol (Claude Code) — "normalizer, not silo"

@@ -4,6 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (SaaS apps are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0011 (SaaS identity), EA-0013 (risk)** — owners it feeds; **EA-0005 (integration graph), EA-0023 (grant-as-exposure), EA-0006 (Trust)** — for the new integration-risk capability; EA-0004 (evidence)
 **Consumed by:** the owner engines above; the SaaS posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
+**Change control:** ECR-0033 (tri-state scope assessment, bounded/truncated blast radius, claim confidence, paginated normalization stores)
 **Build milestone:** C-026 (see `C-026_Task_Bundle.md`)
 **Definition of Ready:** see §12
 
@@ -43,8 +44,9 @@ EA-0008-gated connector action** (`saas.enumerate`), per EA-0025 §0.1.
    fork severity.
 2. **Trivial-route semantics decided up front** (the ECR-0013 lesson): if the
    integration/permission data needed to route or assess is **absent**, the
-   object is normalized and stored but its routing is **`pending` + surfaced** —
-   never silently treated as "no risk". Absence is not safety.
+   object is normalized and stored with `over_scoped="unknown"`; its routing is
+   **`pending` + surfaced** — never silently treated as "no risk". Absence is
+   not safety (ECR-0033).
 3. **No shared CSPM/SSPM normalization base is built inside this milestone.** With
    two instances now existing, extraction is worth *considering* — raised as
    **ECR-0032 (Proposed)** — but SSPM ships on its own footing first; refactoring
@@ -74,8 +76,10 @@ reviewed. This is genuinely unowned surface, and it composes cleanly:
   third-party app with `read_all_files` and external ownership is a
   `SurfaceFacet` — EA-0023 scores its exposure by what it reaches (mission
   weighting) exactly as it does a public bucket. No new scorer.
-- **S3 — Integration confidence is EA-0006 Trust**; risk aggregation is EA-0013.
-  No new confidence or risk model.
+- **S3 — Integration claim confidence is EA-0006 Trust**; risk aggregation is
+  EA-0013. `claim_confidence` means confidence that the reported grant exists
+  with the stated scopes, based only on source evidence/reliability — never a
+  score of the vendor. No new confidence or risk model (ECR-0033).
 - **S4 — Detect-and-propose.** Revoking a grant is destructive → a **proposed
   gated EA-0008 run**. SSPM flags and routes; it revokes nothing.
 - **S5 — Findings, not verdicts on vendors (structural).** An over-scoped
@@ -126,21 +130,30 @@ IntegrationDescriptor = { integration_id: str, grantor_ref: str,       # app/use
                           granted_at: datetime | null, raw: dict,
                           source_id: str, evidence_id: str | null }     # the NEW surface (§2)
 
-NormalizedSaaSObject = { object_id, object_type: str, provider: str, tenant: str,
+NormalizedSaaSObject = { object_id, tenant_id: str | null,
+                         object_type: str, provider: str, tenant: str,
                          native_facts: dict, field_provenance: dict,
                          conflicts: list[dict], evidence_id: str }       # NO verdict/severity (§0.2.1)
 
-SaaSIntegration = { object_id, integration_id, grantor_ref, third_party_app,
+OverScopedStatus = Literal["true", "false", "unknown"]
+
+BlastRadius = { object_ids: list[str], truncated: bool }                # EA-0005 Subgraph
+
+SaaSIntegration = { object_id, tenant_id: str | null,
+                    integration_id, grantor_ref, third_party_app,
                     third_party_external: bool, scopes: list[str],
-                    over_scoped: bool, reachable_object_ids: list[str],  # KG blast radius (S1)
+                    over_scoped: OverScopedStatus,
+                    reachable_object_ids: list[str],                     # KG blast radius (S1)
+                    reachable_truncated: bool,                           # EA-0005 bound propagated
                     exposure_facet_ref: str | null,                      # EA-0023 (S2)
-                    confidence: float, evidence_id: str, reason: str }
+                    claim_confidence: float, evidence_id: str, reason: str }
 
 SaaSRoutingResult = { object_id, routed_to: list[str], routing_pending: list[str],  # §0.2.2
                       inventory_ref: str | null, iam_refs: list[str],
                       facet_refs: list[str], integration_ref: str | null }
 SaaSConfig = { type_map: dict, baseline_ids: list[str],
-               sensitive_scopes: list[str], batch_size: int }           # scopes that make a grant over-scoped
+               sensitive_scopes: list[str], batch_size: int,
+               integration_max_nodes: int = 10_000 }                    # EA-0005 hard cap 100_000
 ```
 
 Reuses EA-0002 objects/relationships, EA-0005 traversal, EA-0006 reliability,
@@ -154,9 +167,11 @@ from typing import Protocol, Sequence
 class SaaSNormalizationStore(Protocol):
     async def put(self, obj: NormalizedSaaSObject) -> NormalizedSaaSObject: ...
     async def put_integration(self, i: SaaSIntegration) -> SaaSIntegration: ...
-    async def get(self, object_id: str) -> NormalizedSaaSObject | None: ...
+    async def get(self, object_id: str, *,
+                  tenant_id: str | None) -> NormalizedSaaSObject | None: ...
     async def query(self, *, tenant_id: str | None, provider: str | None = None,
-                    limit: int = 1000) -> list[NormalizedSaaSObject]: ...
+                    limit: int = 1000, cursor: str | None = None
+                    ) -> tuple[list[NormalizedSaaSObject], str | None]: ...
 
 class SaaSPostureEngine(Protocol):
     async def normalize(self, descriptors: Sequence[SaaSAppDescriptor], *,
@@ -165,7 +180,7 @@ class SaaSPostureEngine(Protocol):
                     tenant_id: str | None) -> list[SaaSRoutingResult]: ...          # D2, pending-aware (§0.2.2)
     async def map_integration(self, descriptors: Sequence[IntegrationDescriptor], *,
                               tenant_id: str | None) -> list[SaaSIntegration]: ...  # NEW (§2): edge + KG + facet
-    async def integration_blast_radius(self, integration_id: str) -> list[str]: ... # EA-0005 (S1)
+    async def integration_blast_radius(self, integration_id: str) -> BlastRadius: ... # EA-0005 (S1)
     async def apply_saas_baselines(self, *, tenant_id: str | None,
                                    scope: dict | None = None) -> str: ...           # EA-0012 (D4)
     def explain(self, obj: NormalizedSaaSObject) -> dict: ...
@@ -187,12 +202,17 @@ owners; **absent routing data → `routing_pending`, surfaced** (§0.2.2). No
 verdict attached.
 
 **Map integrations (new).** For each `IntegrationDescriptor`: write an EA-0002
-relationship edge `grantor --grants[scopes]--> third_party_app`; compute
-`over_scoped = any(scope ∈ sensitive_scopes)` **and** `third_party_external`;
-compute `reachable_object_ids` via **EA-0005** traversal (bounded); if over-scoped
-+ external, emit an **EA-0023** `SurfaceFacet` (`api_endpoint`/`federated_
-identity` family) so exposure is scored by what it reaches; `confidence` via
-**EA-0006**; `reason` names the scopes and the reach. No revocation (S4).
+relationship edge `grantor --grants[scopes]--> third_party_app`. If scope data
+is incomplete, set `over_scoped="unknown"` and route pending; otherwise set it
+to `"true"` iff a sensitive scope and external third party are both present,
+else `"false"`. Compute blast radius via **EA-0005 `subgraph()`** using
+`integration_max_nodes`; preserve its `Subgraph.truncated` value in the
+returned `BlastRadius` and on `SaaSIntegration.reachable_truncated`. If
+`over_scoped="true"`, emit an **EA-0023**
+`SurfaceFacet` (`api_endpoint`/`federated_identity` family) so exposure is
+scored by what it reaches. `claim_confidence` comes only from EA-0006's
+assessment of the descriptor's source evidence; `reason` names the scopes,
+reach, and any truncation. No revocation (S4).
 
 **Baselines.** `apply_saas_baselines` → **EA-0012 `assess`** with SaaS baselines
 (D4).
@@ -206,16 +226,16 @@ identity` family) so exposure is scored by what it reaches; `confidence` via
 - **FR-3** A normalized SaaS object SHALL NOT carry a verdict/severity field; severity belongs to the assessing owner (§0.2.1).
 - **FR-4** `route` SHALL hand objects to EA-0025/0012/0010/0011; missing routing/assessment data SHALL yield `routing_pending`, surfaced — never silently "no risk" (§0.2.2).
 - **FR-5** An unmapped `resource_type` SHALL become `saas_unknown`, flagged, never dropped.
-- **FR-6** `map_integration` SHALL write an EA-0002 edge with scopes; it SHALL NOT store a separate integration graph or traverse it itself — blast radius SHALL use **EA-0005** (S1/D3).
+- **FR-6** `map_integration` SHALL write an EA-0002 edge with scopes; it SHALL NOT store a separate integration graph or traverse it itself — blast radius SHALL use **EA-0005 `subgraph()`** under `integration_max_nodes`, return a `BlastRadius`, and SHALL propagate `Subgraph.truncated` as `reachable_truncated=true` so a partial reach never reads as complete (S1/D3/ECR-0033).
 - **FR-7** An over-scoped external grant SHALL be expressed as an **EA-0023** exposure facet; the module SHALL NOT score exposure itself (S2).
-- **FR-8** Integration `confidence` SHALL come from EA-0006; risk aggregation SHALL be EA-0013; no second model of either (S3).
+- **FR-8** Integration `claim_confidence` SHALL mean confidence that the reported grant exists with the stated scopes and SHALL derive only from EA-0006's assessment of source evidence/reliability; vendor attributes, reputation, identity, and blast radius SHALL NOT be confidence inputs. Risk aggregation SHALL be EA-0013; no second model of either (S3/ECR-0033).
 - **FR-9** A `removed`/absent SaaS app SHALL be handled by EA-0025 as **`unreported`, not decommissioned** — a SaaS app vanishing from a provider listing is absence of evidence, not evidence of removal (§0, EA-0025 S3).
 - **FR-10** Revoking a grant SHALL be a **proposed gated EA-0008 run**; the module SHALL revoke nothing (S4).
-- **FR-10a** No output type (`SaaSIntegration`, `NormalizedSaaSObject`, or any emitted finding field) SHALL carry a vendor-level verdict/score/trust field; the vendor judgement SHALL be structurally unrepresentable (S5).
+- **FR-10a** No output type (`SaaSIntegration`, `NormalizedSaaSObject`, or any emitted finding field) SHALL carry a vendor-level verdict/score/trust field; the vendor judgement SHALL be structurally unrepresentable. `claim_confidence` SHALL be structurally and behaviorally limited to confidence in the observed grant claim, never the vendor (S5/ECR-0033).
 - **FR-10b** `saas_*` object types SHALL be registered in `ACGConfig.assessable_object_types` at **both** factory sites (ECR-0028(a)); SSPM SHALL consume EA-0012's coverage declaration and SHALL NOT reimplement coverage.
 - **FR-11** SaaS config assessment SHALL be EA-0012; compliance EA-0010; identity EA-0011/0027; the module SHALL implement none (§0).
-- **FR-12** All operations SHALL be tenant-scoped and bounded; invalid config (unknown `type_map` target/baseline, `batch_size ≤ 0`) SHALL raise `SaaSConfigInvalid`.
-- **FR-13** `SaaSNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite.
+- **FR-12** All operations SHALL be tenant-scoped and bounded. `NormalizedSaaSObject` and `SaaSIntegration` SHALL carry AQELYN `tenant_id`, and every store read SHALL require explicit tenant scope. Integration traversal SHALL pass `integration_max_nodes` to EA-0005 `subgraph()` and return the partial reach with `reachable_truncated=true` when the owner reports truncation. Invalid config (unknown `type_map` target/baseline, `batch_size ≤ 0`, `integration_max_nodes` outside `1..100_000`) SHALL raise `SaaSConfigInvalid`.
+- **FR-13** `SaaSNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite and SHALL use stable id-ordered pagination: filters before limit, exclusive cursor, and non-null `next_cursor` exactly when another matching row exists. C-026 Z2 SHALL apply the same contract to EA-0028's existing `CloudNormalizationStore`, rather than copy its limit-only result (ECR-0033).
 - **FR-14** `SaaSPostureService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 
 ### Non-functional
@@ -236,16 +256,19 @@ identity` family) so exposure is scored by what it reaches; `confidence` via
 | AC-5 | Unmapped → saas_unknown, flagged | `test_sspm_unknown_flagged` |
 | AC-6 | Missing routing data → pending, surfaced | `test_sspm_routing_pending` |
 | AC-7 | Integration → EA-0002 edge; blast radius via EA-0005 | `test_sspm_integration_graph` |
+| AC-7a | Blast-radius node budget propagates EA-0005 truncation rather than understating reach | `test_sspm_blast_radius_truncated` |
 | AC-8 | Over-scoped external grant → EA-0023 facet | `test_sspm_grant_is_exposure` |
-| AC-9 | Confidence from Trust; risk to EA-0013 | `test_sspm_delegations` |
+| AC-9 | Claim confidence comes only from source evidence via Trust; risk goes to EA-0013 | `test_sspm_delegations`, `test_sspm_claim_confidence_not_vendor_score` |
 | AC-10 | removed app → unreported (EA-0025), not deleted | `test_sspm_absence_not_removal` |
 | AC-11 | Revocation proposed + gated | `test_sspm_revoke_gated` |
 | AC-11a | Vendor verdict/score field structurally absent | `test_sspm_no_vendor_verdict` |
-| AC-11b | saas_* registered at both factory sites; coverage inherited | `test_sspm_assessable_both_sites` |
+| AC-11b | saas_* registered through both factory-built runtimes; coverage inherited | `test_sspm_assessable_both_sites[inmemory]` / `[postgres]` |
 | AC-12 | Config/compliance/identity all delegated | `test_sspm_all_delegations` |
-| AC-13 | No direct findings/actions; tenant isolation | `test_sspm_no_side_effects` |
+| AC-13 | No direct findings/actions | `test_sspm_no_side_effects` |
+| AC-13a | SaaS records are tenant-owned and every read is scoped | `test_sspm_tenant_isolation` |
 | AC-14 | Invalid config rejected | `test_sspm_config_invalid` |
 | AC-15 | Store in-memory & Postgres pass one suite | `test_sspm_store_contract[inmemory]` / `[postgres]` |
+| AC-15a | CSPM and SSPM stores page after filters without silent caps | `test_cspm_store_pagination[inmemory]` / `[postgres]`, `test_sspm_store_pagination[inmemory]` / `[postgres]` |
 | AC-16 | Registers as AQService with health | `test_sspm_service_health` |
 
 ## 9. Error taxonomy (contributions)
@@ -267,10 +290,11 @@ surface), `aqelyn.saas.app_unclassified` — via `register_saas_events()`
 - Owner unavailable → object normalized/stored, routing `pending`, surfaced
   (§0.2.2) — never dropped, never "no risk".
 - Missing integration scopes → the integration is recorded with
-  `over_scoped: unknown` (flagged) and routed pending — **absence of scope data
+  `over_scoped="unknown"` and routed pending — **absence of scope data
   is not absence of risk** (§0.2.2).
-- KG/EA-0023 unavailable → blast radius / facet marked `pending`; the integration
-  is still recorded (a known-but-unscored grant is surfaced, not hidden).
+- KG/EA-0023 unavailable → blast radius / facet marked `pending`; a bounded KG
+  result is recorded with `reachable_truncated=true`. The integration is still
+  recorded (a known-but-unscored or partially-reached grant is surfaced, not hidden).
 - Store unavailable → `StoreUnavailable`; service `degraded`.
 
 ## 12. Dependencies & consumers
@@ -287,6 +311,9 @@ surface), `aqelyn.saas.app_unclassified` — via `register_saas_events()`
   EA-0028; the integration graph is the genuine new capability (§2).
 - **No verdict on the normalized object; trivial-route = pending-not-safe;
   no shared base built here** — the three pins (§0.2).
+- **Unknown scope, bounded reach, and claim confidence — ECR-0033.**
+  `over_scoped` is tri-state; KG truncation is retained; confidence describes
+  the source claim, not the vendor; normalization-store queries page explicitly.
 - **Shared posture-normalization base — ECR-0032 (Proposed).** Two instances
   (CSPM, SSPM) now share the `normalize→object+provenance→route` shape; a
   `posture_normalization` base they both specialise is now worth *considering*.

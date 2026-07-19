@@ -37,6 +37,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
 | ECR-0032 | EA-0028 + EA-0029 | Proposed | Consider extracting a shared posture-normalization base once CSPM and SSPM are both green. |
+| ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest before C-026: `over_scoped` is tri-state, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, both factory runtimes prove SaaS assessment wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
 
 ---
 
@@ -1494,3 +1495,57 @@ its vocabulary. IS-028's spec already flagged this; IS-029 confirms it.
 
 **Recommendation.** Hold as Proposed. Decide after C-026 is green, with the real
 duplicated code in front of you rather than a predicted shape.
+
+---
+
+## ECR-0033 — SSPM uncertainty, bounded reach, and normalization-store pagination
+
+**Raised by:** Claude Code (review of PR #167, main @8f9cf1c).
+**Severity:** blocking before C-026 — two type declarations made an unknown or
+truncated integration look safer than the evidence supports.
+
+**Problem 1 — unknown scope was unrepresentable.** EA-0029 §11 requires a grant
+with missing scope data to be recorded as `over_scoped: unknown`, but §4 declared
+`over_scoped: bool`. The only available value for "not assessed" was therefore
+`False`, which reads as safe and violates the spec's pending-not-safe boundary.
+
+**Problem 2 — bounded blast radius discarded its bound.** EA-0005 `subgraph()`
+already returns `Subgraph.truncated`, but `SaaSIntegration` carried only
+`reachable_object_ids`. A node-bounded traversal could therefore serve a short
+list as if it were the complete blast radius — the ECR-0029/ECR-0031 defect
+class on EA-0029's one genuinely new capability.
+
+**Clarification — confidence is in the claim, not the vendor.** A bare
+`confidence` field on a record whose subject includes `third_party_app` can be
+read as vendor trust despite S5 making vendor verdicts unrepresentable. The
+field must name and enforce its actual meaning: confidence that the reported
+grant exists with the stated scopes, derived from source evidence via EA-0006.
+
+**Resolution.**
+
+1. Add `OverScopedStatus = Literal["true", "false", "unknown"]`; incomplete
+   scope data always produces `"unknown"` and pending routing.
+2. Add `BlastRadius = {object_ids, truncated}`,
+   `SaaSIntegration.reachable_truncated`, and
+   `SaaSConfig.integration_max_nodes` (default `10_000`, EA-0005 hard cap
+   `100_000`). Blast-radius traversal delegates to EA-0005 `subgraph()` under
+   that node budget and propagates `Subgraph.truncated`. EA-0005 `paths()` is
+   not used here because its `list[Path]` return has no truncation channel.
+3. Rename `confidence` to `claim_confidence`; only source evidence/reliability
+   may contribute. Vendor identity, reputation, reach, or attributes are not
+   inputs. A behavioral test proves the score cannot become a vendor verdict.
+4. Drive `test_sspm_assessable_both_sites` through the factory-built in-memory
+   and Postgres runtimes, not a hand-built `ACGConfig`.
+5. Do not copy EA-0028's limit-only normalization-store query. Upgrade both
+   Cloud and SaaS stores in C-026 Z2 to EA-0002 D8 semantics: stable id order,
+   filters before limit, exclusive cursor, and `next_cursor` exactly when another
+   matching row exists.
+6. Carry AQELYN `tenant_id` on normalized SaaS objects and integrations; require
+   explicit tenant scope on every store read, matching EA-0028's ECR-0022
+   contract rather than relying on provider tenant names.
+
+**Impact.** Amends EA-0029 §0/§2/§4/§5/§6, FR-6/8/10a/12/13, failure handling,
+and acceptance criteria; amends EA-0028's store interface, FR-11 and AC-24; adds
+the cross-owner store follow-up to C-025 and makes it a required C-026 Z2
+deliverable. No production code changes in this docs PR; implementation starts
+only after the amended contract merges.
