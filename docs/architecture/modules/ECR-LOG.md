@@ -41,6 +41,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
 | ECR-0036 | EA-0029 | Accepted | Make Z3's owner references and blast-radius read tenant-correct: `SaaSRoutingResult.inventory_ref` is an EA-0025 `ast_` id (not an EA-0002 `obj_` id), and `integration_blast_radius` requires explicit `tenant_id` so it cannot read the tenant-scoped integration store through an unscoped interface. |
 | ECR-0037 | EA-0030 | Accepted | Make Q2's Trust reconciliation durable and its store pagination honest: components pin the winning source/time and retain every conflict candidate, malformed documents persist as flagged quarantine records, and `SBOMStore.query` adopts EA-0002 D8 cursor semantics. |
+| ECR-0038 | EA-0030 | Accepted | Make Q3's truncation and path proof representable: `dependency_paths` returns paths plus `truncated`, and transitive reach embeds the exact EA-0005 path with a deterministic content-addressed `path_ref`. |
 
 ---
 
@@ -1695,3 +1696,35 @@ adversarial contract suite.
 **Impact.** Q2-only model and store additions before any Q2 record exists. No
 existing consumer or persisted schema is migrated; later Q3-Q5 tickets receive a
 durable, tenant-scoped component identity and an honest paging contract.
+
+---
+
+## ECR-0038 - Q3 must carry traversal truncation and a real path proof
+
+**Raised by:** Codex (C-027 Q3 implementation against the shipped EA-0005
+contract).
+**Severity:** blocking within Q3 - the Accepted interface cannot represent two
+claims Q3 is required to make.
+
+**Problem 1.** EA-0030 requires `dependency_paths` to propagate traversal
+truncation but declares `-> list[Path]`. EA-0005 deliberately carries
+truncation on `ImpactResult` and `Subgraph`, not on each `Path`. Returning the
+bare list discards whether the traversal was complete, so an empty bounded
+result is indistinguishable from a proved empty graph.
+
+**Problem 2.** `ReachabilitySignal.path_ref` is required for transitive reach,
+but EA-0005 `Path` has no id and no path store. Minting an arbitrary string
+would cite a record that cannot be resolved or checked. The exact path must
+travel with the signal, and its reference must bind to that path rather than
+merely name it.
+
+**Resolution.** Add `DependencyPathResult = {paths, truncated}` and return it
+from `dependency_paths`, directly propagating `ImpactResult.truncated`. Add the
+exact EA-0005 `Path` to transitive `ReachabilitySignal`s and define `path_ref`
+as the SHA-256 content address of the canonical serialized path. Model
+validation requires the depth to equal `Path.length` and the content address to
+match; direct, unreachable, and unknown signals cannot carry a graph path.
+
+**Impact.** Q3-only additive model changes before any reachability record is
+persisted or routed to EA-0024. EA-0030 §4/§5/§6, FR-3/4, AC-4/5, and C-027 Q3
+are amended. No owner contract changes: traversal still delegates to EA-0005.

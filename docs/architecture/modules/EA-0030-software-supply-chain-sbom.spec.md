@@ -5,7 +5,8 @@
 **Consumed by:** EA-0024 (components as vuln-bearing assets), EA-0013 (risk signal), the supply-chain UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
 **Build milestone:** C-027 (see `C-027_Task_Bundle.md`)
-**Change control:** ECR-0037 (durable Trust reconciliation + D8 store pagination)
+**Change control:** ECR-0037 (durable Trust reconciliation + D8 store pagination),
+ECR-0038 (truncation-bearing path result + content-addressed reachability path)
 **Definition of Ready:** see §12
 
 ---
@@ -130,9 +131,12 @@ DependencyRelationship = { from_purl: str, to_purl: str,
                            version_constraint: str | null, scope: str,   # runtime|dev|optional
                            edge_id: str }                            # -> EA-0002/EA-0005 (D3)
 
+DependencyPathResult = { paths: list[Path], truncated: bool }       # ECR-0038
+
 ReachabilitySignal = { component_purl: str, cve_id: str,
                        reachable: ReachabilityStatus = "unknown",
-                       depth: int | null, path_ref: str | null,      # EA-0005 path (S2)
+                       depth: int | null, path_ref: str | null,
+                       path: Path | null,                            # exact EA-0005 path (S2/ECR-0038)
                        reason: str }
 
 ProvenanceAttestation = { component_purl: str, kind: str,            # slsa|sigstore|signature
@@ -173,7 +177,7 @@ class SupplyChainEngine(Protocol):
     async def ingest_sbom(self, doc: SBOMDocument, *,
                           tenant_id: str | None) -> list[SoftwareComponent]: ...    # parse+normalize (D1); no fetch (§0.1)
     async def dependency_paths(self, purl: str, *, direction: str,
-                               tenant_id: str | None) -> list["Path"]: ...          # EA-0005 (S1)
+                               tenant_id: str | None) -> DependencyPathResult: ...  # EA-0005 (S1/ECR-0038)
     async def reachability(self, component_purl: str, cve_id: str, *,
                            tenant_id: str | None) -> ReachabilitySignal: ...        # S2
     async def component_vulns_to_prioritization(self, purls: Sequence[str], *,
@@ -202,8 +206,9 @@ reconciled by EA-0006 (S6). Evidence-recorded.
 
 **Dependency paths + reachability.** `dependency_paths` traverses EA-0005 (up =
 "who depends on this", down = "what this pulls in"), bounded by `max_depth`,
-`truncated` propagated. `reachability` classifies a component/CVE as `direct` /
-`transitive` (with depth + path) / `unreachable` / **`unknown`** — and `unknown`
+`truncated` propagated through `DependencyPathResult`. `reachability` classifies
+a component/CVE as `direct` / `transitive` (with depth + the exact EA-0005
+`Path`, content-addressed by `path_ref`) / `unreachable` / **`unknown`** — and `unknown`
 is never rendered as `unreachable` (the empty-means-safe trap: absence of a
 computed path is not proof of no path) (S2).
 
@@ -229,8 +234,8 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 
 - **FR-1** `ingest_sbom` SHALL parse handed-in SPDX/CycloneDX only; the module SHALL clone no repo, call no registry, and expose no fetch method (§0.1).
 - **FR-2** Parsed components SHALL be `SoftwareComponent`s deduped by `purl` and routed to **EA-0025**; the module SHALL NOT implement its own inventory/lifecycle (D2/S5).
-- **FR-3** Dependencies SHALL be **EA-0002 edges**; transitive reach SHALL use **EA-0005** traversal bounded by `max_depth`; the module SHALL NOT implement graph traversal (S1/D3).
-- **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`, default to `unknown`, and SHALL NEVER report `unknown` as `unreachable` (absence of a computed path ≠ no path).
+- **FR-3** Dependencies SHALL be **EA-0002 edges**; transitive reach SHALL use **EA-0005** traversal bounded by `max_depth`; `dependency_paths` SHALL return `DependencyPathResult` and propagate the owner's `truncated` signal; the module SHALL NOT implement graph traversal (S1/D3/ECR-0038).
+- **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`, default to `unknown`, and SHALL NEVER report `unknown` as `unreachable` (absence of a computed path ≠ no path). A transitive signal SHALL embed the exact EA-0005 `Path`; `path_ref` SHALL be its deterministic content address, and a mismatched path/reference pair SHALL be unconstructable (ECR-0038).
 - **FR-5** Component CVEs SHALL be routed to **EA-0024** with a `ReachabilitySignal`; the module SHALL NOT implement a second vulnerability scorer (S2/D4).
 - **FR-6** `verify_provenance` SHALL use the **EA-0004** hash-chain/attestation backbone; an unverifiable component SHALL be `unverified` (flagged), never assumed trusted; a failed signature SHALL be surfaced (S3).
 - **FR-7** Unparseable/partial SBOMs SHALL be persisted as flagged `QuarantinedSBOM` records before `SBOMParseError` is raised; no component from that document is accepted (D1/ECR-0037).
@@ -258,8 +263,8 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 | AC-1 | Handed-in SBOM only; no fetch/clone/registry | `test_sc_no_fetch` |
 | AC-2 | SPDX + CycloneDX parse → components + edges | `test_sc_parse_formats` |
 | AC-3 | Components deduped by purl, routed to EA-0025 | `test_sc_components_to_inventory` |
-| AC-4 | Dependencies are EA-0002 edges; reach via EA-0005 | `test_sc_dependency_graph` |
-| AC-5 | Reachability defaults to unknown; unknown ≠ unreachable | `test_sc_reachability_unknown_not_safe` |
+| AC-4 | Dependencies are EA-0002 edges; reach delegates to EA-0005 and propagates truncation | `test_sc_dependency_graph` |
+| AC-5 | Reachability defaults to unknown; truncation is unknown, never unreachable; transitive paths are content-addressed | `test_sc_reachability_unknown_not_safe` |
 | AC-6 | Component CVEs → EA-0024 w/ reachability signal | `test_sc_vulns_to_ea0024` |
 | AC-7 | Provenance verify via EA-0004; unverified flagged | `test_sc_provenance_verify` |
 | AC-8 | Failed signature surfaced, not suppressed | `test_sc_provenance_failure` |
