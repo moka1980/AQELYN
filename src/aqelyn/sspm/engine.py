@@ -9,7 +9,13 @@ from datetime import datetime
 from typing import Any
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id, utc_now
-from aqelyn.conventions.errors import SaaSConfigInvalid, SaaSObjectNotFound
+from aqelyn.conventions.errors import (
+    DependencyUnavailable,
+    InventoryUnavailable,
+    SaaSConfigInvalid,
+    SaaSObjectNotFound,
+    StoreUnavailable,
+)
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
 from aqelyn.objects import AQObject, NaturalKey, ObjectQuery, ObjectStore, SourceRef
@@ -149,7 +155,7 @@ class SaaSPostureEngine:
                 )
                 if not owner_refs:
                     raise SaaSConfigInvalid(f"{owner} owner router returned no references")
-            except Exception:
+            except (DependencyUnavailable, InventoryUnavailable, StoreUnavailable):
                 pending.append(owner)
                 continue
             routed.append(owner)

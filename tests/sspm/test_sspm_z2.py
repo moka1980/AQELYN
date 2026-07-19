@@ -15,7 +15,11 @@ import pytest
 
 import aqelyn.sspm as sspm
 from aqelyn.conventions import ActorRef, new_id
-from aqelyn.conventions.errors import CrossTenantReference, TenantScopeRequired
+from aqelyn.conventions.errors import (
+    CrossTenantReference,
+    StoreUnavailable,
+    TenantScopeRequired,
+)
 from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.objects import InMemoryObjectStore
 from aqelyn.sspm import (
@@ -56,7 +60,7 @@ class _Harness:
 class _Router:
     owner: SaaSRouteOwner
     calls: list[str] = field(default_factory=list)
-    fail: bool = False
+    error: Exception | None = None
 
     async def route(
         self,
@@ -65,8 +69,8 @@ class _Router:
         tenant_id: str | None,
     ) -> Sequence[str]:
         self.calls.append(obj.object_id)
-        if self.fail:
-            raise RuntimeError(f"{self.owner} unavailable")
+        if self.error is not None:
+            raise self.error
         assert obj.tenant_id == tenant_id
         return [obj.object_id]
 
@@ -354,6 +358,20 @@ async def test_sspm_routing_pending() -> None:
         assert pending.routed_to == []
         assert pending.routing_pending == ["inventory", "assetconfig", "compliance", "iag"]
         assert all(router.calls == [routed_obj.object_id] for router in routers)
+
+
+async def test_sspm_routing_propagates_programming_errors() -> None:
+    unavailable = _Router(owner="inventory", error=StoreUnavailable("inventory unavailable"))
+    async with _harness("inmemory", routers=[unavailable]) as harness:
+        obj = (await harness.engine.normalize([_descriptor()], tenant_id=TENANT))[0]
+        result = (await harness.engine.route([obj.object_id], tenant_id=TENANT))[0]
+        assert result.routing_pending == ["inventory", "assetconfig", "compliance", "iag"]
+
+    broken = _Router(owner="inventory", error=RuntimeError("adapter defect"))
+    async with _harness("inmemory", routers=[broken]) as harness:
+        obj = (await harness.engine.normalize([_descriptor()], tenant_id=TENANT))[0]
+        with pytest.raises(RuntimeError, match="adapter defect"):
+            await harness.engine.route([obj.object_id], tenant_id=TENANT)
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
