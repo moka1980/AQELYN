@@ -14,6 +14,7 @@ from aqelyn.conventions.errors import SaaSConfigInvalid
 
 GrantorKind = Literal["api", "identity"]
 OverScopedStatus = Literal["over_scoped", "within_scope", "unknown"]
+ReachStatus = Literal["computed", "truncated", "pending"]
 SaaSRouteOwner = Literal["inventory", "assetconfig", "compliance", "exposure", "iag", "risk"]
 
 MAX_INTEGRATION_NODES: Final[int] = 100_000
@@ -309,7 +310,7 @@ class SaaSIntegration(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     over_scoped: OverScopedStatus
     reachable_object_ids: list[str] = Field(default_factory=list)
-    reachable_truncated: bool = False
+    reach_status: ReachStatus = "pending"
     known_surface_ref: str | None = None
     claim_confidence: float
     evidence_id: str
@@ -359,7 +360,11 @@ class SaaSIntegration(BaseModel):
         return require_typed_id(value, "evd", field="evidence_id")
 
     @model_validator(mode="after")
-    def _known_surface_state(self) -> SaaSIntegration:
+    def _known_surface_and_reach_state(self) -> SaaSIntegration:
+        if self.reach_status == "pending" and self.reachable_object_ids:
+            raise SaaSConfigInvalid("pending reach requires no reachable_object_ids")
+        if self.reach_status == "truncated" and not self.reachable_object_ids:
+            raise SaaSConfigInvalid("truncated reach requires reachable_object_ids")
         if self.over_scoped == "over_scoped":
             if not self.third_party_external:
                 raise SaaSConfigInvalid("over_scoped integration must be external")

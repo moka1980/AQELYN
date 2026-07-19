@@ -84,7 +84,7 @@ def _integration_payload(*, status: object = "over_scoped") -> dict[str, Any]:
         "scopes": ["read_all_files"],
         "over_scoped": status,
         "reachable_object_ids": [new_id("obj")],
-        "reachable_truncated": False,
+        "reach_status": "computed",
         "known_surface_ref": object_id if status == "over_scoped" else None,
         "claim_confidence": 0.88,
         "evidence_id": new_id("evd"),
@@ -172,6 +172,39 @@ def test_sspm_scope_status() -> None:
     unexpected_surface["known_surface_ref"] = unexpected_surface["object_id"]
     with pytest.raises(SaaSConfigInvalid, match="only for an over_scoped"):
         SaaSIntegration.model_validate(unexpected_surface)
+
+
+def test_sspm_reach_status_distinguishes_pending_from_empty() -> None:
+    computed_payload = _integration_payload(status="within_scope")
+    computed_payload["reachable_object_ids"] = []
+    computed_payload["reach_status"] = "computed"
+    computed = SaaSIntegration.model_validate(computed_payload)
+
+    pending_payload = dict(computed_payload)
+    pending_payload["reach_status"] = "pending"
+    pending = SaaSIntegration.model_validate(pending_payload)
+
+    assert computed.model_dump() != pending.model_dump()
+    assert computed.model_dump(exclude={"reach_status"}) == pending.model_dump(
+        exclude={"reach_status"}
+    )
+    assert computed.reach_status == "computed"
+    assert pending.reach_status == "pending"
+
+    pending_with_results = dict(pending_payload)
+    pending_with_results["reachable_object_ids"] = [new_id("obj")]
+    with pytest.raises(SaaSConfigInvalid, match="pending reach requires no"):
+        SaaSIntegration.model_validate(pending_with_results)
+
+    truncated_without_results = dict(computed_payload)
+    truncated_without_results["reach_status"] = "truncated"
+    with pytest.raises(SaaSConfigInvalid, match="truncated reach requires"):
+        SaaSIntegration.model_validate(truncated_without_results)
+
+    legacy_boolean = _integration_payload()
+    legacy_boolean["reachable_truncated"] = False
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        SaaSIntegration.model_validate(legacy_boolean)
 
 
 def test_sspm_no_verdict_field() -> None:

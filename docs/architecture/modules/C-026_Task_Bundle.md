@@ -19,9 +19,9 @@ existing owners.
    (the ECR-0013 lesson).
 3. **No shared CSPM/SSPM base built here** — extraction is ECR-0032 (Proposed),
    a later optional refactor.
-4. **Bounded does not mean silently short** — integration traversal uses
+4. **Bounded or unavailable does not mean silently safe** — integration traversal uses
    EA-0005 `subgraph()` under `integration_max_nodes` and preserves its
-   truncation signal on the result.
+   computed/truncated/pending status on the persisted result (ECR-0035).
 
 **Verification standard (ECR-0007):** structural (no verdict field; no
 assessment method) + behavioural (delegation spies incl. EA-0005/EA-0023; socket
@@ -54,14 +54,15 @@ tests/sspm/           # acceptance suite (in-memory + Postgres)
 
 **Spec:** §4, FR-8/10a/12; §9. **Deliverables:** models (**normalized object has
 no verdict/severity field** — §0.2.1); tri-state `over_scoped`;
-`reachable_truncated`; source-claim-only `claim_confidence`; tenant-owned SaaS
+tri-state `reach_status` with pending/list consistency validation;
+source-claim-only `claim_confidence`; tenant-owned SaaS
 records; `IntegrationDescriptor.observed_at`; real EA-0023 `grantor_kind`
 (`api`/`identity`); config validation including `integration_max_nodes`
 (`SaaSConfigInvalid`); error codes in
 `conventions.errors` + CONVENTIONS §9.
 **Acceptance:** `test_sspm_no_verdict_field`, `test_sspm_no_vendor_verdict`,
 `test_sspm_claim_confidence_not_vendor_score`, `test_sspm_scope_status`,
-`test_sspm_config_invalid`.
+`test_sspm_reach_status_distinguishes_pending_from_empty`, `test_sspm_config_invalid`.
 
 ## Z2 — Normalize + route (the reused CSPM pattern)
 
@@ -88,7 +89,8 @@ so the limit-only result is fixed once rather than copied.
 **Deliverables:** `map_integration` (write EA-0002 edge with scopes; tri-state
 `over_scoped`, with missing scopes = `"unknown"`); `integration_blast_radius`
 via **EA-0005 `subgraph()`** under `integration_max_nodes`, returning a bounded
-`BlastRadius` and propagating `Subgraph.truncated` to `reachable_truncated`;
+`BlastRadius` and persisting `reach_status="computed"`, `"truncated"`, or
+`"pending"` according to the traversal outcome;
 store-backed `SaaSIntegrationKnownSurfaceSource` yielding real EA-0023
 `KnownSurfaceRecord`s for `over_scoped="over_scoped"` grants, with supported
 `AssetKind` (`api`/`identity`) and an evidence-cited `access` basis; the adapter
@@ -145,8 +147,9 @@ compose the SaaS integration source with the existing inventory
    configs; assert SSPM reads EA-0012's coverage declaration rather than
    reimplementing it (`test_sspm_assessable_both_sites[inmemory|postgres]`).
 9. `removed`/absent app → **EA-0025 `unreported`**, not deleted (S3).
-10. Missing scopes are `over_scoped="unknown"`, never `within_scope`; bounded KG reach
-    propagates `reachable_truncated`; `claim_confidence` uses source evidence
+10. Missing scopes are `over_scoped="unknown"`, never `within_scope`; KG reach
+    persists computed/truncated/pending without conflating unavailable with empty;
+    `claim_confidence` uses source evidence
     only and cannot become a vendor score (ECR-0033).
 
 `ruff` + `mypy --strict` clean; tenant-scoped; interfaces match the spec. Merge
