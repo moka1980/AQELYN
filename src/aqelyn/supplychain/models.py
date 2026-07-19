@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 from datetime import datetime
 from typing import Any, Final, Literal
@@ -10,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from aqelyn.conventions import new_id, require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import SupplyChainConfigInvalid
+from aqelyn.graph.models import Path
 
 SBOMFormat = Literal["spdx", "cyclonedx"]
 ReachabilityStatus = Literal["direct", "transitive", "unreachable", "unknown"]
@@ -336,6 +339,24 @@ class DependencyRelationship(BaseModel):
         return require_typed_id(value, "rel", field="edge_id", allow_empty=True)
 
 
+def path_ref(path: Path) -> str:
+    """Return a deterministic content address for an exact EA-0005 path."""
+
+    payload = json.dumps(
+        path.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+class DependencyPathResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    paths: list[Path] = Field(default_factory=list)
+    truncated: bool = False
+
+
 class ReachabilitySignal(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -344,6 +365,7 @@ class ReachabilitySignal(BaseModel):
     reachable: ReachabilityStatus = "unknown"
     depth: int | None = None
     path_ref: str | None = None
+    path: Path | None = None
     reason: str
 
     @field_validator("component_purl", "cve_id", "reason")
@@ -366,16 +388,29 @@ class ReachabilitySignal(BaseModel):
     @model_validator(mode="after")
     def _reachability_consistency(self) -> ReachabilitySignal:
         if self.reachable in {"unknown", "unreachable"}:
-            if self.depth is not None or self.path_ref is not None:
+            if self.depth is not None or self.path_ref is not None or self.path is not None:
                 raise SupplyChainConfigInvalid(
-                    f"{self.reachable} reachability cannot carry depth or path_ref"
+                    f"{self.reachable} reachability cannot carry depth or path"
                 )
         elif self.reachable == "direct":
-            if self.depth != 0:
-                raise SupplyChainConfigInvalid("direct reachability requires depth == 0")
-        elif self.depth is None or self.depth < 1 or self.path_ref is None:
+            if self.depth != 0 or self.path_ref is not None or self.path is not None:
+                raise SupplyChainConfigInvalid(
+                    "direct reachability requires depth == 0 and no graph path"
+                )
+        elif self.depth is None or self.depth < 1 or self.path_ref is None or self.path is None:
             raise SupplyChainConfigInvalid(
-                "transitive reachability requires depth >= 1 and path_ref"
+                "transitive reachability requires depth >= 1 and an EA-0005 path"
+            )
+        elif (
+            self.path.length != len(self.path.edges)
+            or len(self.path.node_ids) != self.path.length + 1
+        ):
+            raise SupplyChainConfigInvalid("EA-0005 path shape is inconsistent")
+        elif self.depth != self.path.length:
+            raise SupplyChainConfigInvalid("reachability depth must equal the EA-0005 path length")
+        elif self.path_ref != path_ref(self.path):
+            raise SupplyChainConfigInvalid(
+                "path_ref must content-address the embedded EA-0005 path"
             )
         return self
 

@@ -21,7 +21,9 @@ from aqelyn.conventions.errors import (
     SupplyChainConfigInvalid,
     TenantScopeRequired,
 )
+from aqelyn.graph import InMemoryKnowledgeGraph
 from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
+from aqelyn.objects import InMemoryObjectStore
 from aqelyn.supplychain import (
     InMemorySBOMStore,
     PostgresSBOMStore,
@@ -53,6 +55,7 @@ class _Closable(Protocol):
 class _Harness:
     store: SBOMStore
     inventory_store: InMemoryAssetStore
+    object_store: InMemoryObjectStore
     registry: InMemorySourceReliabilityRegistry
     engine: SupplyChainEngine
 
@@ -74,14 +77,17 @@ async def _harness(kind: str) -> AsyncIterator[_Harness]:
         store = postgres
         closer = cast(_Closable, postgres)
     inventory_store = InMemoryAssetStore(mode="enterprise")
+    object_store = InMemoryObjectStore(mode="enterprise")
     registry = InMemorySourceReliabilityRegistry(default_reliability=0.5)
     engine = SupplyChainEngine(
         store,
         inventory=InventoryIntelligenceEngine(inventory_store),
         source_registry=registry,
+        object_store=object_store,
+        graph=InMemoryKnowledgeGraph(object_store),
     )
     try:
-        yield _Harness(store, inventory_store, registry, engine)
+        yield _Harness(store, inventory_store, object_store, registry, engine)
     finally:
         if closer is not None:
             await closer.close()
@@ -375,11 +381,14 @@ async def test_sc_sbom_conflict(kind: str) -> None:
     async with _harness(kind) as harness:
         await _set_reliability(harness.registry, weak_source, 0.2)
         await _set_reliability(harness.registry, strong_source, 0.9)
-        await harness.engine.ingest_sbom(weak, tenant_id=TENANT)
         await harness.engine.ingest_sbom(strong, tenant_id=TENANT)
+        await harness.engine.ingest_sbom(weak, tenant_id=TENANT)
         component = await harness.store.get_component(PURL_REQUESTS, tenant_id=TENANT)
+        assert component is not None
+        object_record = await harness.object_store.get(component.object_id)
 
-    assert component is not None
+    assert object_record is not None
+    assert object_record.confidence == 0.9
     assert component.source_id == strong_source
     assert component.licenses == ["Apache-2.0"]
     assert component.supplier == "Strong source"

@@ -72,9 +72,11 @@ records (ECR-0037).
 
 **Spec:** §1 (S1/S2), §6, FR-3/4, D3, NFR-1.
 **Deliverables:** dependencies as **EA-0002 edges**; `dependency_paths` (up/down)
-via **EA-0005**, `max_depth`-bounded, `truncated` propagated; `reachability`
+via **EA-0005**, `max_depth`-bounded, returning `DependencyPathResult` with
+`truncated` propagated; `reachability`
 classifying `direct|transitive|unreachable|unknown` — **`unknown` is the type default
-and is never rendered `unreachable`**.
+and is never rendered `unreachable`**. A transitive signal embeds the exact
+EA-0005 `Path`, and `path_ref` content-addresses that path (ECR-0038).
 **Depends on:** Q2.
 **Acceptance:** `test_sc_dependency_graph`, `test_sc_reachability_unknown_not_safe`.
 

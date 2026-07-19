@@ -1,6 +1,11 @@
 """Software Supply Chain Security and SBOM Intelligence public API (EA-0030)."""
 
-from aqelyn.supplychain.engine import ComponentInventoryOwner, SupplyChainEngine
+from aqelyn.supplychain.engine import (
+    SOFTWARE_COMPONENT_OBJECT_TYPE,
+    ComponentInventoryOwner,
+    SupplyChainEngine,
+    ensure_supplychain_object_type,
+)
 from aqelyn.supplychain.memory import InMemorySBOMStore
 from aqelyn.supplychain.models import (
     VALID_ASSESSMENT_STATUSES,
@@ -12,6 +17,7 @@ from aqelyn.supplychain.models import (
     AssessmentStatus,
     ComponentConflict,
     ComponentConflictCandidate,
+    DependencyPathResult,
     DependencyRelationship,
     DependencyScope,
     ProvenanceAttestation,
@@ -26,12 +32,14 @@ from aqelyn.supplychain.models import (
     SoftwareComponent,
     SupplyChainAssessment,
     SupplyChainConfig,
+    path_ref,
 )
 from aqelyn.supplychain.parse import ParsedSBOM, parse_sbom
 from aqelyn.supplychain.postgres import PostgresSBOMStore
 from aqelyn.supplychain.store import SBOMStore
 
 __all__ = [
+    "SOFTWARE_COMPONENT_OBJECT_TYPE",
     "VALID_ASSESSMENT_STATUSES",
     "VALID_DEPENDENCY_SCOPES",
     "VALID_PROVENANCE_KINDS",
@@ -42,6 +50,7 @@ __all__ = [
     "ComponentConflict",
     "ComponentConflictCandidate",
     "ComponentInventoryOwner",
+    "DependencyPathResult",
     "DependencyRelationship",
     "DependencyScope",
     "InMemorySBOMStore",
@@ -61,5 +70,7 @@ __all__ = [
     "SupplyChainAssessment",
     "SupplyChainConfig",
     "SupplyChainEngine",
+    "ensure_supplychain_object_type",
     "parse_sbom",
+    "path_ref",
 ]
