@@ -17,6 +17,7 @@ from aqelyn.workflow.models import RunStatus
 AlertState = Literal["new", "triaged", "suppressed", "escalated"]
 AlertSourceKind = Literal["finding", "threat_match", "risk"]
 IncidentStatus = Literal["new", "triaged", "investigating", "contained", "resolved", "closed"]
+MAX_HUNT_WORK = 100_000
 
 
 def _require_nonempty(value: str, *, field: str) -> str:
@@ -28,6 +29,12 @@ def _require_nonempty(value: str, *, field: str) -> str:
 def _require_positive_int(value: object, *, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise SOCConfigInvalid(f"{field} must be >= 1")
+    return value
+
+
+def _require_nonnegative_int(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise SOCConfigInvalid(f"{field} must be >= 0")
     return value
 
 
@@ -235,12 +242,26 @@ class Hunt(BaseModel):
         return _require_nonempty(value, field="hunt field")
 
 
+class HuntResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    matches: list[dict[str, object]] = Field(default_factory=list)
+    evaluated: int
+    truncated: bool = False
+
+    @field_validator("evaluated", mode="before")
+    @classmethod
+    def _evaluated(cls, value: object) -> int:
+        return _require_nonnegative_int(value, field="evaluated")
+
+
 class SOCConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     correlation: dict[str, Any] = Field(default_factory=dict)
     incident_window_seconds: int = 3600
     batch_size: int = 100
+    hunt_max_work: int = 5_000
 
     @model_validator(mode="before")
     @classmethod
@@ -251,10 +272,17 @@ class SOCConfig(BaseModel):
                 raise SOCConfigInvalid("correlation must be a mapping")
         return data
 
-    @field_validator("incident_window_seconds", "batch_size", mode="before")
+    @field_validator("incident_window_seconds", "batch_size", "hunt_max_work", mode="before")
     @classmethod
     def _positive_int(cls, value: object, info: ValidationInfo) -> int:
         return _require_positive_int(value, field=info.field_name or "SOCConfig integer field")
+
+    @field_validator("hunt_max_work")
+    @classmethod
+    def _hunt_max_work(cls, value: int) -> int:
+        if value > MAX_HUNT_WORK:
+            raise SOCConfigInvalid(f"hunt_max_work must be <= {MAX_HUNT_WORK}")
+        return value
 
     @field_validator("correlation")
     @classmethod

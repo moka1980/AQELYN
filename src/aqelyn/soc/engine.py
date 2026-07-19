@@ -17,6 +17,7 @@ from aqelyn.soc.correlate import explain as explain_incident
 from aqelyn.soc.models import (
     Alert,
     Hunt,
+    HuntResult,
     Incident,
     IncidentStatus,
     ResponseAction,
@@ -281,7 +282,7 @@ class SecurityOperationsEngine:
             run_ids.append(run.id)
         return run_ids
 
-    async def hunt(self, hunt: Hunt) -> list[dict[str, object]]:
+    async def hunt(self, hunt: Hunt) -> HuntResult:
         if self.object_store is None:
             raise StoreUnavailable("hunt requires an ObjectStore")
 
@@ -298,42 +299,53 @@ class SecurityOperationsEngine:
         )
 
         matches: list[dict[str, object]] = []
+        evaluated = 0
+        truncated = False
         cursor: str | None = None
         seen_cursors: set[str] = set()
-        while len(matches) < limit:
+        while evaluated < self.config.hunt_max_work:
+            page_size = min(
+                self.config.batch_size,
+                self.config.hunt_max_work - evaluated,
+            )
             objects, next_cursor = await self.object_store.query(
                 ObjectQuery(
                     tenant_id=hunt.tenant_id,
                     object_type=object_type,
                     labels=labels,
                     include_states=include_states,
-                    limit=limit,
+                    limit=page_size,
                     cursor=cursor,
                 )
             )
             for obj in objects:
+                evaluated += 1
                 if not _attributes_match(obj.attributes, attribute_equals):
                     continue
-                matches.append(
-                    {
-                        "kind": "object",
-                        "object_id": obj.id,
-                        "object_type": obj.object_type,
-                        "display_name": obj.display_name,
-                        "labels": dict(obj.labels),
-                        "attributes": dict(obj.attributes),
-                        "reason": f"Matched bounded hunt query {hunt.id}",
-                    }
-                )
-                if len(matches) == limit:
-                    break
-            if len(matches) == limit or next_cursor is None:
+                if len(matches) < limit:
+                    matches.append(
+                        {
+                            "kind": "object",
+                            "object_id": obj.id,
+                            "object_type": obj.object_type,
+                            "display_name": obj.display_name,
+                            "labels": dict(obj.labels),
+                            "attributes": dict(obj.attributes),
+                            "reason": f"Matched bounded hunt query {hunt.id}",
+                        }
+                    )
+                else:
+                    truncated = True
+            if next_cursor is None:
+                break
+            if len(matches) == limit or evaluated == self.config.hunt_max_work:
+                truncated = True
                 break
             if next_cursor in seen_cursors:
                 raise StoreUnavailable("ObjectStore returned a repeated pagination cursor")
             seen_cursors.add(next_cursor)
             cursor = next_cursor
-        return matches
+        return HuntResult(matches=matches, evaluated=evaluated, truncated=truncated)
 
     def explain(self, incident: Incident) -> dict[str, object]:
         return explain_incident(incident)

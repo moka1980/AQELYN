@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), the Finding model (alerts), EA-0008 (response = gated Workflow runs), EA-0013 (risk context), EA-0014 (threat matches), EA-0005 (investigation pivots), EA-0007 (prioritization + owner notify), EA-0004 (case-timeline evidence)
 **Consumed by:** the analyst workspace + executive dashboard UI (queues, cases, timelines — a WCAG 2.2 AA surface), reporting, auditors (incident/case evidence packages)
 **Status:** Accepted
-**Change control:** ECR-0030 (hunts follow object pages until their result bound is satisfied)
+**Change control:** ECR-0030 (hunts follow object pages until their result bound is satisfied); ECR-0031 (hunt work budget + explicit truncation)
 **Build milestone:** C-012 (see `C-012_Task_Bundle.md`)
 **Definition of Ready:** see §11
 
@@ -61,7 +61,9 @@ what matters most, who owns it, and what are we doing about it — provably.*
 - **D6 — Response is delegated (§0).** A response playbook proposes EA-0008
   Workflow runs; the SOC engine tracks their status but never executes.
 - **D7 — Threat hunting is bounded, saved queries.** Hypothesis queries run over
-  the object/finding/threat data with KG support; bounded and tenant-scoped.
+  the object/finding/threat data with KG support; bounded and tenant-scoped. Object
+  enumeration stops at `hunt_max_work` and returns the partial result with
+  `truncated=true` rather than exhausting an arbitrarily large estate (ECR-0031).
 - **D8 — Registered as an `AQService`;** tenant-scoped throughout.
 
 ## 3. Ubiquitous language
@@ -97,7 +99,9 @@ TimelineEntry = { at: datetime, actor: ActorRef, kind: str, detail: dict,
 ResponseAction = { action_type: str, inputs: dict, workflow_run_id: str | null,
                    status: str }                          # status mirrors the EA-0008 run
 Hunt    = { id, tenant_id, name, hypothesis: str, query: dict, saved_by: ActorRef }
-SOCConfig = { correlation: dict, incident_window_seconds: int, batch_size: int }
+HuntResult = { matches: list[dict], evaluated: int, truncated: bool }
+SOCConfig = { correlation: dict, incident_window_seconds: int, batch_size: int,
+              hunt_max_work: int = 5_000 }                  # hard cap 100_000
 ```
 
 Reuses the Finding model, EA-0013/0014 outputs, EA-0005 `Path`, `ActorRef`,
@@ -125,7 +129,7 @@ class SecurityOperationsEngine(Protocol):
                          note: str | None, expected_version: int) -> Incident: ...
     async def propose_response(self, incident_id: str, *, actions: Sequence[ResponseAction],
                                by: ActorRef) -> list[str]: ...               # -> gated Workflow runs (§0/D6)
-    async def hunt(self, hunt: Hunt) -> list[dict]: ...                      # bounded query (D7)
+    async def hunt(self, hunt: Hunt) -> HuntResult: ...                      # bounded query (D7)
     def explain(self, incident: Incident) -> dict: ...
 ```
 
@@ -153,10 +157,12 @@ Workflow run and records a `ResponseAction` tracking its status; nothing execute
 here (§0/D6). The incident timeline records each proposal.
 
 **Hunt.** `hunt` runs a bounded, tenant-scoped saved query over objects/findings/
-threat data (KG-assisted), returning matches; never mutates. Object pages are
-followed until the requested match limit is filled or the filtered estate is
-exhausted, so a page containing only post-query attribute non-matches cannot
-hide a later match (ECR-0030).
+threat data (KG-assisted), returning `HuntResult`; never mutates. Object pages
+are followed until the requested match limit is filled, the filtered estate is
+exhausted, or `hunt_max_work` objects have been examined. A page containing only
+post-query attribute non-matches therefore cannot hide a later match within the
+work budget (ECR-0030). If more rows remain when the result or work bound is
+reached, `truncated=true`; `evaluated` records the work performed (ECR-0031).
 
 ## 7. Requirements
 
@@ -169,10 +175,10 @@ hide a later match (ECR-0030).
 - **FR-5** `investigate` SHALL run a Knowledge-Graph pivot and attach the result to the case as evidence (D5).
 - **FR-6** `propose_response` SHALL create a **proposed** EA-0008 Workflow run per action and SHALL NOT execute any action directly (§0/D6); it SHALL track each run's status via `ResponseAction`.
 - **FR-7** Every material case step SHALL be evidence-bound; a case SHALL reconstruct fully from its timeline + evidence (D3).
-- **FR-8** `hunt` SHALL run bounded, tenant-scoped queries, follow object pages until its match limit is filled or the estate is exhausted, and SHALL NOT mutate any record (D7/ECR-0030).
+- **FR-8** `hunt` SHALL run tenant-scoped queries under `hunt_max_work`, follow object pages until its match limit, work budget, or estate exhaustion, return `evaluated` + `truncated` so partial results are explicit, and SHALL NOT mutate any record (D7/ECR-0030/ECR-0031).
 - **FR-9** All operations SHALL be tenant-scoped; no cross-tenant alert/incident/asset appears (D8).
 - **FR-10** The engine SHALL mutate only its own alert/incident/case records (+ evidence + proposed runs); it SHALL NOT mutate findings/objects/risks or execute actions.
-- **FR-11** Invalid config (`incident_window_seconds ≤ 0`, `batch_size ≤ 0`, malformed correlation) SHALL raise `SOCConfigInvalid`.
+- **FR-11** Invalid config (`incident_window_seconds ≤ 0`, `batch_size ≤ 0`, `hunt_max_work` outside `1..100_000`, malformed correlation) SHALL raise `SOCConfigInvalid`.
 - **FR-12** `SOCStore` in-memory and Postgres implementations SHALL pass one contract suite.
 - **FR-13** `SecurityOperationsService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 
@@ -180,7 +186,7 @@ hide a later match (ECR-0030).
 
 - **NFR-1 (no direct action)** no code path executes a response; response is proposed via Workflow (enforced by test).
 - **NFR-2 (auditability)** every incident/case reconstructs fully from its timeline + evidence; no material step lacks an evidence record.
-- **NFR-3 (bounded)** intake/correlation/hunt process in bounded batches; inherits KG caps.
+- **NFR-3 (bounded)** intake/correlation/hunt process in bounded batches; hunt examines at most `hunt_max_work` objects per request and inherits KG caps.
 - **NFR-4 (portability & typing)** in-memory + Postgres `SOCStore` pass one suite; `mypy --strict` + `ruff` clean.
 
 ## 8. Acceptance Criteria ↔ Tests (Definition of Ready)
@@ -203,6 +209,7 @@ hide a later match (ECR-0030).
 | AC-14 | In-memory & Postgres SOCStore pass one suite | `test_soc_store_contract[inmemory]` / `[postgres]` |
 | AC-15 | Registers as AQService with health | `test_soc_service_health` |
 | AC-16 | Hunt reaches a matching object after a non-matching object page | `test_soc_hunt_pages_for_late_match[inmemory]` / `[postgres]` |
+| AC-17 | Hunt stops at its work budget and reports a partial result | `test_soc_hunt_work_budget[inmemory]` / `[postgres]` |
 
 ## 9. Error taxonomy (contributions)
 

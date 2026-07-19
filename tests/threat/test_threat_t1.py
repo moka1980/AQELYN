@@ -188,6 +188,10 @@ def test_tif_config_invalid() -> None:
         FusionConfig(recency_half_life_days=0.0)
     with pytest.raises(ThreatConfigInvalid, match="source_reliability"):
         FusionConfig(source_reliability={source_id: -0.1})
+    with pytest.raises(ThreatConfigInvalid, match="correlation_max_work"):
+        FusionConfig(correlation_max_work=0)
+    with pytest.raises(ThreatConfigInvalid, match="correlation_max_work"):
+        FusionConfig(correlation_max_work=100_001)
 
     assert "ThreatConfigInvalid" in ALL_ERROR_CODES
     assert "ThreatSourceNotFound" in ALL_ERROR_CODES

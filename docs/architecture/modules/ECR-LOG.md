@@ -35,7 +35,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0028 | EA-0012 + EA-0028 | Accepted | Complete ECR-0027: plumb ACG/CSPM config through both runtime factories; apply query budgets independently per object type; persist complete, per-type baseline coverage; distinguish empty scope from missing baselines; and amend EA-0012's owner contract. |
 | ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 | ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
-| ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Proposed | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
+| ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
 
 ---
 
@@ -1450,3 +1450,12 @@ of a late match and boundedness are not in tension — declaring the bound satis
 **Impact.** Amends EA-0015 D7/NFR-3/FR-8 and its hunt return type, amends EA-0014 FR-6, adds a
 work-budget config to both, and one acceptance test per module proving a budget-exhausted run is
 reported and not silently short. Implementation is Codex's.
+
+**Accepted resolution.** EA-0015 adds `SOCConfig.hunt_max_work` (default `5_000`, hard cap
+`100_000`) and returns `HuntResult { matches, evaluated, truncated }`; a no-match hunt stops after
+the configured number of examined objects and reports `truncated=true` when another matching
+object-store page remains. EA-0014 adds `FusionConfig.correlation_max_work` with the same default
+and hard cap; expired indicators consume that budget, and an exhausted indicator scan propagates
+to `MatchReport.truncated`. Both limits reject values outside `1..100_000`. The in-memory object
+store maintains its stable id order incrementally and deep-copies only the selected page, removing
+the repeated full-result sort/copy that made the measured paging cost superlinear.

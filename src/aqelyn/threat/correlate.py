@@ -11,6 +11,7 @@ from aqelyn.conventions.errors import ObjectNotFound, ThreatConfigInvalid
 from aqelyn.graph import KnowledgeGraph, Path, Subgraph
 from aqelyn.objects import AQObject, ObjectQuery, ObjectStore
 from aqelyn.threat.models import (
+    MAX_CORRELATION_WORK,
     THREAT_OBJECT_TYPES,
     MatchReport,
     ThreatIndicator,
@@ -21,6 +22,7 @@ from aqelyn.threat.normalize import object_to_indicator
 DEFAULT_CORRELATION_LIMIT = 100
 DEFAULT_WITHIN_HOPS = 2
 DEFAULT_MAX_NODES = 10_000
+DEFAULT_MAX_WORK = 5_000
 
 
 async def correlate(
@@ -29,16 +31,19 @@ async def correlate(
     graph: KnowledgeGraph,
     tenant_id: str | None,
     config: Mapping[str, object],
+    max_work: int = DEFAULT_MAX_WORK,
     min_match_confidence: float,
     scope: ObjectQuery | None = None,
     now: datetime | None = None,
 ) -> MatchReport:
     clock = _as_utc(now or utc_now())
     limits = _CorrelationLimits.from_config(config)
+    work_limit = _validate_max_work(max_work)
     indicators, indicators_truncated = await _active_indicators(
         object_store,
         tenant_id=tenant_id,
         limit=limits.limit,
+        max_work=work_limit,
         now=clock,
     )
     assets, assets_truncated = await _assets(
@@ -164,21 +169,25 @@ async def _active_indicators(
     *,
     tenant_id: str | None,
     limit: int,
+    max_work: int,
     now: datetime,
 ) -> tuple[list[ThreatIndicator], bool]:
     indicators: list[ThreatIndicator] = []
     cursor: str | None = None
     seen_cursors: set[str] = set()
-    while len(indicators) < limit:
+    work = 0
+    while len(indicators) < limit and work < max_work:
+        page_size = min(limit, max_work - work)
         objects, next_cursor = await object_store.query(
             ObjectQuery(
                 tenant_id=tenant_id,
                 object_type="threat_indicator",
                 include_states=("active",),
-                limit=limit,
+                limit=page_size,
                 cursor=cursor,
             )
         )
+        work += len(objects)
         for obj in objects:
             indicator = object_to_indicator(obj)
             if indicator.expires_at is not None and _as_utc(indicator.expires_at) <= now:
@@ -189,11 +198,21 @@ async def _active_indicators(
             return sorted(indicators, key=lambda item: item.id)[:limit], truncated
         if next_cursor is None:
             return sorted(indicators, key=lambda item: item.id), False
+        if work == max_work:
+            return sorted(indicators, key=lambda item: item.id), True
         if next_cursor in seen_cursors:
             return sorted(indicators, key=lambda item: item.id), True
         seen_cursors.add(next_cursor)
         cursor = next_cursor
     return sorted(indicators, key=lambda item: item.id)[:limit], False
+
+
+def _validate_max_work(value: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ThreatConfigInvalid("max_work must be >= 1")
+    if value > MAX_CORRELATION_WORK:
+        raise ThreatConfigInvalid(f"max_work must be <= {MAX_CORRELATION_WORK}")
+    return value
 
 
 async def _assets(

@@ -78,6 +78,16 @@ factory.
 **Depends on:** T4.
 **Acceptance:** `test_tif_service_health`.
 
+## Post-delivery follow-up — ECR-0031
+
+Add `FusionConfig.correlation_max_work` (default `5_000`, hard cap `100_000`)
+to bound expired-indicator enumeration independently of result count. Exhausting
+the work budget SHALL propagate `MatchReport.truncated=true`.
+
+**Acceptance:** `test_tif_config_invalid`,
+`test_tif_indicator_work_budget[inmemory]`,
+`test_tif_indicator_work_budget[postgres]`.
+
 ---
 
 ## Review protocol (Claude Code) — the boundary gets the hard look
