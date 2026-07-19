@@ -38,6 +38,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
 | ECR-0032 | EA-0028 + EA-0029 | Proposed | Consider extracting a shared posture-normalization base once CSPM and SSPM are both green. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
+| ECR-0035 | EA-0029 | Proposed | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
 
 ---
 
@@ -1570,3 +1571,61 @@ and acceptance criteria; amends EA-0028's store interface, FR-11 and AC-24; adds
 the cross-owner store follow-up to C-025 and makes it a required C-026 Z2
 deliverable. No production code changes in this docs PR; implementation starts
 only after the amended contract merges.
+
+---
+
+## ECR-0035 - the blast radius has three states and the type holds two
+
+**Raised by:** Claude Code (C-026 Z1 review, PR #169; merged before the fix, so raising it here).
+**Severity:** blocking before Z2 - Z2 persists this shape into both stores, and every later
+consumer reads `reachable_object_ids == []` as a fact about the world.
+
+**Problem.** `SaaSIntegration` (`src/aqelyn/sspm/models.py:311-312`) carries:
+
+```python
+reachable_object_ids: list[str] = Field(default_factory=list)
+reachable_truncated: bool = False
+```
+
+Three states exist in the real system:
+
+1. traversal ran, the grant reaches nothing -> `[]`, `truncated=False`
+2. traversal ran, hit `integration_max_nodes` -> partial list, `truncated=True`
+3. traversal never ran (KG unavailable - the case EA-0029 §11 explicitly requires) -> **no
+   representation**
+
+State 3 renders identically to state 1. Constructed against the shipped model:
+
+```
+computed-reaches-nothing : [] False
+reach-not-computed       : [] False
+distinguishable?         : False
+```
+
+The ambiguity resolves toward **safe**: a grant whose blast radius was never computed reads as a
+grant that reaches nothing. That is the platform's recurring defect - absence rendered as a clean
+result - in the field that quantifies how much damage a third-party grant could do.
+
+`SaaSRoutingResult.routing_pending` does not cover it. That object describes one routing attempt;
+the persisted `SaaSIntegration` is what FR-7's `SaaSIntegrationKnownSurfaceSource` reads back via
+`query_integrations`, and it cannot say "reach unknown". `reason` is free text, not machine-readable.
+
+**The model already knows the pattern.** ECR-0033 gave `over_scoped` an explicit `unknown` in this
+same class, for exactly this reason. Reach did not get the same treatment - and the spec is the
+reason: §4 declares only the two fields, so Z1 implemented what was written. The spec review
+(mine) caught the truncated case and missed the not-computed case.
+
+**Resolution.**
+
+1. Replace `reachable_truncated: bool` with
+   `reach_status: Literal["computed", "truncated", "pending"]`, defaulting to `"pending"` so an
+   unset reach is never silently complete.
+2. Model validator: `pending` requires `reachable_object_ids == []`; `truncated` requires a
+   non-empty list; `computed` permits either.
+3. Amend EA-0029 §4 (type), FR-6 (propagate `Subgraph.truncated` as `reach_status="truncated"`,
+   KG-unavailable as `"pending"`), and §11.
+4. Extend AC-7a and add an AC asserting a pending reach is distinguishable from an empty one.
+5. Land before Z2 writes the column/field into either store.
+
+**Impact.** One field on one model, its validator, four spec lines, two ACs. Cost rises sharply
+once Z2 persists it and Z3+ consumers read the empty list as fact. Implementation is Codex's.
