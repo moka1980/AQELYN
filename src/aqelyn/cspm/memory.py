@@ -10,6 +10,7 @@ from aqelyn.cspm.store import (
     validate_cloud_object,
     validate_cloud_object_id,
     validate_provider_filter,
+    validate_query_cursor,
     validate_query_limit,
     validate_tenant_scope,
 )
@@ -47,18 +48,23 @@ class InMemoryCloudNormalizationStore:
         tenant_id: str | None,
         provider: str | None = None,
         limit: int = 1000,
-    ) -> list[NormalizedCloudObject]:
+        cursor: str | None = None,
+    ) -> tuple[list[NormalizedCloudObject], str | None]:
         selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
         selected_provider = validate_provider_filter(provider)
         selected_limit = validate_query_limit(limit)
+        selected_cursor = validate_query_cursor(cursor)
         rows = [
             copy.deepcopy(record)
             for record in self._records.values()
             if self._visible(record.tenant_id, selected_tenant)
             and (selected_provider is None or record.provider == selected_provider)
+            and (selected_cursor is None or record.object_id > selected_cursor)
         ]
         rows.sort(key=lambda record: record.object_id)
-        return rows[:selected_limit]
+        page = rows[:selected_limit]
+        next_cursor = page[-1].object_id if len(rows) > selected_limit else None
+        return page, next_cursor
 
     def _visible(self, row_tenant_id: str | None, requested_tenant_id: str | None) -> bool:
         if self.mode == "local":

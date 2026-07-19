@@ -14,6 +14,7 @@ from aqelyn.cspm.store import (
     validate_cloud_object,
     validate_cloud_object_id,
     validate_provider_filter,
+    validate_query_cursor,
     validate_query_limit,
     validate_tenant_scope,
 )
@@ -107,10 +108,12 @@ class PostgresCloudNormalizationStore:
         tenant_id: str | None,
         provider: str | None = None,
         limit: int = 1000,
-    ) -> list[NormalizedCloudObject]:
+        cursor: str | None = None,
+    ) -> tuple[list[NormalizedCloudObject], str | None]:
         selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
         selected_provider = validate_provider_filter(provider)
         selected_limit = validate_query_limit(limit)
+        selected_cursor = validate_query_cursor(cursor)
         args: list[Any] = []
         clauses: list[str] = []
         if self.mode == "local":
@@ -121,15 +124,23 @@ class PostgresCloudNormalizationStore:
         if selected_provider is not None:
             args.append(selected_provider)
             clauses.append(f"provider = ${len(args)}")
-        args.append(selected_limit)
+        if selected_cursor is not None:
+            args.append(selected_cursor)
+            clauses.append(f"object_id > ${len(args)}")
+        args.append(selected_limit + 1)
         where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                f"SELECT {_COLUMNS} FROM aq_cloud_normalization "
-                f"{where}ORDER BY object_id LIMIT ${len(args)}",
-                *args,
+            rows = list(
+                await conn.fetch(
+                    f"SELECT {_COLUMNS} FROM aq_cloud_normalization "
+                    f"{where}ORDER BY object_id LIMIT ${len(args)}",
+                    *args,
+                )
             )
-        return [_row_to_object(row) for row in rows]
+        has_more = len(rows) > selected_limit
+        page = rows[:selected_limit]
+        next_cursor = str(page[-1]["object_id"]) if has_more else None
+        return [_row_to_object(row) for row in page], next_cursor
 
 
 def _object_args(obj: NormalizedCloudObject) -> tuple[Any, ...]:

@@ -490,14 +490,16 @@ async def test_cspm_store_contract(kind: str) -> None:
 
         assert await harness.store.get(first.object_id, tenant_id=TENANT) == first
         assert await harness.store.get(first.object_id, tenant_id=OTHER_TENANT) is None
-        assert [row.object_id for row in await harness.store.query(tenant_id=TENANT)] == [
-            first.object_id
-        ]
-        assert [
-            row.object_id
-            for row in await harness.store.query(tenant_id=OTHER_TENANT, provider="azure")
-        ] == [other.object_id]
-        assert await harness.store.query(tenant_id=TENANT, provider="gcp") == []
+        tenant_rows, tenant_cursor = await harness.store.query(tenant_id=TENANT)
+        assert [row.object_id for row in tenant_rows] == [first.object_id]
+        assert tenant_cursor is None
+        other_rows, other_cursor = await harness.store.query(
+            tenant_id=OTHER_TENANT,
+            provider="azure",
+        )
+        assert [row.object_id for row in other_rows] == [other.object_id]
+        assert other_cursor is None
+        assert await harness.store.query(tenant_id=TENANT, provider="gcp") == ([], None)
 
         changed = first.model_copy(
             update={
@@ -530,3 +532,29 @@ async def test_cspm_store_contract(kind: str) -> None:
         local_row = await local.put(_normalized(tenant_id=None))
         assert await local.get(local_row.object_id, tenant_id=None) == local_row
         assert await local.get(local_row.object_id, tenant_id=TENANT) is None
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_cspm_store_pagination(kind: str) -> None:
+    async with _harness(kind) as harness:
+        object_ids = sorted(new_id("obj") for _ in range(5))
+        providers = ("aws", "azure", "aws", "azure", "aws")
+        for object_id, provider in zip(object_ids, providers, strict=True):
+            await harness.store.put(_normalized(object_id=object_id, provider=provider))
+
+        first, cursor = await harness.store.query(
+            tenant_id=TENANT,
+            provider="azure",
+            limit=1,
+        )
+        assert [row.object_id for row in first] == [object_ids[1]]
+        assert cursor == object_ids[1]
+
+        second, cursor = await harness.store.query(
+            tenant_id=TENANT,
+            provider="azure",
+            limit=1,
+            cursor=cursor,
+        )
+        assert [row.object_id for row in second] == [object_ids[3]]
+        assert cursor is None
