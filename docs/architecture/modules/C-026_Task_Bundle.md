@@ -9,7 +9,7 @@
 normalize-route pattern** with a SaaS vocabulary (restatement — reuse the shape),
 and (b) **SaaS Integration Risk** — the one genuinely-new capability (OAuth
 grants / app-to-app integrations as KG edges, over-scoped external grants as
-EA-0023 facets). Keep them clearly separated; the new part is small and composes
+EA-0023 `KnownSurfaceRecord`s). Keep them clearly separated; the new part is small and composes
 existing owners.
 
 **Four pins (EA-0029 §0.2 + ECR-0033), enforced as tests:**
@@ -36,7 +36,8 @@ src/aqelyn/sspm/
 │                     #   SaaSIntegration, SaaSRoutingResult, SaaSConfig (Z1)
 ├── normalize.py      # descriptor -> AQObject, provenance, conflicts, NO verdict (Z2)
 ├── route.py          # route to owners; pending-aware (Z2)
-├── integration.py    # NEW: edge -> EA-0005 blast radius -> EA-0023 facet (Z3)
+├── integration.py    # NEW: edge -> EA-0005 blast radius (Z3)
+├── surface.py        # stored grants -> EA-0023 KnownSurfaceSource adapter (Z3)
 ├── baselines.py      # SaaS Baseline data (EA-0012 model) (Z3)
 ├── store.py          # SaaSNormalizationStore protocol (Z2)
 ├── memory.py / postgres.py  # stores + DDL (Z2)
@@ -54,10 +55,13 @@ tests/sspm/           # acceptance suite (in-memory + Postgres)
 **Spec:** §4, FR-8/10a/12; §9. **Deliverables:** models (**normalized object has
 no verdict/severity field** — §0.2.1); tri-state `over_scoped`;
 `reachable_truncated`; source-claim-only `claim_confidence`; tenant-owned SaaS
-records; config validation including `integration_max_nodes` (`SaaSConfigInvalid`); error codes in
+records; `IntegrationDescriptor.observed_at`; real EA-0023 `grantor_kind`
+(`api`/`identity`); config validation including `integration_max_nodes`
+(`SaaSConfigInvalid`); error codes in
 `conventions.errors` + CONVENTIONS §9.
 **Acceptance:** `test_sspm_no_verdict_field`, `test_sspm_no_vendor_verdict`,
-`test_sspm_claim_confidence_not_vendor_score`, `test_sspm_config_invalid`.
+`test_sspm_claim_confidence_not_vendor_score`, `test_sspm_scope_status`,
+`test_sspm_config_invalid`.
 
 ## Z2 — Normalize + route (the reused CSPM pattern)
 
@@ -65,8 +69,9 @@ records; config validation including `integration_max_nodes` (`SaaSConfigInvalid
 **Deliverables:** `normalize` (**handed-in only**; provenance; conflicts by
 EA-0006 recorded; unmapped → `saas_unknown` flagged); `route` (to EA-0025/0012/
 0010/0011; **missing data → `routing_pending`, surfaced**); `SaaSNormalizationStore`
-(in-memory + Postgres + DDL) with explicit tenant scope on every read and stable
-cursor pagination. Upgrade the existing
+(in-memory + Postgres + DDL) with explicit tenant scope on every normalized-
+object and integration read, plus stable cursor pagination for both query
+surfaces. Upgrade the existing
 EA-0028 `CloudNormalizationStore` to the same EA-0002 D8 contract in this ticket
 so the limit-only result is fixed once rather than copied.
 **Depends on:** Z1.
@@ -84,12 +89,16 @@ so the limit-only result is fixed once rather than copied.
 `over_scoped`, with missing scopes = `"unknown"`); `integration_blast_radius`
 via **EA-0005 `subgraph()`** under `integration_max_nodes`, returning a bounded
 `BlastRadius` and propagating `Subgraph.truncated` to `reachable_truncated`;
-over-scoped external grant → **EA-0023** facet;
+store-backed `SaaSIntegrationKnownSurfaceSource` yielding real EA-0023
+`KnownSurfaceRecord`s for `over_scoped="over_scoped"` grants, with supported
+`AssetKind` (`api`/`identity`) and an evidence-cited `access` basis; the adapter
+pages integrations to exhaustion, preserves upstream inventory rows, replaces
+a same-object placeholder, and fails rather than returning a partial surface;
 `claim_confidence` from source evidence via **EA-0006**, never vendor data;
 revocation = **proposed gated EA-0008 run**, no vendor verdict;
 `apply_saas_baselines` → **EA-0012**.
 **Depends on:** Z2.
-**Acceptance:** `test_sspm_integration_graph`, `test_sspm_grant_is_exposure`,
+**Acceptance:** `test_sspm_integration_graph`, `test_sspm_grant_is_known_surface`,
 `test_sspm_blast_radius_truncated`, `test_sspm_delegations`,
 `test_sspm_claim_confidence_not_vendor_score`, `test_sspm_absence_not_removal`,
 `test_sspm_revoke_gated`,
@@ -100,8 +109,12 @@ revocation = **proposed gated EA-0008 run**, no vendor verdict;
 
 **Spec:** FR-14, §10. **Deliverables:** `SaaSPostureService` (`AQService`, name
 `"sspm_engine"`) + `register_saas_events` (`app_normalized`,
-`integration_detected`, `app_unclassified`); wired into the kernel factory.
-**Depends on:** Z3. **Acceptance:** `test_sspm_service_health`.
+`integration_detected`, `app_unclassified`); wired into both kernel factories;
+compose the SaaS integration source with the existing inventory
+`KnownSurfaceSource` and wire that combined source into EA-0023.
+**Depends on:** Z3. **Acceptance:** `test_sspm_service_health`,
+`test_sspm_surface_source_wired[inmemory]`,
+`test_sspm_surface_source_wired[postgres]`.
 
 ---
 
@@ -117,8 +130,11 @@ revocation = **proposed gated EA-0008 run**, no vendor verdict;
 **New-capability part (Z3)** — the genuinely-new surface:
 5. Integrations are **EA-0002 edges**; blast radius is **EA-0005 traversal** — no
    local graph, no local traversal.
-6. Over-scoped external grant becomes an **EA-0023 facet** — SSPM does not score
-   exposure itself.
+6. Over-scoped external grant becomes a real **EA-0023 `KnownSurfaceRecord`**
+   through a store-backed `KnownSurfaceSource` — SSPM does not score exposure
+   itself. Drive both factory runtimes end to end: preserve the inventory source,
+   add the SaaS source, replace rather than duplicate a same-object placeholder,
+   page integrations to exhaustion, and prove EA-0023 can derive the stored grant.
 7. Revocation is a **proposed gated EA-0008 run**. The vendor-verdict boundary is
    **structural** (S5): confirm **no output type has a verdict/score/trust field**
    for the third party — the judgement must be unrepresentable, not merely
@@ -129,7 +145,7 @@ revocation = **proposed gated EA-0008 run**, no vendor verdict;
    configs; assert SSPM reads EA-0012's coverage declaration rather than
    reimplementing it (`test_sspm_assessable_both_sites[inmemory|postgres]`).
 9. `removed`/absent app → **EA-0025 `unreported`**, not deleted (S3).
-10. Missing scopes are `over_scoped="unknown"`, never false; bounded KG reach
+10. Missing scopes are `over_scoped="unknown"`, never `within_scope`; bounded KG reach
     propagates `reachable_truncated`; `claim_confidence` uses source evidence
     only and cannot become a vendor score (ECR-0033).
 
