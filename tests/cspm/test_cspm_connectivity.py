@@ -16,7 +16,6 @@ from aqelyn.assetconfig import (
 )
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.cspm import (
-    AssetConfigCloudBaselineRouter,
     CloudBaselineRouter,
     CloudNormalizationConfig,
     CloudOwnerRouter,
@@ -41,6 +40,7 @@ from aqelyn.inventory import (
     InventoryIntelligenceEngine,
     InventoryKnownSurfaceSource,
 )
+from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime
 from aqelyn.objects import InMemoryObjectStore, ObjectQuery
 from aqelyn.policy import Condition, Policy, PolicyEngine, Rule, Target
 from aqelyn.risk import InMemoryRiskSnapshotStore, InMemoryRiskStore, RiskIntelligenceEngine
@@ -176,41 +176,41 @@ def _acg_config() -> ACGConfig:
 
 
 async def test_cspm_cloud_baseline_assessed_end_to_end() -> None:
-    object_store = InMemoryObjectStore(mode="enterprise")
-    evidence_store = InMemoryEvidenceStore(mode="enterprise")
-    baseline_store = InMemoryBaselineStore()
-    snapshot_store = InMemoryDriftSnapshotStore()
-    await baseline_store.put(_baseline())
-    acg = AssetConfigAnalyzer(
-        object_store,
-        [],
-        baseline_store=baseline_store,
-        snapshot_store=snapshot_store,
-        evidence_store=evidence_store,
-        config=_acg_config(),
+    runtime = create_inmemory_runtime(
+        AQELYNConfig(
+            backend="memory",
+            tenant_mode="enterprise",
+            acg_assessable_object_types=["asset", "cloud_storage"],
+            acg_classification_rules=_acg_config().classification_rules,
+            cspm_type_map={"aws:s3:bucket": "cloud_storage"},
+            cspm_fact_paths={
+                "aws:s3:bucket": {
+                    "encryption_enabled": "/configuration/encryptionEnabled",
+                    "network_public": "/configuration/network/public",
+                }
+            },
+            cspm_baseline_ids=[BASELINE_ID],
+        )
     )
-    cloud = CloudPostureEngine(
-        InMemoryCloudNormalizationStore(mode="enterprise"),
-        object_store=object_store,
-        evidence_store=evidence_store,
-        source_registry=InMemorySourceReliabilityRegistry(default_reliability=0.8),
-        config=_cloud_config("cloud_storage", baseline_ids=(BASELINE_ID,)),
-        baseline_router=AssetConfigCloudBaselineRouter(acg, baseline_store),
-        actor=ACTOR,
-    )
-    normalized = (await cloud.normalize([_descriptor(new_id("src"))], tenant_id=TENANT))[0]
+    await runtime.acg_baseline_store.put(_baseline())
+    normalized = (
+        await runtime.cloud_posture_engine.normalize([_descriptor(new_id("src"))], tenant_id=TENANT)
+    )[0]
 
-    snapshot_id = await cloud.apply_cloud_baselines(
+    snapshot_id = await runtime.cloud_posture_engine.apply_cloud_baselines(
         tenant_id=TENANT,
         scope={"object_type": "cloud_storage"},
     )
 
-    snapshot = await snapshot_store.get(snapshot_id)
+    snapshot = await runtime.acg_snapshot_store.get(snapshot_id)
     assert snapshot is not None
     assert snapshot.baseline_ids == [BASELINE_ID]
     assert snapshot.evidence_id is not None
-    assert await evidence_store.exists(snapshot.evidence_id)
+    assert await runtime.evidence_store.exists(snapshot.evidence_id)
     assert snapshot.scope["object_type"] == "cloud_storage"
+    assert snapshot.objects_in_scope == 1
+    assert snapshot.objects_assessed == 1
+    assert snapshot.unassessed_object_ids == []
     assert len(snapshot.asset_drifts) == 1
     assert snapshot.asset_drifts[0].asset_id == normalized.object_id
     assert snapshot.asset_drifts[0].failed == 1

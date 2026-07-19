@@ -23,6 +23,7 @@ from aqelyn.assetconfig import (
     DriftSnapshotStore,
     InMemoryBaselineStore,
     InMemoryDriftSnapshotStore,
+    ObjectTypeAssessmentCoverage,
     PostgresBaselineStore,
     PostgresDriftSnapshotStore,
     new_drift_snapshot_id,
@@ -141,6 +142,7 @@ def _snapshot(
     run_at: datetime,
     score: float = 1.0,
 ) -> DriftSnapshot:
+    drift = _asset_drift(score=score)
     return DriftSnapshot(
         id=new_drift_snapshot_id(),
         tenant_id=tenant_id,
@@ -148,7 +150,18 @@ def _snapshot(
         scope={"object_type": ASSET_OBJECT_TYPE},
         baseline_ids=["cis-linux"],
         overall_score=score,
-        asset_drifts=[_asset_drift(score=score)],
+        asset_drifts=[drift],
+        coverage_complete=True,
+        objects_in_scope=1,
+        objects_assessed=1,
+        unassessed_object_ids=[],
+        coverage_by_object_type=[
+            ObjectTypeAssessmentCoverage(
+                object_type=ASSET_OBJECT_TYPE,
+                objects_in_scope=1,
+                objects_assessed=1,
+            )
+        ],
         evidence_id=None,
     )
 
@@ -312,6 +325,21 @@ async def test_acg_snapshot_contract(kind: str) -> None:
         assert await store.get("missing-snapshot") is None
         with pytest.raises(BaselineConfigInvalid):
             await store.history(tenant_id=TENANT_A, limit=0)
+
+        incomplete = _snapshot(
+            tenant_id=TENANT_A,
+            run_at=base + timedelta(minutes=20),
+        ).model_copy(
+            update={
+                "coverage_complete": False,
+                "objects_in_scope": 0,
+                "objects_assessed": 0,
+                "coverage_by_object_type": [],
+            },
+            deep=True,
+        )
+        with pytest.raises(BaselineConfigInvalid, match="complete coverage"):
+            await store.put(incomplete)
 
         changed = older.model_copy(update={"overall_score": 1.0}, deep=True)
         with pytest.raises(OptimisticConcurrencyConflict):

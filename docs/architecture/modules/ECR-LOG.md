@@ -32,7 +32,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0025 | EA-0028 / IS-028 | Accepted | A configured fact path missing from a later snapshot silently deletes a previously-known fact. Absence is **unknown**, not a change: the fact is retained with its last-known value, marked `unreported`, and the object is flagged — never dropped without trace (the ECR-0014 rule at field level). |
 | ECR-0026 | EA-0028 / IS-028 | Accepted | Y3 routes a typed, evidence-backed `CloudRouteEnvelope` containing the full normalized object to owner adapters. The six heterogeneous owner APIs are not rewritten, and no adapter may strip ECR-0025's `unreported_facts`; provider deletion is recovered from the pinned evidence and maps only to inventory `mark_unreported`. |
 | ECR-0027 | EA-0028 + EA-0012 | Accepted | `apply_cloud_baselines` can never assess a cloud object: EA-0012's asset query hard-forces `object_type="asset"` while CSPM normalizes to `cloud_*`. It returns a clean-looking empty snapshot. EA-0012 gains a configured set of assessable object types, and an assessment that applied no baseline to in-scope objects must be surfaced, never reported clean. |
-| ECR-0028 | EA-0012 + EA-0028 | Proposed | ECR-0027's mechanism ships but is not connected and is not complete. (a) `kernel/factory.py` builds `AssetConfigAnalyzer` with the default config in both backends, so `assessable_object_types == {"asset"}` in every shipped runtime and no deployment configuration can widen it — `ACGConfig` is not plumbed from `AQELYNConfig`. (b) `_asset_pages` shares one `scope.limit` budget across object types in sorted order, so an earlier type can consume the whole budget and a later type is silently never assessed while the snapshot records it as in scope. (c) Coverage is counted and discarded: partial coverage is indistinguishable from full coverage. (d) EA-0012's own spec was never amended. |
+| ECR-0028 | EA-0012 + EA-0028 | Accepted | Complete ECR-0027: plumb ACG/CSPM config through both runtime factories; apply query budgets independently per object type; persist complete, per-type baseline coverage; distinguish empty scope from missing baselines; and amend EA-0012's owner contract. |
 
 ---
 
@@ -1184,3 +1184,12 @@ contract changed in code without changing in its spec.
 **Impact.** Amends EA-0012 §D1/FR-5 and its change-control line, amends EA-0028 AC-22 to drive the
 factory-built runtime, adds per-type budgeting and snapshot coverage fields. Implementation is
 Codex's — it touches the kernel factory, an owner's persisted model, and an owner's spec.
+
+**Accepted resolution.** `AQELYNConfig` now supplies the ACG assessment config and CSPM
+normalization/baseline config to both runtime factories. An explicit `ObjectQuery.limit` is a
+per-object-type assessment budget; newly issued snapshots persist aggregate and per-type coverage,
+including every in-scope object without an applicable baseline. Historical rows remain readable
+with `coverage_complete=false` rather than being misrepresented as fully covered. The recorded
+scope remains valid `ObjectQuery` data; configured object types live in the coverage records.
+Empty scope and missing baselines retain `BaselineNotFound` but carry distinct stable
+`details.reason` values, and `assess_asset`'s no-baseline refusal is now part of EA-0012's contract.

@@ -31,6 +31,7 @@ from aqelyn.assetconfig.models import (
     DriftSnapshot,
     DriftStatus,
     FrameworkRef,
+    ObjectTypeAssessmentCoverage,
 )
 from aqelyn.assetconfig.postgres import PostgresBaselineStore, PostgresDriftSnapshotStore
 from aqelyn.assetconfig.service import (
@@ -69,6 +70,7 @@ __all__ = [
     "InMemoryBaselineStore",
     "InMemoryDriftSnapshotStore",
     "MissionPrioritizer",
+    "ObjectTypeAssessmentCoverage",
     "PostgresBaselineStore",
     "PostgresDriftSnapshotStore",
     "WorkflowProposer",

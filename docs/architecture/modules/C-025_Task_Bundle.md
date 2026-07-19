@@ -2,7 +2,7 @@
 
 **Milestone:** C-025 (Cloud Security Posture Management, EA-0028)
 **For:** Codex (implementer) · Claude Code (reviewer)
-**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020/0021/0022/0023/0024/0025/0026 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
+**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020 through ECR-0028 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
 **Definition of Done:** every ticket's acceptance tests pass on in-memory **and** Postgres; `ruff` clean; `mypy --strict` clean; **no cloud collection; no second inventory/baseline/compliance/exposure/identity/risk engine; no verdict field in a CSPM model; no provider-deleted input may decommission an asset**; nothing outside the spec; `make check` green; Claude Code sign-off per ticket.
 
 **Read EA-0028 §0 first.** "Cloud" is **a scope + a normalization layer**, not six
@@ -180,3 +180,27 @@ evidence recorded, which reads as "assessed, all clean".
 **Then do the same for the other five owners.** Y3's spies prove the envelope arrives
 intact; they do not prove the receiving owner can act on it. Each of inventory,
 compliance, exposure, iag and risk needs one end-to-end proof before C-025 is done.
+
+## Y4 follow-on (ECR-0028) — complete deployment connectivity and coverage truth
+
+ECR-0027's local mechanism is necessary but insufficient. Complete it as one owner-contract
+change:
+
+1. Plumb ACG assessment config through `AQELYNConfig` into both runtime factories, and prove
+   AC-22 through a factory-built runtime. The same factory configuration must make CSPM type
+   mappings, selected facts, and cloud baseline ids deployable.
+2. Apply `ObjectQuery.limit` independently to every configured object type so an earlier type
+   cannot starve a later type while the snapshot implies both were assessed.
+3. Persist aggregate and per-type baseline coverage in every new `DriftSnapshot`: objects in
+   scope, objects assessed, and every object with no matching baseline. Historical rows are
+   explicitly `coverage_complete=false`; they are never relabelled complete.
+4. Keep `snapshot.scope` valid `ObjectQuery` data. Record configured types in coverage, not as an
+   extra query field. Distinguish empty scope from no applicable baseline with stable error
+   details, and document `assess_asset`'s no-baseline refusal in EA-0012.
+
+**Acceptance:** `test_cspm_cloud_baseline_assessed_end_to_end`,
+`test_acg_scope_limit_is_per_object_type`,
+`test_acg_snapshot_declares_partial_baseline_coverage`,
+`test_acg_assess_refuses_zero_coverage`,
+`test_acg_assess_asset_refuses_no_baseline`, `test_acg_snapshot_coverage_invalid`, and both
+snapshot-store backends.

@@ -54,7 +54,10 @@ def validate_baseline(baseline: Baseline) -> Baseline:
 
 
 def validate_snapshot(snapshot: DriftSnapshot) -> DriftSnapshot:
-    return DriftSnapshot.model_validate(snapshot.model_dump(mode="json"))
+    validated = DriftSnapshot.model_validate(snapshot.model_dump(mode="json"))
+    if not validated.coverage_complete:
+        raise BaselineConfigInvalid("new drift snapshots require complete coverage")
+    return validated
 
 
 def validate_tenant(value: str | None) -> str | None:

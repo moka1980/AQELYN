@@ -269,6 +269,10 @@ async def test_acg_evidence_recorded() -> None:
     assert record.content is not None
     assert record.content["snapshot_id"] == snapshot.id
     assert record.content["overall_score"] == 0.5
+    assert record.content["coverage_complete"] is True
+    assert record.content["objects_in_scope"] == 2
+    assert record.content["objects_assessed"] == 2
+    assert record.content["unassessed_object_ids"] == []
     assert (await evidence_store.verify(snapshot.evidence_id)).ok
 
     stored = await snapshot_store.get(snapshot.id)

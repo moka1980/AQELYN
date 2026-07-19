@@ -59,9 +59,11 @@ from aqelyn.workflow.service import WorkflowEngineService
 
 if TYPE_CHECKING:
     from aqelyn.assetconfig.drift import AssetConfigAnalyzer
+    from aqelyn.assetconfig.models import ACGConfig
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.assetconfig.store import BaselineStore, DriftSnapshotStore
     from aqelyn.cspm import (
+        CloudNormalizationConfig,
         CloudNormalizationStore,
         CloudPostureEngine,
         CloudPostureService,
@@ -290,6 +292,33 @@ def _default_governance_config() -> GovernanceConfig:
             "batch_size": 100,
             "min_confidence": 0.0,
         }
+    )
+
+
+def _runtime_acg_config(config: AQELYNConfig) -> ACGConfig:
+    from aqelyn.assetconfig.models import ACGConfig
+
+    return ACGConfig(
+        batch_size=config.acg_batch_size,
+        assessable_object_types=config.acg_assessable_object_types,
+        classification_rules=config.acg_classification_rules,
+        unknown_is_fail=config.acg_unknown_is_fail,
+    )
+
+
+def _runtime_cloud_config(config: AQELYNConfig) -> CloudNormalizationConfig:
+    from aqelyn.cspm import CloudNormalizationConfig
+
+    return CloudNormalizationConfig.model_validate(
+        {
+            "type_map": config.cspm_type_map,
+            "fact_paths": config.cspm_fact_paths,
+            "baseline_ids": config.cspm_baseline_ids,
+        },
+        context={
+            "known_object_types": set(config.acg_assessable_object_types),
+            "known_baseline_ids": set(config.cspm_baseline_ids),
+        },
     )
 
 
@@ -645,7 +674,6 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.assetconfig.service import register_acg_events
     from aqelyn.cspm import (
         AssetConfigCloudBaselineRouter,
-        CloudNormalizationConfig,
         CloudOwnerRouter,
         CloudPostureEngine,
         InMemoryCloudNormalizationStore,
@@ -814,6 +842,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         finding_store=finding_store,
         workflow_engine=workflow_engine,
         mission_engine=mission_engine,
+        config=_runtime_acg_config(cfg),
     )
     risk_store = InMemoryRiskStore()
     risk_snapshot_store = InMemoryRiskSnapshotStore()
@@ -980,7 +1009,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         object_store=object_store,
         evidence_store=evidence_store,
         source_registry=trust_engine.registry,
-        config=CloudNormalizationConfig(),
+        config=_runtime_cloud_config(cfg),
         owner_routers=cloud_owner_routers,
         baseline_router=AssetConfigCloudBaselineRouter(acg_engine, acg_baseline_store),
     )
@@ -1159,7 +1188,6 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.assetconfig.service import register_acg_events
     from aqelyn.cspm import (
         AssetConfigCloudBaselineRouter,
-        CloudNormalizationConfig,
         CloudOwnerRouter,
         CloudPostureEngine,
         InventoryCloudOwnerRouter,
@@ -1346,6 +1374,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         finding_store=finding_store,
         workflow_engine=workflow_engine,
         mission_engine=mission_engine,
+        config=_runtime_acg_config(cfg),
     )
     risk_store = await PostgresRiskStore.connect(cfg.database_url)
     risk_snapshot_store = await PostgresRiskSnapshotStore.connect(cfg.database_url)
@@ -1552,7 +1581,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         object_store=object_store,
         evidence_store=evidence_store,
         source_registry=trust_engine.registry,
-        config=CloudNormalizationConfig(),
+        config=_runtime_cloud_config(cfg),
         owner_routers=cloud_owner_routers,
         baseline_router=AssetConfigCloudBaselineRouter(acg_engine, acg_baseline_store),
     )

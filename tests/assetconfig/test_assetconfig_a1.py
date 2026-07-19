@@ -12,11 +12,14 @@ from aqelyn.assetconfig import (
     MAX_REGEX_PATTERN_LENGTH,
     MISSING,
     ACGConfig,
+    AssetDrift,
     Baseline,
     Check,
+    DriftSnapshot,
+    ObjectTypeAssessmentCoverage,
     compare,
 )
-from aqelyn.conventions import ALL_ERROR_CODES, ActorRef
+from aqelyn.conventions import ALL_ERROR_CODES, ActorRef, new_id
 from aqelyn.conventions.errors import (
     BaselineConfigInvalid,
     BaselineNotFound,
@@ -121,3 +124,38 @@ def test_acg_config_invalid() -> None:
         _baseline(_check(id="duplicate"), _check(id="duplicate"))
     with pytest.raises(BaselineConfigInvalid):
         _check(comparator="regex", expected="(a+)+$")
+
+
+def test_acg_snapshot_coverage_invalid() -> None:
+    assessed_id = new_id("obj")
+    uncovered_id = new_id("obj")
+    drift = AssetDrift(
+        asset_id=assessed_id,
+        baseline_id="cis-linux-server",
+        evaluated=1,
+        passed=1,
+        failed=0,
+        score=1.0,
+    )
+
+    with pytest.raises(BaselineConfigInvalid, match="per-object-type uncovered"):
+        DriftSnapshot(
+            id="drift-snapshot-invalid-coverage",
+            run_at=datetime.now(UTC),
+            scope={"object_type": "asset"},
+            baseline_ids=["cis-linux-server"],
+            overall_score=1.0,
+            asset_drifts=[drift],
+            coverage_complete=True,
+            objects_in_scope=2,
+            objects_assessed=1,
+            unassessed_object_ids=[],
+            coverage_by_object_type=[
+                ObjectTypeAssessmentCoverage(
+                    object_type="asset",
+                    objects_in_scope=2,
+                    objects_assessed=1,
+                    unassessed_object_ids=[uncovered_id],
+                )
+            ],
+        )

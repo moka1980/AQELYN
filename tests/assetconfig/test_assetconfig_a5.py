@@ -61,6 +61,7 @@ async def test_acg_service_health(backend: str) -> None:
     assert runtime.acg_engine.workflow_engine is runtime.workflow_engine
     assert runtime.acg_engine.mission_engine is runtime.mission_engine
     assert runtime.acg_engine.trend_provider is runtime.forecast_engine
+    assert "cloud_storage" in runtime.acg_engine.config.assessable_object_types
     for event_type in ACG_EVENT_TYPES:
         assert runtime.event_bus.registry.is_registered(event_type)
 
