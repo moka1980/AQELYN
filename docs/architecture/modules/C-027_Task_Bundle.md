@@ -49,9 +49,10 @@ EA-0013. If they appear, the milestone has gone wrong.
 
 ## Q1 — Types & config
 
-**Spec:** §4, FR-12; §9. **Deliverables:** models; config validation
+**Spec:** §4, FR-4/12/15; §9. **Deliverables:** models with fail-safe defaults
+(`ReachabilityStatus="unknown"`, `AssessmentStatus="pending"`); config validation
 (`SupplyChainConfigInvalid`); error codes in `conventions.errors` + CONVENTIONS §9.
-**Acceptance:** `test_sc_config_invalid`.
+**Acceptance:** `test_sc_config_invalid`, `test_sc_assessment_status_not_clean`.
 
 ## Q2 — SBOM parsing (handed-in) + store
 
@@ -70,7 +71,7 @@ registry**; unparseable → **quarantine, flagged**; conflicting SBOMs reconcile
 **Spec:** §1 (S1/S2), §6, FR-3/4, D3, NFR-1.
 **Deliverables:** dependencies as **EA-0002 edges**; `dependency_paths` (up/down)
 via **EA-0005**, `max_depth`-bounded, `truncated` propagated; `reachability`
-classifying `direct|transitive|unreachable|unknown` — **`unknown` is the default
+classifying `direct|transitive|unreachable|unknown` — **`unknown` is the type default
 and is never rendered `unreachable`**.
 **Depends on:** Q2.
 **Acceptance:** `test_sc_dependency_graph`, `test_sc_reachability_unknown_not_safe`.

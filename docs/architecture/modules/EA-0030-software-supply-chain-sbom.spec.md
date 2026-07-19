@@ -104,6 +104,8 @@ evidence-backed answer.
 
 ```
 SBOMFormat = "spdx" | "cyclonedx"
+ReachabilityStatus = "direct" | "transitive" | "unreachable" | "unknown"
+AssessmentStatus = "complete" | "truncated" | "pending"
 
 SBOMDocument = { doc_id: str, format: SBOMFormat, subject_ref: str,   # the artifact it describes
                  raw: dict, source_id: str, observed_at: datetime,
@@ -121,7 +123,7 @@ DependencyRelationship = { from_purl: str, to_purl: str,
                            edge_id: str }                            # -> EA-0002/EA-0005 (D3)
 
 ReachabilitySignal = { component_purl: str, cve_id: str,
-                       reachable: "direct"|"transitive"|"unreachable"|"unknown",
+                       reachable: ReachabilityStatus = "unknown",
                        depth: int | null, path_ref: str | null,      # EA-0005 path (S2)
                        reason: str }
 
@@ -133,7 +135,7 @@ ProvenanceResult = { component_purl: str, status: "verified"|"unverified"|"faile
 SupplyChainAssessment = { id, tenant_id, run_at, subject_ref: str,
                           components: int, direct: int, transitive: int,
                           unverified_provenance: int, vulnerable_components: int,
-                          truncated: bool, evidence_id: str }
+                          assessment_status: AssessmentStatus = "pending", evidence_id: str }
 SupplyChainConfig = { license_policy_id: str | null, sensitive_scopes: list[str],
                       max_depth: int, batch_size: int }
 ```
@@ -203,7 +205,9 @@ the **EA-0004** backbone; `verified`/`unverified`/`failed`, evidence-recorded; a
 
 **License + assess.** Identify licenses per component (new); `license_findings`
 raises findings that **EA-0010** scores against license policy. `assess`
-snapshots the graph + provenance + vuln counts (evidence-recorded).
+snapshots the graph + provenance + vuln counts (evidence-recorded). Its
+`assessment_status` starts as `pending`, becomes `complete` only after all
+in-scope work finishes, and becomes `truncated` when a bound stops the work.
 
 ## 7. Requirements
 
@@ -212,7 +216,7 @@ snapshots the graph + provenance + vuln counts (evidence-recorded).
 - **FR-1** `ingest_sbom` SHALL parse handed-in SPDX/CycloneDX only; the module SHALL clone no repo, call no registry, and expose no fetch method (§0.1).
 - **FR-2** Parsed components SHALL be `SoftwareComponent`s deduped by `purl` and routed to **EA-0025**; the module SHALL NOT implement its own inventory/lifecycle (D2/S5).
 - **FR-3** Dependencies SHALL be **EA-0002 edges**; transitive reach SHALL use **EA-0005** traversal bounded by `max_depth`; the module SHALL NOT implement graph traversal (S1/D3).
-- **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`; `unknown` SHALL NEVER be reported as `unreachable` (absence of a computed path ≠ no path).
+- **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`, default to `unknown`, and SHALL NEVER report `unknown` as `unreachable` (absence of a computed path ≠ no path).
 - **FR-5** Component CVEs SHALL be routed to **EA-0024** with a `ReachabilitySignal`; the module SHALL NOT implement a second vulnerability scorer (S2/D4).
 - **FR-6** `verify_provenance` SHALL use the **EA-0004** hash-chain/attestation backbone; an unverifiable component SHALL be `unverified` (flagged), never assumed trusted; a failed signature SHALL be surfaced (S3).
 - **FR-7** Unparseable/partial SBOMs SHALL be quarantined and flagged, never silently accepted (D1).
@@ -223,6 +227,7 @@ snapshots the graph + provenance + vuln counts (evidence-recorded).
 - **FR-12** All operations SHALL be tenant-scoped and bounded; invalid config (unknown format, `max_depth ≤ 0`, `batch_size ≤ 0`) SHALL raise `SupplyChainConfigInvalid`.
 - **FR-13** `SBOMStore` in-memory and Postgres implementations SHALL pass one contract suite.
 - **FR-14** `SupplyChainService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
+- **FR-15** `SupplyChainAssessment.assessment_status` SHALL default to `pending`; it SHALL be `complete` only after all in-scope work finishes and `truncated` whenever a configured bound stops the assessment.
 
 ### Non-functional
 
@@ -240,7 +245,7 @@ snapshots the graph + provenance + vuln counts (evidence-recorded).
 | AC-2 | SPDX + CycloneDX parse → components + edges | `test_sc_parse_formats` |
 | AC-3 | Components deduped by purl, routed to EA-0025 | `test_sc_components_to_inventory` |
 | AC-4 | Dependencies are EA-0002 edges; reach via EA-0005 | `test_sc_dependency_graph` |
-| AC-5 | Reachability: unknown ≠ unreachable | `test_sc_reachability_unknown_not_safe` |
+| AC-5 | Reachability defaults to unknown; unknown ≠ unreachable | `test_sc_reachability_unknown_not_safe` |
 | AC-6 | Component CVEs → EA-0024 w/ reachability signal | `test_sc_vulns_to_ea0024` |
 | AC-7 | Provenance verify via EA-0004; unverified flagged | `test_sc_provenance_verify` |
 | AC-8 | Failed signature surfaced, not suppressed | `test_sc_provenance_failure` |
@@ -253,6 +258,7 @@ snapshots the graph + provenance + vuln counts (evidence-recorded).
 | AC-15 | Invalid config rejected | `test_sc_config_invalid` |
 | AC-16 | Store in-memory & Postgres pass one suite | `test_sc_store_contract[inmemory]` / `[postgres]` |
 | AC-17 | Registers as AQService with health | `test_sc_service_health` |
+| AC-18 | Assessment defaults pending; bounded partial work is truncated, never complete | `test_sc_assessment_status_not_clean` |
 
 ## 9. Error taxonomy (contributions)
 
@@ -276,7 +282,8 @@ namespace.) Component-CVE events stay EA-0024's; risk events stay EA-0013's (§0
   surfaced — **a partial supply-chain picture is never presented as clean** (S2).
 - Provenance backbone unavailable → components marked `unverified` (flagged), not
   `verified` — absence of verification is not verification (S3).
-- A dep whose reachability exceeds `max_depth` → `truncated`, surfaced.
+- A dep whose reachability exceeds `max_depth` → assessment `truncated`, surfaced;
+  work that never ran remains `pending`, never clean-looking `complete`.
 - Remediation proposal failure → finding stands, delegation failure surfaced, no
   direct change (S4).
 
