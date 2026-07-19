@@ -38,7 +38,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
 | ECR-0032 | EA-0028 + EA-0029 | Proposed | Consider extracting a shared posture-normalization base once CSPM and SSPM are both green. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
-| ECR-0035 | EA-0029 | Proposed | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
+| ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
 
 ---
 
@@ -1627,5 +1627,5 @@ reason: §4 declares only the two fields, so Z1 implemented what was written. Th
 4. Extend AC-7a and add an AC asserting a pending reach is distinguishable from an empty one.
 5. Land before Z2 writes the column/field into either store.
 
-**Impact.** One field on one model, its validator, four spec lines, two ACs. Cost rises sharply
-once Z2 persists it and Z3+ consumers read the empty list as fact. Implementation is Codex's.
+**Impact.** One field on one model, its validator, four spec lines, two ACs. Landed before Z2
+persisted the shape or Z3+ consumers could read an empty list as fact.

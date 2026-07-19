@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (SaaS apps are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0011 (SaaS identity), EA-0013 (risk)** — owners it feeds; **EA-0005 (integration graph), EA-0023 (grant-as-exposure), EA-0006 (Trust)** — for the new integration-risk capability; EA-0004 (evidence)
 **Consumed by:** the owner engines above; the SaaS posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0033 (semantic scope status, bounded/truncated blast radius, claim confidence, real EA-0023 `KnownSurfaceSource`, paginated stores)
+**Change control:** ECR-0033 (semantic scope status, bounded/truncated blast radius, claim confidence, real EA-0023 `KnownSurfaceSource`, paginated stores); ECR-0035 (explicit computed/truncated/pending reach state)
 **Build milestone:** C-026 (see `C-026_Task_Bundle.md`)
 **Definition of Ready:** see §12
 
@@ -139,6 +139,7 @@ NormalizedSaaSObject = { object_id, tenant_id: str | null,
                          conflicts: list[dict], evidence_id: str }       # NO verdict/severity (§0.2.1)
 
 OverScopedStatus = Literal["over_scoped", "within_scope", "unknown"]
+ReachStatus = Literal["computed", "truncated", "pending"]
 
 BlastRadius = { object_ids: list[str], truncated: bool }                # EA-0005 Subgraph
 
@@ -148,7 +149,7 @@ SaaSIntegration = { object_id, tenant_id: str | null,
                     third_party_external: bool, scopes: list[str],
                     over_scoped: OverScopedStatus,
                     reachable_object_ids: list[str],                     # KG blast radius (S1)
-                    reachable_truncated: bool,                           # EA-0005 bound propagated
+                    reach_status: ReachStatus,                           # computed/truncated/pending
                     known_surface_ref: str | null,                       # external+over_scoped: == object_id
                     claim_confidence: float, evidence_id: str,
                     observed_at: datetime, reason: str }
@@ -225,7 +226,10 @@ is incomplete, set `over_scoped="unknown"` and route pending; otherwise set it
 to `"over_scoped"` iff a sensitive scope and external third party are both present,
 else `"within_scope"`. Compute blast radius via **EA-0005 `subgraph()`** using
 `integration_max_nodes`; preserve its `Subgraph.truncated` value in the
-returned `BlastRadius` and on `SaaSIntegration.reachable_truncated`. If
+returned `BlastRadius` and as `SaaSIntegration.reach_status="truncated"`.
+A completed traversal records `"computed"`, including a legitimate empty
+reach; if traversal cannot run, record `"pending"` with no reachable object
+ids. If
 `over_scoped="over_scoped"`, the store-backed
 `SaaSIntegrationKnownSurfaceSource` yields an EA-0023 `KnownSurfaceRecord` with
 `reachability="external"`, an `access` basis citing the integration evidence,
@@ -252,7 +256,7 @@ reach, and any truncation. No revocation (S4).
 - **FR-3** A normalized SaaS object SHALL NOT carry a verdict/severity field; severity belongs to the assessing owner (§0.2.1).
 - **FR-4** `route` SHALL hand objects to EA-0025/0012/0010/0011; missing routing/assessment data SHALL yield `routing_pending`, surfaced — never silently "no risk" (§0.2.2).
 - **FR-5** An unmapped `resource_type` SHALL become `saas_unknown`, flagged, never dropped.
-- **FR-6** `map_integration` SHALL write an EA-0002 edge with scopes; it SHALL NOT store a separate integration graph or traverse it itself — blast radius SHALL use **EA-0005 `subgraph()`** under `integration_max_nodes`, return a `BlastRadius`, and SHALL propagate `Subgraph.truncated` as `reachable_truncated=true` so a partial reach never reads as complete (S1/D3/ECR-0033).
+- **FR-6** `map_integration` SHALL write an EA-0002 edge with scopes; it SHALL NOT store a separate integration graph or traverse it itself — blast radius SHALL use **EA-0005 `subgraph()`** under `integration_max_nodes`, return a `BlastRadius`, and SHALL record `reach_status="truncated"` when `Subgraph.truncated`, `"computed"` when traversal completes (including an empty reach), and `"pending"` when traversal cannot run. `pending` requires no reachable object ids; `truncated` requires at least one (S1/D3/ECR-0033/ECR-0035).
 - **FR-7** A `SaaSIntegrationKnownSurfaceSource` SHALL expose each stored external grant with `over_scoped="over_scoped"` as an EA-0023 `KnownSurfaceRecord`, using the integration `object_id` as `asset_ref.ref_id`, `AssetRef.kind="api"` for app-to-app grants or `"identity"` for delegated-user grants, `reachability="external"`, `exposure_type="saas_integration_grant"`, and an `access` basis that cites the integration evidence and `observed_at`. `SaaSIntegration` validation SHALL require `known_surface_ref == object_id` for that state and `known_surface_ref is None` otherwise. The adapter SHALL page integrations to exhaustion, preserve upstream records, replace a same-`ref_id` placeholder rather than duplicate it, and fail on any source/store failure rather than return a partial surface. Both factory sites SHALL compose it with the existing inventory known-surface source; SSPM SHALL NOT score exposure itself (S2/ECR-0033).
 - **FR-8** Integration `claim_confidence` SHALL mean confidence that the reported grant exists with the stated scopes and SHALL derive only from EA-0006's assessment of source evidence/reliability; vendor attributes, reputation, identity, and blast radius SHALL NOT be confidence inputs. Risk aggregation SHALL be EA-0013; no second model of either (S3/ECR-0033).
 - **FR-9** A `removed`/absent SaaS app SHALL be handled by EA-0025 as **`unreported`, not decommissioned** — a SaaS app vanishing from a provider listing is absence of evidence, not evidence of removal (§0, EA-0025 S3).
@@ -260,7 +264,7 @@ reach, and any truncation. No revocation (S4).
 - **FR-10a** No output type (`SaaSIntegration`, `NormalizedSaaSObject`, or any emitted finding field) SHALL carry a vendor-level verdict/score/trust field; the vendor judgement SHALL be structurally unrepresentable. `claim_confidence` SHALL be structurally and behaviorally limited to confidence in the observed grant claim, never the vendor (S5/ECR-0033).
 - **FR-10b** `saas_*` object types SHALL be registered in `ACGConfig.assessable_object_types` at **both** factory sites (ECR-0028(a)); SSPM SHALL consume EA-0012's coverage declaration and SHALL NOT reimplement coverage.
 - **FR-11** SaaS config assessment SHALL be EA-0012; compliance EA-0010; identity EA-0011/0027; the module SHALL implement none (§0).
-- **FR-12** All operations SHALL be tenant-scoped and bounded. `NormalizedSaaSObject` and `SaaSIntegration` SHALL carry AQELYN `tenant_id`, and every store read SHALL require explicit tenant scope. Integration traversal SHALL pass `integration_max_nodes` to EA-0005 `subgraph()` and return the partial reach with `reachable_truncated=true` when the owner reports truncation. Invalid config (unknown `type_map` target/baseline, `batch_size ≤ 0`, `integration_max_nodes` outside `1..100_000`) SHALL raise `SaaSConfigInvalid`.
+- **FR-12** All operations SHALL be tenant-scoped and bounded. `NormalizedSaaSObject` and `SaaSIntegration` SHALL carry AQELYN `tenant_id`, and every store read SHALL require explicit tenant scope. Integration traversal SHALL pass `integration_max_nodes` to EA-0005 `subgraph()` and return the partial reach with `reach_status="truncated"` when the owner reports truncation. Invalid config (unknown `type_map` target/baseline, `batch_size ≤ 0`, `integration_max_nodes` outside `1..100_000`) SHALL raise `SaaSConfigInvalid`.
 - **FR-13** `SaaSNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite for normalized objects and integrations. Both query surfaces SHALL use stable id-ordered pagination: filters before limit, exclusive cursor, and non-null `next_cursor` exactly when another matching row exists. C-026 Z2 SHALL apply the same contract to EA-0028's existing `CloudNormalizationStore`, rather than copy its limit-only result (ECR-0033).
 - **FR-14** `SaaSPostureService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 
@@ -282,7 +286,8 @@ reach, and any truncation. No revocation (S4).
 | AC-5 | Unmapped → saas_unknown, flagged | `test_sspm_unknown_flagged` |
 | AC-6 | Scope status uses semantic tri-state tokens; missing scope → unknown + pending | `test_sspm_scope_status`, `test_sspm_routing_pending` |
 | AC-7 | Integration → EA-0002 edge; blast radius via EA-0005 | `test_sspm_integration_graph` |
-| AC-7a | Blast-radius node budget propagates EA-0005 truncation rather than understating reach | `test_sspm_blast_radius_truncated` |
+| AC-7a | Blast-radius node budget propagates EA-0005 truncation as `reach_status="truncated"` rather than understating reach | `test_sspm_blast_radius_truncated` |
+| AC-7b | A pending traversal is structurally distinguishable from a completed empty reach | `test_sspm_reach_status_distinguishes_pending_from_empty` |
 | AC-8 | Over-scoped external grant → real EA-0023 `KnownSurfaceRecord` with supported `AssetKind` + evidence basis; upstream preserved, duplicate placeholder replaced, store paged to exhaustion | `test_sspm_grant_is_known_surface` |
 | AC-9 | Claim confidence comes only from source evidence via Trust; risk goes to EA-0013 | `test_sspm_delegations`, `test_sspm_claim_confidence_not_vendor_score` |
 | AC-10 | removed app → unreported (EA-0025), not deleted | `test_sspm_absence_not_removal` |
@@ -320,7 +325,8 @@ surface), `aqelyn.saas.app_unclassified` — via `register_saas_events()`
   `over_scoped="unknown"` and routed pending — **absence of scope data
   is not absence of risk** (§0.2.2).
 - KG/EA-0023 unavailable → blast radius / known-surface routing marked `pending`; a bounded KG
-  result is recorded with `reachable_truncated=true`. The integration is still
+  result is recorded with `reach_status="truncated"`. A completed empty reach is
+  recorded with `reach_status="computed"`, never `pending`. The integration is still
   recorded (a known-but-unscored or partially-reached grant is surfaced, not hidden).
 - Store unavailable → `StoreUnavailable`; service `degraded`.
 
@@ -343,6 +349,8 @@ surface), `aqelyn.saas.app_unclassified` — via `register_saas_events()`
   retained; confidence describes the source claim, not the vendor; over-scoped
   grants enter EA-0023 through its real `KnownSurfaceSource`; normalization-
   store queries page explicitly.
+- **Computed, truncated, and pending reach are distinct — ECR-0035.** A traversal
+  that did not run cannot serialize as a completed empty blast radius.
 - **Shared posture-normalization base — ECR-0032 (Proposed).** Two instances
   (CSPM, SSPM) now share the `normalize→object+provenance→route` shape; a
   `posture_normalization` base they both specialise is now worth *considering*.
