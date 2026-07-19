@@ -73,10 +73,10 @@ def _assessment(**overrides: object) -> SupplyChainAssessment:
         "tenant_id": TENANT,
         "run_at": NOW,
         "subject_ref": "artifact:billing-api:2026.07.19",
-        "components": 1,
+        "components": 0,
         "direct": 0,
-        "transitive": 1,
-        "unverified_provenance": 1,
+        "transitive": 0,
+        "unverified_provenance": 0,
         "vulnerable_components": 0,
         "evidence_id": new_id("evd"),
     }
@@ -112,8 +112,22 @@ def test_sc_reachability_unknown_not_safe() -> None:
 
 def test_sc_assessment_status_not_clean() -> None:
     pending = _assessment()
-    complete = _assessment(assessment_status="complete")
-    truncated = _assessment(assessment_status="truncated")
+    complete = _assessment(
+        assessment_status="complete",
+        components=900,
+        direct=100,
+        transitive=800,
+        unverified_provenance=20,
+        vulnerable_components=3,
+    )
+    truncated = _assessment(
+        assessment_status="truncated",
+        components=25,
+        direct=4,
+        transitive=20,
+        unverified_provenance=2,
+        vulnerable_components=1,
+    )
 
     assert pending.assessment_status == "pending"
     assert complete.assessment_status == "complete"
@@ -128,6 +142,27 @@ def test_sc_assessment_status_not_clean() -> None:
     legacy["truncated"] = False
     with pytest.raises(ValidationError, match="truncated"):
         SupplyChainAssessment.model_validate(legacy)
+
+    with pytest.raises(SupplyChainConfigInvalid, match="pending assessment"):
+        _assessment(
+            components=900,
+            direct=100,
+            transitive=800,
+            vulnerable_components=0,
+        )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        ({"components": 1, "direct": 1, "transitive": 1}, "direct plus transitive"),
+        ({"components": 1, "vulnerable_components": 2}, "vulnerable_components"),
+        ({"components": 1, "unverified_provenance": 2}, "unverified_provenance"),
+    ],
+)
+def test_sc_assessment_counts_are_coherent(overrides: dict[str, object], message: str) -> None:
+    with pytest.raises(SupplyChainConfigInvalid, match=message):
+        _assessment(assessment_status="complete", **overrides)
 
 
 @pytest.mark.parametrize(

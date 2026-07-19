@@ -313,6 +313,27 @@ class SupplyChainAssessment(BaseModel):
     def _assessment_evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
 
+    @model_validator(mode="after")
+    def _status_and_count_consistency(self) -> SupplyChainAssessment:
+        counts = (
+            self.components,
+            self.direct,
+            self.transitive,
+            self.unverified_provenance,
+            self.vulnerable_components,
+        )
+        if self.assessment_status == "pending" and any(counts):
+            raise SupplyChainConfigInvalid("pending assessment cannot carry computed counts")
+        if self.direct + self.transitive > self.components:
+            raise SupplyChainConfigInvalid(
+                "direct plus transitive components cannot exceed total components"
+            )
+        if self.vulnerable_components > self.components:
+            raise SupplyChainConfigInvalid("vulnerable_components cannot exceed total components")
+        if self.unverified_provenance > self.components:
+            raise SupplyChainConfigInvalid("unverified_provenance cannot exceed total components")
+        return self
+
 
 class SupplyChainConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
