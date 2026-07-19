@@ -21,6 +21,7 @@ from aqelyn.supplychain.models import (
     DependencyRelationship,
     DependencyScope,
     ProvenanceAttestation,
+    ProvenanceCheck,
     ProvenanceKind,
     ProvenanceResult,
     ProvenanceStatus,
@@ -36,6 +37,7 @@ from aqelyn.supplychain.models import (
 )
 from aqelyn.supplychain.parse import ParsedSBOM, parse_sbom
 from aqelyn.supplychain.postgres import PostgresSBOMStore
+from aqelyn.supplychain.provenance import ProvenanceVerifier, verify_attestation
 from aqelyn.supplychain.store import SBOMStore
 
 __all__ = [
@@ -57,9 +59,11 @@ __all__ = [
     "ParsedSBOM",
     "PostgresSBOMStore",
     "ProvenanceAttestation",
+    "ProvenanceCheck",
     "ProvenanceKind",
     "ProvenanceResult",
     "ProvenanceStatus",
+    "ProvenanceVerifier",
     "QuarantinedSBOM",
     "ReachabilitySignal",
     "ReachabilityStatus",
@@ -73,4 +77,5 @@ __all__ = [
     "ensure_supplychain_object_type",
     "parse_sbom",
     "path_ref",
+    "verify_attestation",
 ]
