@@ -36,6 +36,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 | ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
+| ECR-0032 | EA-0028 + EA-0029 | Proposed | Consider extracting a shared posture-normalization base once CSPM and SSPM are both green. |
 
 ---
 
@@ -1459,3 +1460,37 @@ and hard cap; expired indicators consume that budget, and an exhausted indicator
 to `MatchReport.truncated`. Both limits reject values outside `1..100_000`. The in-memory object
 store maintains its stable id order incrementally and deep-copies only the selected page, removing
 the repeated full-result sort/copy that made the measured paging cost superlinear.
+
+---
+
+## ECR-0032 — Consider a shared posture-normalization base (CSPM + SSPM)
+
+**Raised by:** planning (IS-029 spec pass).
+**Status:** Proposed — owner decision; **not** part of C-026.
+**Numbering note:** first drafted as ECR-0017 in error — that number was already
+Accepted (EA-0027 S3 confidence-floor value, PR #141). Corrected to ECR-0032, the
+next free number after the log's ECR-0031. The floor decision is untouched.
+
+**Observation.** EA-0028 (CSPM) and EA-0029 (SSPM) share an identical shape:
+`normalize(handed-in descriptor) -> AQObject + field_provenance + recorded
+conflicts -> route to owners`, differing only in provider vocabulary and
+`type_map`. That is now **two** instances of the same pattern — the threshold at
+which extraction stops being speculative.
+
+**Proposal.** After both CSPM and SSPM are merged and green, consider extracting a
+`posture_normalization` base (the descriptor→object→provenance→route
+machinery + the pending-not-safe routing discipline) that each specialises with
+its vocabulary. IS-028's spec already flagged this; IS-029 confirms it.
+
+**Guardrails.**
+- **Do not build the base speculatively** and do not fold it into C-025 or C-026 —
+  each engine ships on its own footing first (avoids a premature abstraction that
+  two slightly-divergent callers then fight).
+- Extraction is a **behaviour-preserving refactor**: the shared base must pass
+  both engines' existing suites unchanged (ECR-0007 — behavioural proof).
+- Revisit only if a **third** poster-child appears (e.g. an on-prem or PaaS
+  normalizer) or if maintenance of the duplicated shape becomes a real cost. Two
+  is enough to *consider*; it is not automatically enough to *act*.
+
+**Recommendation.** Hold as Proposed. Decide after C-026 is green, with the real
+duplicated code in front of you rather than a predicted shape.
