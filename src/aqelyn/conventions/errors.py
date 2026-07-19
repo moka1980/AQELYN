@@ -478,6 +478,23 @@ class UnmappedSaaSType(AQError):
     code = "UnmappedSaaSType"
 
 
+# --- EA-0030 ---
+class SupplyChainConfigInvalid(AQError):
+    code = "SupplyChainConfigInvalid"
+
+
+class SBOMParseError(AQError):
+    code = "SBOMParseError"
+
+
+class ComponentNotFound(AQError):
+    code = "ComponentNotFound"
+
+
+class ProvenanceUnverifiable(AQError):
+    code = "ProvenanceUnverifiable"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

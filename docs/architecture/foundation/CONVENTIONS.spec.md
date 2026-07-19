@@ -66,6 +66,8 @@ relies on. Other specs reference this rather than restating it.
 | `ast` | Asset record | EA-0025 |
 | `arl` | Asset relationship | EA-0025 |
 | `idt` | Identity detection | EA-0027 |
+| `sbm` | SBOM document | EA-0030 |
+| `sca` | Supply-chain assessment | EA-0030 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -260,6 +262,10 @@ Every created/changed record and every event carries the responsible actor.
 | `SaaSObjectNotFound` | EA-0029 | no |
 | `IntegrationNotFound` | EA-0029 | no |
 | `UnmappedSaaSType` | EA-0029 | no |
+| `SupplyChainConfigInvalid` | EA-0030 | no |
+| `SBOMParseError` | EA-0030 | no |
+| `ComponentNotFound` | EA-0030 | no |
+| `ProvenanceUnverifiable` | EA-0030 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
