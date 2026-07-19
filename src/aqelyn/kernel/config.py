@@ -17,6 +17,8 @@ DEFAULT_ACG_ASSESSABLE_OBJECT_TYPES = (
     "cloud_network",
     "cloud_storage",
     "cloud_unknown",
+    "saas_app",
+    "saas_unknown",
 )
 
 
@@ -55,6 +57,11 @@ class AQELYNConfig(BaseSettings):
     cspm_type_map: dict[str, str] = Field(default_factory=dict)
     cspm_fact_paths: dict[str, dict[str, str]] = Field(default_factory=dict)
     cspm_baseline_ids: list[str] = Field(default_factory=list)
+    sspm_type_map: dict[str, str] = Field(default_factory=dict)
+    sspm_baseline_ids: list[str] = Field(default_factory=list)
+    sspm_sensitive_scopes: list[str] = Field(default_factory=list)
+    sspm_batch_size: int = 100
+    sspm_integration_max_nodes: int = 10_000
 
     @classmethod
     def load(cls) -> AQELYNConfig:

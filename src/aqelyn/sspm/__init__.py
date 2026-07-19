@@ -32,12 +32,14 @@ from aqelyn.sspm.route import (
     SharedObjectSaaSOwnerRouter,
     saas_asset_id,
 )
+from aqelyn.sspm.service import SAAS_EVENTS, SaaSPostureService, register_saas_events
 from aqelyn.sspm.store import SaaSNormalizationStore
 from aqelyn.sspm.surface import SaaSIntegrationKnownSurfaceSource
 
 __all__ = [
     "MAX_INTEGRATION_NODES",
     "RESERVED_VERDICT_KEYS",
+    "SAAS_EVENTS",
     "SAAS_INTEGRATION_OBJECT_TYPE",
     "SAAS_UNKNOWN_OBJECT_TYPE",
     "VALID_GRANTOR_KINDS",
@@ -64,8 +66,10 @@ __all__ = [
     "SaaSNormalizationStore",
     "SaaSOwnerRouter",
     "SaaSPostureEngine",
+    "SaaSPostureService",
     "SaaSRouteOwner",
     "SaaSRoutingResult",
     "SharedObjectSaaSOwnerRouter",
+    "register_saas_events",
     "saas_asset_id",
 ]
