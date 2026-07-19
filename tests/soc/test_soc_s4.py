@@ -325,6 +325,32 @@ async def test_soc_hunt_readonly(soc_harness: SOCHarness) -> None:
     assert spy.mutations == 0
 
 
+async def test_soc_hunt_pages_for_late_match(soc_harness: SOCHarness) -> None:
+    await _add_object(
+        soc_harness.object_store,
+        "first-non-match",
+        attributes={"os": "windows"},
+    )
+    expected = await _add_object(
+        soc_harness.object_store,
+        "second-match",
+        attributes={"os": "linux"},
+    )
+    engine = _engine(soc_harness, config=SOCConfig(batch_size=1))
+
+    matches = await engine.hunt(
+        Hunt(
+            tenant_id=None,
+            name="Late page match",
+            hypothesis="A matching object may appear after a non-matching page.",
+            query={"attribute_equals": {"os": "linux"}, "limit": 10},
+            saved_by=ANALYST,
+        )
+    )
+
+    assert [match["object_id"] for match in matches] == [expected.id]
+
+
 async def test_soc_no_side_effects(soc_harness: SOCHarness) -> None:
     asset = await _add_object(
         soc_harness.object_store,

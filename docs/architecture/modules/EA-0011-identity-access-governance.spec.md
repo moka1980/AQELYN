@@ -4,6 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), EA-0002 (identities/accounts/roles/entitlements as objects + relationships), EA-0005 (entitlement-path graph analysis), EA-0009 (SoD / access policy rules), EA-0004 (review & certification evidence), the Finding model; EA-0008 (remediation is proposed, gated, never direct)
 **Consumed by:** access-review & certification UI (reviewer inboxes, campaigns — a WCAG 2.2 AA surface), the Finding pipeline (access risks become findings), EA-0010 governance reporting, auditors (certification evidence packages)
 **Status:** Accepted
+**Change control:** ECR-0030 (identity/risk enumeration follows object pages to exhaustion)
 **Build milestone:** C-008 (see `C-008_Task_Bundle.md`)
 **Definition of Ready:** see §11
 
@@ -55,6 +56,8 @@ with evidence — that access is appropriate.
 - **D5 — Remediation is delegated (§0).** Outcomes that require change produce
   findings + proposed Workflow runs; nothing is revoked here.
 - **D6 — Tenant-scoped and bounded** via the object store / KG it builds on.
+  Object enumeration exhausts `next_cursor` in bounded pages; a repeated cursor
+  fails closed rather than yielding a partial clean report (ECR-0030).
 - **D7 — Registered as an `AQService`.**
 
 ## 3. Ubiquitous language
@@ -167,7 +170,7 @@ revoke.
 - **FR-7** `complete_certification` SHALL, for each `revoked` item, raise a finding and a **proposed** Workflow remediation run; it SHALL NOT grant or revoke access directly (§0/D5).
 - **FR-8** `risks_to_findings` SHALL raise a finding per risk (severity from the risk), optionally Mission-prioritized, with the access path as evidence.
 - **FR-9** All operations SHALL be tenant-scoped; no cross-tenant identity/account/entitlement appears (D6).
-- **FR-10** Reports/campaigns SHALL inherit KG bounds; `truncated` SHALL propagate.
+- **FR-10** Reports/campaigns SHALL exhaust object-store pages, inherit KG bounds, and propagate KG `truncated`; object pagination SHALL NOT silently cap the estate (ECR-0030).
 - **FR-11** Invalid config (`dormant_days ≤ 0`, unknown `privileged_roles`, `review_default_due_days ≤ 0`) SHALL raise `IAGConfigInvalid`.
 - **FR-12** `CertificationStore` in-memory and Postgres implementations SHALL pass one contract suite.
 - **FR-13** `IdentityAccessGovernanceService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
@@ -199,6 +202,7 @@ revoke.
 | AC-14 | Invalid config rejected | `test_iag_config_invalid` |
 | AC-15 | In-memory & Postgres CertificationStore pass one suite | `test_iag_cert_contract[inmemory]` / `[postgres]` |
 | AC-16 | Registers as AQService with health | `test_iag_service_health` |
+| AC-17 | Risk analysis and certification include identities/accounts on later ObjectStore pages | `test_iag_pages_full_scope[inmemory|postgres]`, `test_iag_certification_pages_full_scope[inmemory|postgres]` |
 
 ## 9. Error taxonomy (contributions)
 

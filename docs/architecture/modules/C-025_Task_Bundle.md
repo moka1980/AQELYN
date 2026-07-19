@@ -2,7 +2,7 @@
 
 **Milestone:** C-025 (Cloud Security Posture Management, EA-0028)
 **For:** Codex (implementer) · Claude Code (reviewer)
-**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020 through ECR-0029 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
+**Prerequisites:** C-024 complete; EA-0028 spec **Accepted**; **EA-0028 §0 + ECR-0020 through ECR-0030 read**; CONVENTIONS + EA-0002/0006/0010/0011/0012/0013/0023/0025 read.
 **Definition of Done:** every ticket's acceptance tests pass on in-memory **and** Postgres; `ruff` clean; `mypy --strict` clean; **no cloud collection; no second inventory/baseline/compliance/exposure/identity/risk engine; no verdict field in a CSPM model; no provider-deleted input may decommission an asset**; nothing outside the spec; `make check` green; Claude Code sign-off per ticket.
 
 **Read EA-0028 §0 first.** "Cloud" is **a scope + a normalization layer**, not six
@@ -225,3 +225,28 @@ CSPM baseline run must assess the whole cloud estate rather than silently accept
 **Acceptance:** `test_uom_query_cursor_paginates_after_filters`,
 `test_acg_explicit_scope_limit_marks_truncated_coverage`,
 `test_cspm_cloud_baseline_without_scope_pages_to_exhaustion`, and both snapshot-store backends.
+
+## Y4 follow-on (ECR-0030) — disclose the owner repair and sweep consumers
+
+ECR-0029 exposed that EA-0002 had never supplied working cursor pagination and that Postgres
+applied label/natural-key predicates after its SQL limit. The correct store repair landed in the
+ECR-0029 PR; complete it as an owner-contract change rather than letting platform-wide behavior
+ride silently inside a CSPM fix.
+
+1. Amend EA-0002: stable id ordering, exclusive cursor continuation, `next_cursor` iff another
+   complete-query match exists, and every predicate applied before the page limit. Prove both
+   backends with adversarial ordering.
+2. Prove EA-0010 governance and EA-0011 risk/certification enumeration exhaust real ObjectStore
+   pages in bounded batches; a repeated cursor fails closed.
+3. Make EA-0015 hunts page past post-query attribute non-matches until their result cap is filled
+   or the estate ends.
+4. Keep EA-0014's configured correlation cap, but surface remaining indicator/asset pages as
+   `truncated=true`; expired indicator pages must not starve later live indicators.
+
+**Acceptance:** `test_uom_query_cursor_paginates_after_filters[inmemory|postgres]`,
+`test_uom_query_filters_before_limit[inmemory|postgres]`,
+`test_gov_pages_full_estate[inmemory|postgres]`, `test_iag_pages_full_scope[inmemory|postgres]`,
+`test_iag_certification_pages_full_scope[inmemory|postgres]`,
+`test_soc_hunt_pages_for_late_match[inmemory|postgres]`,
+`test_tif_object_page_limit_reports_truncated[inmemory|postgres]`, and
+`test_tif_expired_page_does_not_starve_active_indicator[inmemory|postgres]`.

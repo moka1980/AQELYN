@@ -4,6 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), EA-0002 (object estate), EA-0004 (evidence — assessments recorded), EA-0009 (Policy compliance evaluation), EA-0007 (Mission prioritization), the Finding model
 **Consumed by:** governance/reporting UI (posture dashboards, framework coverage), the Finding pipeline (violations become findings), executive reporting, auditors (evidence-backed compliance packages)
 **Status:** Accepted
+**Change control:** ECR-0030 (object-estate pagination made effective and verified)
 **Build milestone:** C-007 (see `C-007_Task_Bundle.md`)
 **Definition of Ready:** see §11
 
@@ -49,8 +50,10 @@ explainable, evidence-backed governance picture.
 - **D6 — Evidence-recorded.** Each run records a `ComplianceSnapshot` and may
   emit an evidence record (EA-0004) so a posture claim is provable and
   tamper-evident. The engine itself does not mutate objects/policies.
-- **D7 — Bounded & tenant-scoped.** Runs are tenant-scoped and bounded by the
-  object query's paging; large estates are processed in bounded batches.
+- **D7 — Bounded & tenant-scoped.** Runs are tenant-scoped and exhaust the
+  object query's cursor pages in bounded `batch_size` batches. A repeated cursor
+  is a store failure, never permission to persist a partial clean snapshot
+  (ECR-0030).
 - **D8 — Registered as an `AQService`.**
 
 ## 3. Ubiquitous language
@@ -142,7 +145,7 @@ explanation fields are populated from the control (what/why/how/remediation).
 
 ### Functional (testable)
 
-- **FR-1** `assess` SHALL enumerate in-scope objects via `ObjectStore.query`, paged and tenant-scoped, and evaluate each control's rules via `PolicyEngine.evaluate_compliance` (D1).
+- **FR-1** `assess` SHALL enumerate every in-scope object via `ObjectStore.query`, following `next_cursor` to exhaustion in bounded, tenant-scoped pages, and evaluate each control's rules via `PolicyEngine.evaluate_compliance` (D1/ECR-0030).
 - **FR-2** `assess` SHALL be deterministic: identical estate + config + scope → identical snapshot (excluding `run_at`/ids) (D2).
 - **FR-3** Each `ControlResult` SHALL report evaluated/passed/failed counts, the `failing_subject_ids`, a `score`, and an explanation (D5).
 - **FR-4** A control with no in-scope targets SHALL score `1.0` flagged "no targets", never divide-by-zero.
@@ -182,6 +185,7 @@ explanation fields are populated from the control (what/why/how/remediation).
 | AC-13 | Bounded batching over large estate | `test_gov_bounded_batches` |
 | AC-14 | In-memory & Postgres SnapshotStore pass one suite | `test_gov_snapshot_contract[inmemory]` / `[postgres]` |
 | AC-15 | Registers as AQService with health | `test_gov_service_health` |
+| AC-16 | Real ObjectStore pagination evaluates later estate pages | `test_gov_pages_full_estate[inmemory]` / `[postgres]` |
 
 ## 9. Error taxonomy (contributions)
 

@@ -35,20 +35,20 @@ async def correlate(
 ) -> MatchReport:
     clock = _as_utc(now or utc_now())
     limits = _CorrelationLimits.from_config(config)
-    indicators = await _active_indicators(
+    indicators, indicators_truncated = await _active_indicators(
         object_store,
         tenant_id=tenant_id,
         limit=limits.limit,
         now=clock,
     )
-    assets = await _assets(
+    assets, assets_truncated = await _assets(
         object_store,
         tenant_id=tenant_id,
         scope=scope,
         limit=limits.limit,
     )
     matches: dict[tuple[str, str], ThreatMatch] = {}
-    truncated = False
+    truncated = indicators_truncated or assets_truncated
 
     for indicator in indicators:
         if indicator.confidence < min_match_confidence:
@@ -165,22 +165,35 @@ async def _active_indicators(
     tenant_id: str | None,
     limit: int,
     now: datetime,
-) -> list[ThreatIndicator]:
-    objects, _ = await object_store.query(
-        ObjectQuery(
-            tenant_id=tenant_id,
-            object_type="threat_indicator",
-            include_states=("active",),
-            limit=limit,
-        )
-    )
+) -> tuple[list[ThreatIndicator], bool]:
     indicators: list[ThreatIndicator] = []
-    for obj in objects:
-        indicator = object_to_indicator(obj)
-        if indicator.expires_at is not None and _as_utc(indicator.expires_at) <= now:
-            continue
-        indicators.append(indicator)
-    return sorted(indicators, key=lambda item: item.id)
+    cursor: str | None = None
+    seen_cursors: set[str] = set()
+    while len(indicators) < limit:
+        objects, next_cursor = await object_store.query(
+            ObjectQuery(
+                tenant_id=tenant_id,
+                object_type="threat_indicator",
+                include_states=("active",),
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+        for obj in objects:
+            indicator = object_to_indicator(obj)
+            if indicator.expires_at is not None and _as_utc(indicator.expires_at) <= now:
+                continue
+            indicators.append(indicator)
+        if len(indicators) >= limit:
+            truncated = len(indicators) > limit or next_cursor is not None
+            return sorted(indicators, key=lambda item: item.id)[:limit], truncated
+        if next_cursor is None:
+            return sorted(indicators, key=lambda item: item.id), False
+        if next_cursor in seen_cursors:
+            return sorted(indicators, key=lambda item: item.id), True
+        seen_cursors.add(next_cursor)
+        cursor = next_cursor
+    return sorted(indicators, key=lambda item: item.id)[:limit], False
 
 
 async def _assets(
@@ -189,7 +202,7 @@ async def _assets(
     tenant_id: str | None,
     scope: ObjectQuery | None,
     limit: int,
-) -> list[AQObject]:
+) -> tuple[list[AQObject], bool]:
     # Exclude the engine's own threat objects at the query level so the limit
     # applies to estate assets, not to indicators competing for the budget
     # (ECR-0004). A post-filter alone would let indicators starve the asset page.
@@ -203,10 +216,13 @@ async def _assets(
             "limit": min((scope.limit if scope is not None else limit), limit),
         }
     )
-    objects, _ = await object_store.query(query)
-    return sorted(
-        [obj for obj in objects if obj.object_type not in THREAT_OBJECT_TYPES],
-        key=lambda item: item.id,
+    objects, next_cursor = await object_store.query(query)
+    return (
+        sorted(
+            [obj for obj in objects if obj.object_type not in THREAT_OBJECT_TYPES],
+            key=lambda item: item.id,
+        ),
+        next_cursor is not None,
     )
 
 

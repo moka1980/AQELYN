@@ -253,6 +253,68 @@ async def test_tif_match_limit_truncates(threat_graph_harness: ThreatGraphHarnes
     assert report.truncated is True
 
 
+async def test_tif_object_page_limit_reports_truncated(
+    threat_graph_harness: ThreatGraphHarness,
+) -> None:
+    engine = _engine(threat_graph_harness, config=FusionConfig(correlation={"limit": 1}))
+    await engine.ingest(
+        [_record(raw={"type": "domain", "value": "shared.example"})],
+        tenant_id=TENANT_A,
+    )
+    await _asset(
+        threat_graph_harness.object_store,
+        "first-asset",
+        tenant_id=TENANT_A,
+        attributes={"domains": ["shared.example"]},
+    )
+    await _asset(
+        threat_graph_harness.object_store,
+        "second-asset",
+        tenant_id=TENANT_A,
+        attributes={"domains": ["shared.example"]},
+    )
+
+    report = await engine.correlate(tenant_id=TENANT_A, now=NOW)
+
+    assert len(report.matches) == 1
+    assert report.truncated is True
+
+
+async def test_tif_expired_page_does_not_starve_active_indicator(
+    threat_graph_harness: ThreatGraphHarness,
+) -> None:
+    engine = _engine(threat_graph_harness, config=FusionConfig(correlation={"limit": 1}))
+    await engine.ingest(
+        [
+            _record(
+                raw={
+                    "type": "domain",
+                    "value": "expired.example",
+                    "expires_at": (NOW - timedelta(days=1)).isoformat(),
+                }
+            )
+        ],
+        tenant_id=TENANT_A,
+    )
+    [active] = await engine.ingest(
+        [_record(raw={"type": "domain", "value": "active.example"})],
+        tenant_id=TENANT_A,
+    )
+    asset = await _asset(
+        threat_graph_harness.object_store,
+        "active-asset-after-expired-page",
+        tenant_id=TENANT_A,
+        attributes={"domains": ["active.example"]},
+    )
+
+    report = await engine.correlate(tenant_id=TENANT_A, now=NOW)
+
+    assert [(match.indicator_id, match.asset_id) for match in report.matches] == [
+        (active.id, asset.id)
+    ]
+    assert report.evaluated == 1
+
+
 def _engine(
     harness: ThreatGraphHarness,
     *,
