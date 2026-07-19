@@ -62,6 +62,8 @@ def _component(**overrides: object) -> SoftwareComponent:
         "supplier": "Python Packaging Authority",
         "hashes": {"sha256": "a" * 64},
         "direct": False,
+        "source_id": new_id("src"),
+        "observed_at": NOW,
         "evidence_id": new_id("evd"),
     }
     data.update(overrides)

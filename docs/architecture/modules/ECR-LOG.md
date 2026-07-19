@@ -40,6 +40,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
 | ECR-0036 | EA-0029 | Accepted | Make Z3's owner references and blast-radius read tenant-correct: `SaaSRoutingResult.inventory_ref` is an EA-0025 `ast_` id (not an EA-0002 `obj_` id), and `integration_blast_radius` requires explicit `tenant_id` so it cannot read the tenant-scoped integration store through an unscoped interface. |
+| ECR-0037 | EA-0030 | Accepted | Make Q2's Trust reconciliation durable and its store pagination honest: components pin the winning source/time and retain every conflict candidate, malformed documents persist as flagged quarantine records, and `SBOMStore.query` adopts EA-0002 D8 cursor semantics. |
 
 ---
 
@@ -1661,3 +1662,36 @@ public method.
 **Impact.** Two type-boundary corrections before Z3 has any downstream consumer;
 no persistence or schema change. The changes make the accepted composition and
 FR-12 simultaneously satisfiable.
+
+---
+
+## ECR-0037 - durable SBOM reconciliation and filter-complete pagination
+
+**Raised by:** Codex (C-027 Q2 implementation against EA-0030 S6/FR-8 and the
+platform's post-ECR-0030 store contract).
+**Severity:** blocking within Q2 - the accepted shapes cannot durably record the
+required reconciliation and would introduce another silently capped store.
+
+**Problem 1.** EA-0030 requires conflicting SBOM claims to be reconciled by
+EA-0006 and recorded, but `SoftwareComponent` carries only the selected values
+and `evidence_id`. It does not identify the winning source or observation time,
+and has no place to retain the losing candidates. A process restart therefore
+loses the information needed to reconcile the next claim and the conflict that
+explains the selected value.
+
+**Problem 2.** The accepted `SBOMStore.query(limit=1000) -> list[...]` shape has
+the limit-only ambiguity corrected in EA-0002 D8 and ECR-0033: a full page cannot
+say whether the result is complete. Q2 is the first persistence ticket, so this
+is the last point where the cursor can be added without a schema/API migration.
+
+**Resolution.** Add winning `source_id` and `observed_at` plus durable
+`ComponentConflict` records to `SoftwareComponent`. Add a structurally flagged
+`QuarantinedSBOM` record and store methods so parse failure is recorded before it
+is raised. Make `SBOMStore.query` return `(rows, next_cursor)` using an exclusive
+object-id cursor, with tenant/provenance filters applied before `limit` and a
+cursor returned exactly when another matching row exists. Both backends pass one
+adversarial contract suite.
+
+**Impact.** Q2-only model and store additions before any Q2 record exists. No
+existing consumer or persisted schema is migrated; later Q3-Q5 tickets receive a
+durable, tenant-scoped component identity and an honest paging contract.

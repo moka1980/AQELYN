@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any, Final, Literal
 
@@ -43,6 +44,15 @@ def _nonnegative_int(value: object, *, field: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise SupplyChainConfigInvalid(f"{field} must be >= 0")
     return value
+
+
+def _unit(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise SupplyChainConfigInvalid(f"{field} must be in [0,1]")
+    selected = float(value)
+    if not math.isfinite(selected) or selected < 0.0 or selected > 1.0:
+        raise SupplyChainConfigInvalid(f"{field} must be in [0,1]")
+    return selected
 
 
 def _unique_nonempty(values: list[str], *, field: str) -> list[str]:
@@ -104,6 +114,95 @@ class SBOMDocument(BaseModel):
         return _evidence_id(value)
 
 
+class ComponentConflictCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    evidence_id: str
+    observed_at: datetime
+    reliability: float
+    values: dict[str, Any]
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str) -> str:
+        return require_typed_id(value, "src", field="source_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _candidate_evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="evidence_id")
+
+    @field_validator("reliability", mode="before")
+    @classmethod
+    def _reliability(cls, value: object) -> float:
+        return _unit(value, field="component conflict reliability")
+
+    @field_validator("values")
+    @classmethod
+    def _values(cls, values: dict[str, Any]) -> dict[str, Any]:
+        if not values:
+            raise SupplyChainConfigInvalid("component conflict candidate requires values")
+        return dict(values)
+
+
+class ComponentConflict(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    fields: list[str]
+    candidates: list[ComponentConflictCandidate]
+    resolved_by: str | None = None
+    resolved_evidence_id: str | None = None
+    unresolved: bool
+    reason: str
+
+    @field_validator("fields")
+    @classmethod
+    def _fields(cls, values: list[str]) -> list[str]:
+        if not values:
+            raise SupplyChainConfigInvalid("component conflict requires fields")
+        return _unique_nonempty(values, field="component conflict fields")
+
+    @field_validator("candidates")
+    @classmethod
+    def _candidates(
+        cls, values: list[ComponentConflictCandidate]
+    ) -> list[ComponentConflictCandidate]:
+        if len(values) < 2:
+            raise SupplyChainConfigInvalid("component conflict requires at least two candidates")
+        return values
+
+    @field_validator("resolved_by")
+    @classmethod
+    def _resolved_by(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "src", field="resolved_by")
+
+    @field_validator("resolved_evidence_id")
+    @classmethod
+    def _resolved_evidence_id(cls, value: str | None) -> str | None:
+        return _evidence_id(value)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        return _nonempty(value, field="component conflict reason")
+
+    @model_validator(mode="after")
+    def _resolution_consistency(self) -> ComponentConflict:
+        if self.unresolved:
+            if self.resolved_by is not None or self.resolved_evidence_id is not None:
+                raise SupplyChainConfigInvalid(
+                    "unresolved component conflicts cannot name a resolution"
+                )
+        elif self.resolved_by is None or self.resolved_evidence_id is None:
+            raise SupplyChainConfigInvalid(
+                "resolved component conflicts require source and evidence"
+            )
+        return self
+
+
 class SoftwareComponent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -118,7 +217,10 @@ class SoftwareComponent(BaseModel):
     hashes: dict[str, str] = Field(default_factory=dict)
     provenance_status: ProvenanceStatus = "unverified"
     direct: bool
+    source_id: str
+    observed_at: datetime
     evidence_id: str
+    conflicts: list[ComponentConflict] = Field(default_factory=list)
 
     @field_validator("object_id")
     @classmethod
@@ -153,10 +255,60 @@ class SoftwareComponent(BaseModel):
             _nonempty(digest, field=f"hashes[{algorithm!r}]")
         return dict(values)
 
+    @field_validator("source_id")
+    @classmethod
+    def _component_source_id(cls, value: str) -> str:
+        return require_typed_id(value, "src", field="source_id")
+
     @field_validator("evidence_id")
     @classmethod
     def _component_evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
+
+
+class QuarantinedSBOM(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str
+    tenant_id: str | None = None
+    source_id: str
+    observed_at: datetime
+    evidence_id: str | None = None
+    raw: dict[str, Any]
+    reason: str
+    flagged: bool = True
+    quarantined_at: datetime
+
+    @field_validator("doc_id")
+    @classmethod
+    def _doc_id(cls, value: str) -> str:
+        return require_typed_id(value, "sbm", field="doc_id")
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("source_id")
+    @classmethod
+    def _quarantine_source_id(cls, value: str) -> str:
+        return require_typed_id(value, "src", field="source_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _quarantine_evidence_id(cls, value: str | None) -> str | None:
+        return _evidence_id(value)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        return _nonempty(value, field="quarantine reason")
+
+    @model_validator(mode="after")
+    def _must_be_flagged(self) -> QuarantinedSBOM:
+        if not self.flagged:
+            raise SupplyChainConfigInvalid("quarantined SBOM must remain flagged")
+        return self
 
 
 class DependencyRelationship(BaseModel):
