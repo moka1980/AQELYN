@@ -33,6 +33,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0026 | EA-0028 / IS-028 | Accepted | Y3 routes a typed, evidence-backed `CloudRouteEnvelope` containing the full normalized object to owner adapters. The six heterogeneous owner APIs are not rewritten, and no adapter may strip ECR-0025's `unreported_facts`; provider deletion is recovered from the pinned evidence and maps only to inventory `mark_unreported`. |
 | ECR-0027 | EA-0028 + EA-0012 | Accepted | `apply_cloud_baselines` can never assess a cloud object: EA-0012's asset query hard-forces `object_type="asset"` while CSPM normalizes to `cloud_*`. It returns a clean-looking empty snapshot. EA-0012 gains a configured set of assessable object types, and an assessment that applied no baseline to in-scope objects must be surfaced, never reported clean. |
 | ECR-0028 | EA-0012 + EA-0028 | Accepted | Complete ECR-0027: plumb ACG/CSPM config through both runtime factories; apply query budgets independently per object type; persist complete, per-type baseline coverage; distinguish empty scope from missing baselines; and amend EA-0012's owner contract. |
+| ECR-0029 | EA-0012 + EA-0028 | Proposed | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 
 ---
 
@@ -1193,3 +1194,80 @@ with `coverage_complete=false` rather than being misrepresented as fully covered
 scope remains valid `ObjectQuery` data; configured object types live in the coverage records.
 Empty scope and missing baselines retain `BaselineNotFound` but carry distinct stable
 `details.reason` values, and `assess_asset`'s no-baseline refusal is now part of EA-0012's contract.
+
+---
+
+## ECR-0029 — `coverage_complete` is asserted over a silently truncated page budget
+
+**Raised by:** Claude Code (post-merge review of PR #163, main @0c8ada3).
+**Severity:** blocking — the field that ECR-0028 added to make coverage honest reports complete
+coverage of an estate it truncated, on the default CSPM call path.
+
+PR #163 resolves ECR-0028 as raised. Both factory sites build a real `ACGConfig` from
+`AQELYNConfig` (verified: the shipped runtime now reports
+`['asset', 'cloud_compute', 'cloud_database', 'cloud_iam', 'cloud_network', 'cloud_storage',
+'cloud_unknown']`), the page budget is per object type (verified: the starvation reproduction from
+ECR-0028(b) now assesses the cloud object and scores it `0.5` instead of a clean `1.0`), coverage
+is persisted per type, refusals carry stable `details.reason` codes, `_scope_dump` is
+`ObjectQuery`-valid again, and EA-0012's spec carries the change-control line, D1/D7, the type
+model, FR-14 and AC-18..21. The `DriftSnapshot` model validators make an internally inconsistent
+coverage record unconstructible rather than merely tested — the right house pattern.
+
+**The residual.** `_asset_pages` exhausts a type's budget with:
+
+```python
+if remaining is not None:
+    remaining -= len(rows)
+    if remaining <= 0:
+        break          # next_cursor may still be non-None — nothing records that
+```
+
+The objects beyond the budget were never queried, so they appear in neither
+`assessed_by_type` nor `unassessed_by_type`. `objects_in_scope` is therefore the count of objects
+**looked at**, and `coverage_complete` is set to `True` unconditionally.
+
+`AssetConfigCloudBaselineRouter.apply` builds `ObjectQuery.model_validate({})` when the caller
+passes no scope, and `ObjectQuery.limit` defaults to `100`. So the bound is not a caller decision
+— it is a default the caller never saw.
+
+Constructed against a real analyzer and the shipped router: 150 normalized `cloud_storage`
+objects, 149 encrypted, one not, calling `apply_cloud_baselines(tenant_id=…)` with **no scope**:
+
+```
+cloud estate size      : 150
+coverage_complete      : True
+objects_in_scope       : 100
+objects_assessed       : 100
+unassessed_object_ids  : 0
+overall_score          : 1.0
+non-compliant bucket   : obj_… (encryption_enabled=False)
+  assessed?            : False
+  listed as unassessed?: False
+```
+
+The misconfigured bucket is not assessed, not listed as uncovered, and not implied by any count.
+The snapshot states that coverage is complete and the estate is clean. This also fails **FR-14**
+as written — "objects in scope" is not the objects in scope.
+
+This is the third form of the same defect (ECR-0027 → ECR-0028(b) → here), and the most
+dangerous, because it is now wearing the field that was added to prevent it: a reader who checks
+`coverage_complete` before trusting `overall_score` is still misled. Every real cloud estate is
+larger than 100 objects.
+
+**Resolution.**
+
+1. **Truncation makes coverage incomplete.** When a type's budget is exhausted and `next_cursor`
+   is not `None`, that type is truncated: `coverage_complete` SHALL be `false`, and the truncated
+   object types SHALL be named on the snapshot (per-type `truncated: bool`). The signal exists at
+   the `break` and is discarded — it costs one flag to keep.
+2. **An unscoped assessment SHALL NOT inherit a default bound.** `apply_cloud_baselines` with no
+   caller scope means the whole estate: pass no limit and page to exhaustion, or refuse rather
+   than silently assess a prefix. A bound the caller never chose must not be reported as coverage.
+3. `coverage_complete=false` must remain readable — it already denotes pre-ECR-0028 historical
+   snapshots, so truncated-new and historical-unknown SHALL be distinguishable (a reason, not just
+   a boolean).
+
+**Impact.** Amends EA-0012 FR-14 and D7, adds a per-type `truncated` flag to
+`ObjectTypeAssessmentCoverage` and its consistency validator, amends EA-0028's baseline-router
+scope handling, adds an AC driving an estate larger than the default limit. Implementation is
+Codex's.
