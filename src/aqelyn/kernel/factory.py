@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from aqelyn.conventions import new_id
+from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import ConfigError, StoreUnavailable
 from aqelyn.events import EventTypeRegistry, InMemoryEventBus
 from aqelyn.evidence import (
@@ -109,6 +109,12 @@ if TYPE_CHECKING:
     from aqelyn.soc.engine import SecurityOperationsEngine
     from aqelyn.soc.service import SecurityOperationsService
     from aqelyn.soc.store import SOCStore
+    from aqelyn.sspm import (
+        SaaSConfig,
+        SaaSNormalizationStore,
+        SaaSPostureEngine,
+        SaaSPostureService,
+    )
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.registry import ThreatSourceRegistry
     from aqelyn.threat.service import ThreatFusionService
@@ -204,6 +210,9 @@ class Runtime:
     cloud_normalization_store: CloudNormalizationStore
     cloud_posture_engine: CloudPostureEngine
     cloud_posture_service: CloudPostureService
+    saas_normalization_store: SaaSNormalizationStore
+    saas_posture_engine: SaaSPostureEngine
+    saas_posture_service: SaaSPostureService
 
 
 class _RuntimeService:
@@ -322,6 +331,24 @@ def _runtime_cloud_config(config: AQELYNConfig) -> CloudNormalizationConfig:
     )
 
 
+def _runtime_saas_config(config: AQELYNConfig) -> SaaSConfig:
+    from aqelyn.sspm import SaaSConfig
+
+    return SaaSConfig.model_validate(
+        {
+            "type_map": config.sspm_type_map,
+            "baseline_ids": config.sspm_baseline_ids,
+            "sensitive_scopes": config.sspm_sensitive_scopes,
+            "batch_size": config.sspm_batch_size,
+            "integration_max_nodes": config.sspm_integration_max_nodes,
+        },
+        context={
+            "known_object_types": set(config.acg_assessable_object_types),
+            "known_baseline_ids": set(config.sspm_baseline_ids),
+        },
+    )
+
+
 def _register_runtime_services(
     kernel: AQKernel,
     *,
@@ -380,6 +407,8 @@ def _register_runtime_services(
     vuln_engine: VulnerabilityIntelligenceEngine,
     cloud_normalization_store: CloudNormalizationStore,
     cloud_posture_engine: CloudPostureEngine,
+    saas_normalization_store: SaaSNormalizationStore,
+    saas_posture_engine: SaaSPostureEngine,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -408,6 +437,7 @@ def _register_runtime_services(
     close_exposure_store: Callable[[], Awaitable[None]] | None = None,
     close_vuln_store: Callable[[], Awaitable[None]] | None = None,
     close_cloud_normalization_store: Callable[[], Awaitable[None]] | None = None,
+    close_saas_normalization_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -432,6 +462,7 @@ def _register_runtime_services(
     ExposureManagementService,
     VulnerabilityIntelligenceService,
     CloudPostureService,
+    SaaSPostureService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.cspm.service import CloudPostureService
@@ -449,6 +480,7 @@ def _register_runtime_services(
     from aqelyn.response.service import ResponseOrchestrationService
     from aqelyn.risk.service import RiskIntelligenceService
     from aqelyn.soc.service import SecurityOperationsService
+    from aqelyn.sspm.service import SaaSPostureService
     from aqelyn.threat.service import ThreatFusionService
     from aqelyn.vuln.service import VulnerabilityIntelligenceService
 
@@ -640,6 +672,21 @@ def _register_runtime_services(
         close_store=close_cloud_normalization_store,
     )
     kernel.register(cloud_service)
+    saas_service = SaaSPostureService(
+        saas_posture_engine,
+        store=saas_normalization_store,
+        owner_services={
+            "inventory_engine": inventory_service,
+            "acg_engine": acg_service,
+            "compliance_engine": compliance_service,
+            "iag_engine": iag_service,
+            "exposure_engine": exposure_service,
+            "risk_engine": risk_service,
+            "workflow_engine": workflow_service,
+        },
+        close_store=close_saas_normalization_store,
+    )
+    kernel.register(saas_service)
     return (
         graph_service,
         trust_service,
@@ -664,6 +711,7 @@ def _register_runtime_services(
         exposure_service,
         vuln_service,
         cloud_service,
+        saas_service,
     )
 
 
@@ -748,6 +796,16 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.soc.engine import SecurityOperationsEngine
     from aqelyn.soc.memory import InMemorySOCStore
     from aqelyn.soc.service import register_soc_events
+    from aqelyn.sspm import (
+        AssetConfigSaaSBaselineRouter,
+        InMemorySaaSNormalizationStore,
+        InventorySaaSOwnerRouter,
+        SaaSIntegrationKnownSurfaceSource,
+        SaaSOwnerRouter,
+        SaaSPostureEngine,
+        SharedObjectSaaSOwnerRouter,
+        register_saas_events,
+    )
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.registry import InMemoryThreatSourceRegistry
     from aqelyn.threat.service import register_threat_events
@@ -784,6 +842,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_exposure_events(registry)
     register_vuln_events(registry)
     register_cloud_events(registry)
+    register_saas_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -972,10 +1031,41 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         relationship_store=object_store,
         graph=knowledge_graph,
     )
+    saas_normalization_store = InMemorySaaSNormalizationStore(mode=cfg.tenant_mode)
+    saas_actor = ActorRef(actor_type="system", actor_id="sspm_engine")
+    saas_inventory_router = InventorySaaSOwnerRouter(
+        inventory_engine,
+        evidence_store=evidence_store,
+        source_registry=trust_engine.registry,
+        actor=saas_actor,
+    )
+    saas_owner_routers: list[SaaSOwnerRouter] = [
+        saas_inventory_router,
+        SharedObjectSaaSOwnerRouter("assetconfig", object_store),
+        SharedObjectSaaSOwnerRouter("compliance", object_store),
+        SharedObjectSaaSOwnerRouter("iag", object_store),
+    ]
+    saas_posture_engine = SaaSPostureEngine(
+        saas_normalization_store,
+        object_store=object_store,
+        evidence_store=evidence_store,
+        source_registry=trust_engine.registry,
+        config=_runtime_saas_config(cfg),
+        owner_routers=saas_owner_routers,
+        integration_graph=knowledge_graph,
+        trust_engine=trust_engine,
+        baseline_router=AssetConfigSaaSBaselineRouter(acg_engine, acg_baseline_store),
+        workflow_engine=workflow_engine,
+        absence_router=saas_inventory_router,
+        actor=saas_actor,
+    )
     exposure_store = InMemoryExposureStore(mode=cfg.tenant_mode)
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
-        InventoryKnownSurfaceSource(inventory_engine),
+        SaaSIntegrationKnownSurfaceSource(
+            InventoryKnownSurfaceSource(inventory_engine),
+            saas_normalization_store,
+        ),
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -1038,6 +1128,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_engine_service,
         vuln_engine_service,
         cloud_posture_service,
+        saas_posture_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1095,6 +1186,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         vuln_engine=vuln_engine,
         cloud_normalization_store=cloud_normalization_store,
         cloud_posture_engine=cloud_posture_engine,
+        saas_normalization_store=saas_normalization_store,
+        saas_posture_engine=saas_posture_engine,
     )
     return Runtime(
         kernel=kernel,
@@ -1178,6 +1271,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cloud_normalization_store=cloud_normalization_store,
         cloud_posture_engine=cloud_posture_engine,
         cloud_posture_service=cloud_posture_service,
+        saas_normalization_store=saas_normalization_store,
+        saas_posture_engine=saas_posture_engine,
+        saas_posture_service=saas_posture_service,
     )
 
 
@@ -1264,6 +1360,16 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.soc.engine import SecurityOperationsEngine
     from aqelyn.soc.postgres import PostgresSOCStore
     from aqelyn.soc.service import register_soc_events
+    from aqelyn.sspm import (
+        AssetConfigSaaSBaselineRouter,
+        InventorySaaSOwnerRouter,
+        PostgresSaaSNormalizationStore,
+        SaaSIntegrationKnownSurfaceSource,
+        SaaSOwnerRouter,
+        SaaSPostureEngine,
+        SharedObjectSaaSOwnerRouter,
+        register_saas_events,
+    )
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.postgres import PostgresThreatSourceRegistry
     from aqelyn.threat.service import register_threat_events
@@ -1305,6 +1411,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_exposure_events(registry)
     register_vuln_events(registry)
     register_cloud_events(registry)
+    register_saas_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -1535,13 +1642,47 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         relationship_store=object_store,
         graph=knowledge_graph,
     )
+    saas_normalization_store = await PostgresSaaSNormalizationStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    saas_actor = ActorRef(actor_type="system", actor_id="sspm_engine")
+    saas_inventory_router = InventorySaaSOwnerRouter(
+        inventory_engine,
+        evidence_store=evidence_store,
+        source_registry=trust_engine.registry,
+        actor=saas_actor,
+    )
+    saas_owner_routers: list[SaaSOwnerRouter] = [
+        saas_inventory_router,
+        SharedObjectSaaSOwnerRouter("assetconfig", object_store),
+        SharedObjectSaaSOwnerRouter("compliance", object_store),
+        SharedObjectSaaSOwnerRouter("iag", object_store),
+    ]
+    saas_posture_engine = SaaSPostureEngine(
+        saas_normalization_store,
+        object_store=object_store,
+        evidence_store=evidence_store,
+        source_registry=trust_engine.registry,
+        config=_runtime_saas_config(cfg),
+        owner_routers=saas_owner_routers,
+        integration_graph=knowledge_graph,
+        trust_engine=trust_engine,
+        baseline_router=AssetConfigSaaSBaselineRouter(acg_engine, acg_baseline_store),
+        workflow_engine=workflow_engine,
+        absence_router=saas_inventory_router,
+        actor=saas_actor,
+    )
     exposure_store = await PostgresExposureStore.connect(
         cfg.database_url,
         mode=cfg.tenant_mode,
     )
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
-        InventoryKnownSurfaceSource(inventory_engine),
+        SaaSIntegrationKnownSurfaceSource(
+            InventoryKnownSurfaceSource(inventory_engine),
+            saas_normalization_store,
+        ),
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -1610,6 +1751,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_engine_service,
         vuln_engine_service,
         cloud_posture_service,
+        saas_posture_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1667,6 +1809,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         vuln_engine=vuln_engine,
         cloud_normalization_store=cloud_normalization_store,
         cloud_posture_engine=cloud_posture_engine,
+        saas_normalization_store=saas_normalization_store,
+        saas_posture_engine=saas_posture_engine,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -1695,6 +1839,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_exposure_store=exposure_store.close,
         close_vuln_store=vuln_store.close,
         close_cloud_normalization_store=cloud_normalization_store.close,
+        close_saas_normalization_store=saas_normalization_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -1778,4 +1923,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cloud_normalization_store=cloud_normalization_store,
         cloud_posture_engine=cloud_posture_engine,
         cloud_posture_service=cloud_posture_service,
+        saas_normalization_store=saas_normalization_store,
+        saas_posture_engine=saas_posture_engine,
+        saas_posture_service=saas_posture_service,
     )

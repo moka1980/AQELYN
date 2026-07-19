@@ -18,6 +18,7 @@ from aqelyn.inventory import (
     InventoryVulnerabilityCoverageProvider,
 )
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime, create_runtime
+from aqelyn.sspm import SaaSIntegrationKnownSurfaceSource
 from aqelyn.vuln import CarriedScore, VulnBasis, VulnerabilityRecord
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -53,8 +54,9 @@ async def test_inv_seams_wired(backend: str) -> None:
         async with vuln_store._pool.acquire() as conn:
             await conn.execute("TRUNCATE aq_vuln_history, aq_vuln_record")
 
-    assert isinstance(runtime.exposure_engine.source, InventoryKnownSurfaceSource)
-    assert runtime.exposure_engine.source.inventory is runtime.inventory_engine
+    assert isinstance(runtime.exposure_engine.source, SaaSIntegrationKnownSurfaceSource)
+    assert isinstance(runtime.exposure_engine.source.upstream, InventoryKnownSurfaceSource)
+    assert runtime.exposure_engine.source.upstream.inventory is runtime.inventory_engine
     assert isinstance(
         runtime.vuln_engine.coverage_provider,
         InventoryVulnerabilityCoverageProvider,
@@ -100,10 +102,13 @@ async def test_inv_seams_wired(backend: str) -> None:
         surface = await runtime.exposure_engine.derive_surface(tenant_id=tenant_id)
         coverage = await runtime.vuln_engine.coverage_provider.coverage(tenant_id=tenant_id)
 
-        assert [asset.asset_ref.ref_id for asset in surface] == sorted(
-            [first_asset_id, second_asset_id]
-        )
-        assert {asset.basis[0].ref for asset in surface} == {
+        inventory_surface = {
+            asset.asset_ref.ref_id: asset
+            for asset in surface
+            if asset.asset_ref.ref_id in {first_asset_id, second_asset_id}
+        }
+        assert set(inventory_surface) == {first_asset_id, second_asset_id}
+        assert {asset.basis[0].ref for asset in inventory_surface.values()} == {
             f"inventory:{first_asset_id}",
             f"inventory:{second_asset_id}",
         }
