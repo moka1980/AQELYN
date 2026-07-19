@@ -338,8 +338,34 @@ async def test_acg_snapshot_contract(kind: str) -> None:
             },
             deep=True,
         )
-        with pytest.raises(BaselineConfigInvalid, match="complete coverage"):
+        with pytest.raises(BaselineConfigInvalid, match="complete coverage or explicit truncation"):
             await store.put(incomplete)
+
+        truncated = _snapshot(
+            tenant_id=TENANT_A,
+            run_at=base + timedelta(minutes=25),
+        ).model_copy(
+            update={
+                "coverage_complete": False,
+                "coverage_incomplete_reason": "truncated",
+                "coverage_by_object_type": [
+                    ObjectTypeAssessmentCoverage(
+                        object_type=ASSET_OBJECT_TYPE,
+                        objects_in_scope=1,
+                        objects_assessed=1,
+                        truncated=True,
+                    )
+                ],
+            },
+            deep=True,
+        )
+        stored_truncated = await store.put(truncated)
+        assert stored_truncated.coverage_complete is False
+        assert stored_truncated.coverage_incomplete_reason == "truncated"
+        assert stored_truncated.coverage_by_object_type[0].truncated is True
+        loaded_truncated = await store.get(truncated.id)
+        assert loaded_truncated is not None
+        assert loaded_truncated.model_dump(mode="json") == truncated.model_dump(mode="json")
 
         changed = older.model_copy(update={"overall_score": 1.0}, deep=True)
         with pytest.raises(OptimisticConcurrencyConflict):

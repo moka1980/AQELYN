@@ -14,6 +14,7 @@ from aqelyn.conventions.errors import BaselineConfigInvalid
 from aqelyn.findings.models import Severity
 
 DriftStatus = Literal["pass", "fail", "unknown"]
+CoverageIncompleteReason = Literal["truncated"]
 
 
 def _require_nonempty(value: str, *, field: str) -> str:
@@ -207,6 +208,7 @@ class ObjectTypeAssessmentCoverage(BaseModel):
     objects_in_scope: int
     objects_assessed: int
     unassessed_object_ids: list[str] = Field(default_factory=list)
+    truncated: bool = False
 
     @field_validator("object_type")
     @classmethod
@@ -248,6 +250,7 @@ class DriftSnapshot(BaseModel):
     overall_score: float
     asset_drifts: list[AssetDrift] = Field(default_factory=list)
     coverage_complete: bool = False
+    coverage_incomplete_reason: CoverageIncompleteReason | None = None
     objects_in_scope: int = 0
     objects_assessed: int = 0
     unassessed_object_ids: list[str] = Field(default_factory=list)
@@ -313,8 +316,11 @@ class DriftSnapshot(BaseModel):
     @model_validator(mode="after")
     def _consistent_coverage(self) -> DriftSnapshot:
         if not self.coverage_complete:
+            if self.coverage_incomplete_reason == "truncated":
+                return self._validate_truncated_coverage()
             if (
-                self.objects_in_scope != 0
+                self.coverage_incomplete_reason is not None
+                or self.objects_in_scope != 0
                 or self.objects_assessed != 0
                 or self.unassessed_object_ids
                 or self.coverage_by_object_type
@@ -324,6 +330,16 @@ class DriftSnapshot(BaseModel):
                 )
             return self
 
+        if self.coverage_incomplete_reason is not None:
+            raise BaselineConfigInvalid(
+                "coverage_incomplete_reason is allowed only when coverage is incomplete"
+            )
+        self._validate_coverage_counts()
+        if any(item.truncated for item in self.coverage_by_object_type):
+            raise BaselineConfigInvalid("completed assessment coverage cannot contain truncation")
+        return self
+
+    def _validate_coverage_counts(self) -> None:
         if not self.coverage_by_object_type:
             raise BaselineConfigInvalid(
                 "completed assessment coverage requires per-object-type coverage"
@@ -361,6 +377,15 @@ class DriftSnapshot(BaseModel):
             )
         if assessed_ids.intersection(self.unassessed_object_ids):
             raise BaselineConfigInvalid("an object cannot be both assessed and unassessed")
+
+    def _validate_truncated_coverage(self) -> DriftSnapshot:
+        if not self.coverage_by_object_type:
+            raise BaselineConfigInvalid(
+                "truncated assessment coverage requires per-object-type coverage"
+            )
+        if not any(item.truncated for item in self.coverage_by_object_type):
+            raise BaselineConfigInvalid("truncated coverage must name a truncated object type")
+        self._validate_coverage_counts()
         return self
 
 

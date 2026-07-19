@@ -14,6 +14,7 @@ from aqelyn.assetconfig import (
     AssetConfigAnalyzer,
     Baseline,
     Check,
+    ObjectTypeAssessmentCoverage,
 )
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import BaselineNotFound
@@ -293,6 +294,7 @@ async def test_acg_snapshot_declares_partial_baseline_coverage() -> None:
         "objects_in_scope": 2,
         "objects_assessed": 1,
         "unassessed_object_ids": [uncovered.id],
+        "truncated": False,
     }
 
 
@@ -355,6 +357,70 @@ async def test_acg_scope_limit_is_per_object_type() -> None:
     }
     cloud_drift = next(drift for drift in snapshot.asset_drifts if drift.asset_id == cloud.id)
     assert cloud_drift.failed == 1
+
+
+async def test_acg_explicit_scope_limit_marks_truncated_coverage() -> None:
+    store = _store()
+    store.registry.register("cloud_storage", 1, None)
+    await store.upsert(
+        _asset(
+            "bucket-a",
+            object_type="cloud_storage",
+            observed={"encryption_enabled": True},
+        )
+    )
+    await store.upsert(
+        _asset(
+            "bucket-b",
+            object_type="cloud_storage",
+            observed={"encryption_enabled": False},
+        )
+    )
+    analyzer = AssetConfigAnalyzer(
+        store,
+        [
+            _baseline(
+                "cis-cloud",
+                "cloud_storage",
+                _check("encryption", "encryption_enabled", True),
+            )
+        ],
+        config=ACGConfig(
+            batch_size=1,
+            assessable_object_types=["cloud_storage"],
+            classification_rules=[
+                {
+                    "asset_class": "cloud_storage",
+                    "condition": {
+                        "op": "eq",
+                        "attr": "object_type",
+                        "value": "cloud_storage",
+                    },
+                }
+            ],
+        ),
+    )
+
+    snapshot = await analyzer.assess(
+        tenant_id=None,
+        scope=ObjectQuery(object_type="cloud_storage", limit=1),
+        record_evidence=False,
+    )
+
+    assert snapshot.coverage_complete is False
+    assert snapshot.coverage_incomplete_reason == "truncated"
+    assert snapshot.objects_in_scope == 1
+    assert snapshot.objects_assessed == 1
+    assert len(snapshot.asset_drifts) == 1
+    assert snapshot.scope["limit"] == 1
+    assert snapshot.coverage_by_object_type == [
+        ObjectTypeAssessmentCoverage(
+            object_type="cloud_storage",
+            objects_in_scope=1,
+            objects_assessed=1,
+            truncated=True,
+        )
+    ]
 
 
 async def test_acg_deterministic() -> None:

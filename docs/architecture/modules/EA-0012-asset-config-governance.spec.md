@@ -5,7 +5,7 @@
 **Consumed by:** asset & configuration UI (inventory, drift dashboards, baseline coverage — a WCAG 2.2 AA surface), the Finding pipeline (drift → findings), EA-0010 governance reporting, auditors (baseline-conformance evidence)
 **Status:** Accepted
 **Build milestone:** C-009 (see `C-009_Task_Bundle.md`)
-**Change control:** ECR-0027, ECR-0028
+**Change control:** ECR-0027, ECR-0028, ECR-0029
 **Definition of Ready:** see §11
 
 ---
@@ -53,8 +53,11 @@ turns misconfiguration into prioritized, provable findings.
   governance engine; the native comparator model is the default.
 - **D7 — Tenant-scoped, bounded** (paged over the estate). A caller-supplied
   `ObjectQuery.limit` is applied independently to each configured object type;
-  one type cannot consume another type's budget. Registered as an `AQService`
-  (D8) (ECR-0028).
+  one type cannot consume another type's budget. A scope without a caller-
+  supplied limit pages to exhaustion rather than inheriting `ObjectQuery`'s
+  default bound. If an explicit limit truncates a type, the snapshot is marked
+  incomplete and names the truncated type. Registered as an `AQService` (D8)
+  (ECR-0028/ECR-0029).
 
 ## 3. Ubiquitous language
 
@@ -82,9 +85,11 @@ DriftItem  = { asset_id, check_id, key, expected: Any, observed: Any,
                status: "pass"|"fail"|"unknown", severity: str, reason: str }
 AssetDrift = { asset_id, baseline_id, evaluated: int, passed: int, failed: int,
                score: float, items: list[DriftItem] }
+CoverageIncompleteReason = "truncated"
 DriftSnapshot = { id, tenant_id: str | null, run_at: datetime, scope: dict,
                   baseline_ids: list[str], overall_score: float,
                   asset_drifts: list[AssetDrift], coverage_complete: bool,
+                  coverage_incomplete_reason: CoverageIncompleteReason | null,
                   objects_in_scope: int, objects_assessed: int,
                   unassessed_object_ids: list[str],
                   coverage_by_object_type: list[ObjectTypeAssessmentCoverage],
@@ -92,7 +97,8 @@ DriftSnapshot = { id, tenant_id: str | null, run_at: datetime, scope: dict,
 
 ObjectTypeAssessmentCoverage = { object_type: str, objects_in_scope: int,
                                  objects_assessed: int,
-                                 unassessed_object_ids: list[str] }
+                                 unassessed_object_ids: list[str],
+                                 truncated: bool }
 
 ACGConfig  = { batch_size: int, assessable_object_types: list[str],
                classification_rules: list[dict],
@@ -152,8 +158,11 @@ compare with the `comparator`. Missing observed → `unknown` (counts as `fail` 
 `unknown_is_fail`). `AssetDrift.score = passed / evaluated` (1.0 if none).
 `overall_score` = mean over assessed drift records. Persist a `DriftSnapshot`
 only when at least one baseline applied; it declares objects in scope, objects
-assessed, uncovered object ids, and per-type coverage. Historical snapshots
-whose coverage predates ECR-0028 carry `coverage_complete=false`. If
+assessed, uncovered object ids, and per-type coverage. If a caller-supplied
+limit truncates a type, persist the snapshot as `coverage_complete=false`,
+`coverage_incomplete_reason="truncated"`, and set that type's `truncated=true`.
+Historical snapshots whose coverage predates ECR-0028 carry
+`coverage_complete=false` with no reason and empty coverage fields. If
 `record_evidence`, write an `EvidenceRecord`. Deterministic (D3).
 
 **Drift → findings.** For each failing check (or grouped per asset), raise a
@@ -166,7 +175,7 @@ if `propose_remediation`, create a **proposed** Workflow run (§0/D5); if
 
 ### Functional (testable)
 
-- **FR-1** `assess` SHALL enumerate in-scope configured object types via `ObjectStore.query`, paged and tenant-scoped, and evaluate each matching baseline's checks against the object's observed state. A caller-supplied limit SHALL apply independently per object type (D1/D2/D7; ECR-0028).
+- **FR-1** `assess` SHALL enumerate in-scope configured object types via `ObjectStore.query`, paged and tenant-scoped, and evaluate each matching baseline's checks against the object's observed state. A caller-supplied limit SHALL apply independently per object type; absence of a caller-supplied limit SHALL page to exhaustion rather than inherit a default bound (D1/D2/D7; ECR-0028/ECR-0029).
 - **FR-2** Drift detection SHALL be deterministic and pure; identical estate + baselines + config → identical snapshot (excluding ids/timestamps) (D3).
 - **FR-3** Each `DriftItem` SHALL report `key`, `expected`, `observed`, `status`, `severity`, and a `reason` (D3).
 - **FR-4** A missing observed value SHALL yield `unknown`, counted as `fail` iff `unknown_is_fail`; never a crash or silent pass.
@@ -179,7 +188,7 @@ if `propose_remediation`, create a **proposed** Workflow run (§0/D5); if
 - **FR-11** Invalid config/baseline (unknown comparator, `batch_size ≤ 0`, check missing `key`/`expected`) SHALL raise `BaselineConfigInvalid` at `put`/construction.
 - **FR-12** `BaselineStore` and `DriftSnapshotStore` in-memory and Postgres implementations SHALL each pass one contract suite.
 - **FR-13** `AssetConfigGovernanceService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
-- **FR-14** Every newly issued `DriftSnapshot` SHALL declare complete aggregate and per-object-type baseline coverage: objects in scope, objects assessed, and every in-scope object id with no applicable baseline. Partial coverage SHALL remain visible independently of `overall_score` (ECR-0028).
+- **FR-14** Every newly issued `DriftSnapshot` SHALL declare aggregate and per-object-type baseline coverage: objects visited in scope, objects assessed, and every visited object id with no applicable baseline. Fully paged runs SHALL set `coverage_complete=true`. If an explicit caller budget truncates an object type, the snapshot SHALL set `coverage_complete=false`, `coverage_incomplete_reason="truncated"`, and `truncated=true` on the affected type; downstream readers must not treat `overall_score` as complete coverage (ECR-0028/ECR-0029).
 - **FR-15** `assess_asset` SHALL raise `BaselineNotFound` with reason `no_applicable_baseline` when the selected object has no matching baseline; it SHALL NOT return an empty list that can be mistaken for a clean assessment (ECR-0028).
 
 ### Non-functional
@@ -214,6 +223,7 @@ if `propose_remediation`, create a **proposed** Workflow run (§0/D5); if
 | AC-19 | Empty scope and no-applicable-baseline refuse with distinct reasons | `test_acg_assess_refuses_zero_coverage` |
 | AC-20 | Single-object assessment refuses when no baseline applies | `test_acg_assess_asset_refuses_no_baseline` |
 | AC-21 | Inconsistent snapshot coverage is rejected at construction/store validation | `test_acg_snapshot_coverage_invalid` |
+| AC-22 | Explicit scope limits mark truncated coverage instead of complete coverage | `test_acg_explicit_scope_limit_marks_truncated_coverage` |
 
 ## 9. Error taxonomy (contributions)
 

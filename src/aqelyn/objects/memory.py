@@ -182,7 +182,11 @@ class InMemoryObjectStore:
                 continue
             rows.append(copy.deepcopy(obj))
         rows.sort(key=lambda o: o.id)
-        return rows[: q.limit], None
+        if q.cursor is not None:
+            rows = [obj for obj in rows if obj.id > q.cursor]
+        selected = rows[: q.limit]
+        next_cursor = selected[-1].id if len(rows) > q.limit and selected else None
+        return selected, next_cursor
 
     async def relate(self, rel: AQRelationship) -> AQRelationship:
         frm = self._objs.get(rel.from_id)

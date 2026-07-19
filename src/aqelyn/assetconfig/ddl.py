@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS aq_acg_drift_snapshot (
     overall_score double precision NOT NULL CHECK (overall_score >= 0 AND overall_score <= 1),
     asset_drifts  jsonb NOT NULL DEFAULT '[]',
     coverage_complete boolean NOT NULL DEFAULT false,
+    coverage_incomplete_reason text NULL,
     objects_in_scope int NOT NULL DEFAULT 0,
     objects_assessed int NOT NULL DEFAULT 0,
     unassessed_object_ids jsonb NOT NULL DEFAULT '[]',
@@ -33,6 +34,8 @@ CREATE TABLE IF NOT EXISTS aq_acg_drift_snapshot (
 );
 ALTER TABLE aq_acg_drift_snapshot
     ADD COLUMN IF NOT EXISTS coverage_complete boolean NOT NULL DEFAULT false;
+ALTER TABLE aq_acg_drift_snapshot
+    ADD COLUMN IF NOT EXISTS coverage_incomplete_reason text NULL;
 ALTER TABLE aq_acg_drift_snapshot
     ADD COLUMN IF NOT EXISTS objects_in_scope int NOT NULL DEFAULT 0;
 ALTER TABLE aq_acg_drift_snapshot
@@ -53,6 +56,10 @@ BEGIN
                 objects_in_scope >= 0
                 AND objects_assessed >= 0
                 AND objects_assessed <= objects_in_scope
+                AND (
+                    coverage_incomplete_reason IS NULL
+                    OR coverage_incomplete_reason = 'truncated'
+                )
             );
     END IF;
 END;
