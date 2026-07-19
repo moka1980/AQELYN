@@ -402,12 +402,19 @@ class SaaSRoutingResult(BaseModel):
             raise SaaSConfigInvalid("routing owners must not contain duplicates")
         return list(values)
 
-    @field_validator("inventory_ref", "integration_ref")
+    @field_validator("inventory_ref")
     @classmethod
-    def _optional_object_ref(cls, value: str | None) -> str | None:
+    def _optional_inventory_ref(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return require_typed_id(value, "obj", field="routing object reference")
+        return require_typed_id(value, "ast", field="inventory_ref")
+
+    @field_validator("integration_ref")
+    @classmethod
+    def _optional_integration_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "obj", field="integration_ref")
 
     @field_validator("iam_refs", "known_surface_refs")
     @classmethod

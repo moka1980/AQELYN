@@ -97,6 +97,8 @@ store-backed `SaaSIntegrationKnownSurfaceSource` yielding real EA-0023
 pages integrations to exhaustion, preserves upstream inventory rows, replaces
 a same-object placeholder, and fails rather than returning a partial surface;
 `claim_confidence` from source evidence via **EA-0006**, never vendor data;
+typed owner references (`inventory_ref=ast_*`, `integration_ref=obj_*`) and an
+explicitly tenant-scoped `integration_blast_radius` read (ECR-0036);
 revocation = **proposed gated EA-0008 run**, no vendor verdict;
 `apply_saas_baselines` → **EA-0012**.
 **Depends on:** Z2.

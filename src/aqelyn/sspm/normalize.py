@@ -19,6 +19,7 @@ from aqelyn.sspm.models import (
 )
 
 SAAS_UNKNOWN_OBJECT_TYPE = "saas_unknown"
+SAAS_INTEGRATION_OBJECT_TYPE = "saas_integration"
 
 
 class _ObjectStoreRegistry(Protocol):
@@ -26,7 +27,9 @@ class _ObjectStoreRegistry(Protocol):
 
 
 def register_saas_object_types(registry: ObjectTypeRegistry, config: SaaSConfig) -> None:
-    for object_type in sorted({*config.type_map.values(), SAAS_UNKNOWN_OBJECT_TYPE}):
+    for object_type in sorted(
+        {*config.type_map.values(), SAAS_UNKNOWN_OBJECT_TYPE, SAAS_INTEGRATION_OBJECT_TYPE}
+    ):
         registry.register(object_type, 1, None)
 
 

@@ -10,7 +10,6 @@ from aqelyn.conventions.errors import (
     AssetNotFound,
     CoverageUnavailable,
     EvidenceNotFound,
-    ExposureConfigInvalid,
     InventoryConfigInvalid,
     InventoryUnavailable,
     ObjectNotFound,
@@ -64,9 +63,9 @@ class InventoryKnownSurfaceSource:
         except InventoryUnavailable:
             raise
         except Exception as exc:
-            raise ExposureConfigInvalid("inventory source unavailable") from exc
+            raise InventoryUnavailable("inventory source unavailable") from exc
         if report.degraded:
-            raise ExposureConfigInvalid("inventory source is degraded")
+            raise InventoryUnavailable("inventory source is degraded")
         return [
             KnownSurfaceRecord(
                 asset_ref=AssetRef(kind="asset", ref_id=asset_id),

@@ -16,6 +16,7 @@ import pytest
 import aqelyn.sspm as sspm
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import (
+    BusUnavailable,
     CrossTenantReference,
     StoreUnavailable,
     TenantScopeRequired,
@@ -33,6 +34,7 @@ from aqelyn.sspm import (
     SaaSNormalizationStore,
     SaaSPostureEngine,
     SaaSRouteOwner,
+    saas_asset_id,
 )
 from aqelyn.trust import InMemorySourceReliabilityRegistry, SourceReliability
 
@@ -72,6 +74,8 @@ class _Router:
         if self.error is not None:
             raise self.error
         assert obj.tenant_id == tenant_id
+        if self.owner == "inventory":
+            return [saas_asset_id(obj.object_id)]
         return [obj.object_id]
 
 
@@ -340,7 +344,7 @@ async def test_sspm_routing_pending() -> None:
         routed = (await harness.engine.route([routed_obj.object_id], tenant_id=TENANT))[0]
         assert routed.routed_to == ["inventory", "assetconfig", "compliance", "iag"]
         assert routed.routing_pending == []
-        assert routed.inventory_ref == routed_obj.object_id
+        assert routed.inventory_ref == saas_asset_id(routed_obj.object_id)
         assert routed.iam_refs == [routed_obj.object_id]
 
         empty_obj = (
@@ -363,6 +367,12 @@ async def test_sspm_routing_pending() -> None:
 async def test_sspm_routing_propagates_programming_errors() -> None:
     unavailable = _Router(owner="inventory", error=StoreUnavailable("inventory unavailable"))
     async with _harness("inmemory", routers=[unavailable]) as harness:
+        obj = (await harness.engine.normalize([_descriptor()], tenant_id=TENANT))[0]
+        result = (await harness.engine.route([obj.object_id], tenant_id=TENANT))[0]
+        assert result.routing_pending == ["inventory", "assetconfig", "compliance", "iag"]
+
+    bus_unavailable = _Router(owner="inventory", error=BusUnavailable("bus unavailable"))
+    async with _harness("inmemory", routers=[bus_unavailable]) as harness:
         obj = (await harness.engine.normalize([_descriptor()], tenant_id=TENANT))[0]
         result = (await harness.engine.route([obj.object_id], tenant_id=TENANT))[0]
         assert result.routing_pending == ["inventory", "assetconfig", "compliance", "iag"]

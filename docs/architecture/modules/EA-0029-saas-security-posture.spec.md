@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (SaaS apps are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0011 (SaaS identity), EA-0013 (risk)** — owners it feeds; **EA-0005 (integration graph), EA-0023 (grant-as-exposure), EA-0006 (Trust)** — for the new integration-risk capability; EA-0004 (evidence)
 **Consumed by:** the owner engines above; the SaaS posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0033 (semantic scope status, bounded/truncated blast radius, claim confidence, real EA-0023 `KnownSurfaceSource`, paginated stores); ECR-0035 (explicit computed/truncated/pending reach state)
+**Change control:** ECR-0033 (semantic scope status, bounded/truncated blast radius, claim confidence, real EA-0023 `KnownSurfaceSource`, paginated stores); ECR-0035 (explicit computed/truncated/pending reach state); ECR-0036 (typed inventory reference + tenant-scoped blast-radius read)
 **Build milestone:** C-026 (see `C-026_Task_Bundle.md`)
 **Definition of Ready:** see §12
 
@@ -155,7 +155,7 @@ SaaSIntegration = { object_id, tenant_id: str | null,
                     observed_at: datetime, reason: str }
 
 SaaSRoutingResult = { object_id, routed_to: list[str], routing_pending: list[str],  # §0.2.2
-                      inventory_ref: str | null, iam_refs: list[str],
+                      inventory_ref: ast_* | null, iam_refs: list[str],
                       known_surface_refs: list[str], integration_ref: str | null }
 SaaSConfig = { type_map: dict, baseline_ids: list[str],
                sensitive_scopes: list[str], batch_size: int,
@@ -199,7 +199,8 @@ class SaaSPostureEngine(Protocol):
                     tenant_id: str | None) -> list[SaaSRoutingResult]: ...          # D2, pending-aware (§0.2.2)
     async def map_integration(self, descriptors: Sequence[IntegrationDescriptor], *,
                               tenant_id: str | None) -> list[SaaSIntegration]: ...  # NEW (§2): edge + KG + known surface
-    async def integration_blast_radius(self, integration_id: str) -> BlastRadius: ... # EA-0005 (S1)
+    async def integration_blast_radius(self, integration_id: str, *,
+                                       tenant_id: str | None) -> BlastRadius: ... # EA-0005 (S1)
     async def apply_saas_baselines(self, *, tenant_id: str | None,
                                    scope: dict | None = None) -> str: ...           # EA-0012 (D4)
     def explain(self, obj: NormalizedSaaSObject) -> dict: ...
@@ -264,7 +265,7 @@ reach, and any truncation. No revocation (S4).
 - **FR-10a** No output type (`SaaSIntegration`, `NormalizedSaaSObject`, or any emitted finding field) SHALL carry a vendor-level verdict/score/trust field; the vendor judgement SHALL be structurally unrepresentable. `claim_confidence` SHALL be structurally and behaviorally limited to confidence in the observed grant claim, never the vendor (S5/ECR-0033).
 - **FR-10b** `saas_*` object types SHALL be registered in `ACGConfig.assessable_object_types` at **both** factory sites (ECR-0028(a)); SSPM SHALL consume EA-0012's coverage declaration and SHALL NOT reimplement coverage.
 - **FR-11** SaaS config assessment SHALL be EA-0012; compliance EA-0010; identity EA-0011/0027; the module SHALL implement none (§0).
-- **FR-12** All operations SHALL be tenant-scoped and bounded. `NormalizedSaaSObject` and `SaaSIntegration` SHALL carry AQELYN `tenant_id`, and every store read SHALL require explicit tenant scope. Integration traversal SHALL pass `integration_max_nodes` to EA-0005 `subgraph()` and return the partial reach with `reach_status="truncated"` when the owner reports truncation. Invalid config (unknown `type_map` target/baseline, `batch_size ≤ 0`, `integration_max_nodes` outside `1..100_000`) SHALL raise `SaaSConfigInvalid`.
+- **FR-12** All operations SHALL be tenant-scoped and bounded. `NormalizedSaaSObject` and `SaaSIntegration` SHALL carry AQELYN `tenant_id`, and every store read — including `integration_blast_radius` — SHALL require explicit tenant scope. Integration traversal SHALL pass `integration_max_nodes` to EA-0005 `subgraph()` and return the partial reach with `reach_status="truncated"` when the owner reports truncation. `SaaSRoutingResult.inventory_ref` SHALL carry EA-0025's `ast_` id; `integration_ref` SHALL carry the EA-0002 `obj_` id. Invalid config (unknown `type_map` target/baseline, `batch_size ≤ 0`, `integration_max_nodes` outside `1..100_000`) SHALL raise `SaaSConfigInvalid`.
 - **FR-13** `SaaSNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite for normalized objects and integrations. Both query surfaces SHALL use stable id-ordered pagination: filters before limit, exclusive cursor, and non-null `next_cursor` exactly when another matching row exists. C-026 Z2 SHALL apply the same contract to EA-0028's existing `CloudNormalizationStore`, rather than copy its limit-only result (ECR-0033).
 - **FR-14** `SaaSPostureService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 
