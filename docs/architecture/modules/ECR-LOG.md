@@ -32,6 +32,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0025 | EA-0028 / IS-028 | Accepted | A configured fact path missing from a later snapshot silently deletes a previously-known fact. Absence is **unknown**, not a change: the fact is retained with its last-known value, marked `unreported`, and the object is flagged — never dropped without trace (the ECR-0014 rule at field level). |
 | ECR-0026 | EA-0028 / IS-028 | Accepted | Y3 routes a typed, evidence-backed `CloudRouteEnvelope` containing the full normalized object to owner adapters. The six heterogeneous owner APIs are not rewritten, and no adapter may strip ECR-0025's `unreported_facts`; provider deletion is recovered from the pinned evidence and maps only to inventory `mark_unreported`. |
 | ECR-0027 | EA-0028 + EA-0012 | Accepted | `apply_cloud_baselines` can never assess a cloud object: EA-0012's asset query hard-forces `object_type="asset"` while CSPM normalizes to `cloud_*`. It returns a clean-looking empty snapshot. EA-0012 gains a configured set of assessable object types, and an assessment that applied no baseline to in-scope objects must be surfaced, never reported clean. |
+| ECR-0028 | EA-0012 + EA-0028 | Proposed | ECR-0027's mechanism ships but is not connected and is not complete. (a) `kernel/factory.py` builds `AssetConfigAnalyzer` with the default config in both backends, so `assessable_object_types == {"asset"}` in every shipped runtime and no deployment configuration can widen it — `ACGConfig` is not plumbed from `AQELYNConfig`. (b) `_asset_pages` shares one `scope.limit` budget across object types in sorted order, so an earlier type can consume the whole budget and a later type is silently never assessed while the snapshot records it as in scope. (c) Coverage is counted and discarded: partial coverage is indistinguishable from full coverage. (d) EA-0012's own spec was never amended. |
 
 ---
 
@@ -1080,3 +1081,106 @@ demonstrates *intent*; only a run against the real owner demonstrates *connectiv
 the envelope arrives intact, which was the right question for ECR-0025's marker. They did not ask
 whether the receiving owner can act on what arrives. The five non-baseline owners should each get
 one end-to-end proof before C-025 is called done.
+
+---
+
+## ECR-0028 — ECR-0027's widening is unreachable in the shipped runtime, and coverage is still not declared
+
+**Raised by:** Claude Code (post-merge review of PR #162, main @affd9d5).
+**Severity:** blocking — **EA-0028 FR-7** remains non-functional as deployed, and one shape of
+ECR-0027's own defect (a clean snapshot over objects that were never assessed) survives the fix.
+
+PR #162 does the hard part correctly. `assessable_object_types` is a real widening, the forced
+`object_type="asset"` is gone, the zero-coverage cases fail closed instead of returning a
+zero-drift snapshot, and AC-22 is a genuine end-to-end proof against a real `AssetConfigAnalyzer`
+with a real baseline and a real non-compliant normalized cloud object. The five non-baseline owner
+seams each got the end-to-end proof the ECR-0027 method note asked for. What follows is what the
+merge did not reach.
+
+**(a) No shipped runtime can assess a cloud object.** `kernel/factory.py:808` (memory) and
+`:1340` (Postgres) construct `AssetConfigAnalyzer` without a `config`, so `ACGConfig()` applies
+and `assessable_object_types == ["asset"]`. `AssetConfigCloudBaselineRouter` reuses
+`self.engine.config`, so the CSPM path inherits it. `ACGConfig` is not derived from
+`AQELYNConfig` anywhere, so this is not a deployment setting that happens to be unset — there is
+no path to set it outside direct construction.
+
+Against the shipped in-memory runtime:
+
+```
+assessable_object_types = ['asset']
+apply_cloud_baselines(scope={"object_type": "cloud_storage"})
+  -> BaselineConfigInvalid: scope object_type 'cloud_storage' is not configured for assessment
+```
+
+The refusal is correct and is the valuable half of ECR-0027 — no false clean. But FR-7 ("cloud
+config assessment SHALL be performed by EA-0012 using cloud `Baseline`s") is still not performed
+by any deployment. AC-22 passes because the test hand-builds `_acg_config()`. That is one level
+above the `_BaselineSpy` it replaced and still short of the shipped path: a hand-built config
+demonstrates the *mechanism*; only the factory demonstrates *deployment connectivity*.
+
+**Resolution.** `ACGConfig` — at minimum `assessable_object_types` — becomes reachable from
+`AQELYNConfig` and is passed at both factory sites, with the CSPM-relevant cloud object types
+enabled wherever the CSPM engine is wired. An acceptance test drives the **factory-built** runtime,
+not a locally constructed analyzer.
+
+**(b) A shared page budget silently starves later object types.** `_asset_pages` initialises
+`remaining = scope.limit` once and decrements it across every type in `object_types`, which the
+`ACGConfig` validator sorts alphabetically. The earlier type can consume the entire budget; the
+later type is never queried. Neither guard fires — objects *were* assessed and a baseline *did*
+apply — so a snapshot is returned. `ObjectQuery.limit` defaults to `100`, so this needs only a
+tenant with 100 assets, not an unusual call.
+
+Constructed against a real analyzer with both types configured (`limit=1` for brevity; identical
+at 100):
+
+```
+snapshot returned  : drift-snapshot-…
+baselines applied  : ['cis-server-v1']
+overall_score      : 1.0        # reads as "all clean"
+cloud object       : obj_… encryption_enabled=False
+cloud assessed?    : False
+scope recorded     : {'object_type': None, 'limit': 1,
+                      'assessable_object_types': ['asset', 'cloud_storage']}
+```
+
+The snapshot **records `cloud_storage` as in scope and asserts a clean result over it without ever
+querying it**. This is ECR-0027's finding — absence presented as a clean result — reached by a
+different route, and the snapshot's own scope field is what makes it credible to a reader.
+
+**Resolution.** The budget is per object type, or the snapshot declares per-type coverage and a
+configured type that was never queried is surfaced rather than implied clean.
+
+**(c) Coverage is computed, then thrown away.** `assess` counts `assessed_objects` to drive the
+all-or-nothing guard and does not persist it. An assessment that applied a baseline to 1 of 500
+in-scope objects is indistinguishable from one that covered all 500: same shape, and
+`overall_score` is the mean over the assessed few. "No baseline applied to *anything*" is the
+floor of ECR-0027's rule, not its principle — not assessed ≠ compliant holds per object.
+
+**Resolution.** `DriftSnapshot` carries objects-in-scope, objects-assessed, and the object ids
+that matched scope but had no applicable baseline. Downstream readers can then tell coverage from
+compliance.
+
+**(d) EA-0012's spec was not amended.** ECR-0027 states it "amends EA-0012's assessment scope
+contract". `EA-0028-cloud-security-posture.spec.md` was updated (FR-7 + AC-22 ✅);
+`EA-0012-asset-config-governance.spec.md` was not: D1 and the glossary still scope assessment to
+`object_type "asset"`, `assessable_object_types` appears nowhere, ECR-0027 is absent from its
+change-control line, and **FR-5 ("`assess` SHALL persist a `DriftSnapshot`") now contradicts
+shipped behaviour** — `assess` raises `BaselineNotFound` on the zero-coverage paths. An owner's
+contract changed in code without changing in its spec.
+
+**Also (non-blocking, fold in here):**
+
+- `assess_asset(asset_id)` now raises `BaselineNotFound` where it previously returned `[]`. This
+  is a defensible reading of the same principle, but it was not required by ECR-0027, is not in
+  any spec, and has no AC. Either document it in EA-0012 with an AC, or revert it.
+- "assessment matched no assessable objects" is raised as `BaselineNotFound`. The condition is
+  "no objects", not "no baseline"; the two zero-coverage cases should be distinguishable by an
+  operator without reading the message string.
+- `_scope_dump` no longer round-trips as an `ObjectQuery` — it emits a raw dict carrying an extra
+  `assessable_object_types` key and `object_type: None` for multi-type runs. `ObjectQuery` is
+  `extra="forbid"`, so any future consumer that re-validates `snapshot.scope` breaks. No consumer
+  does today; recording the choice so it stays deliberate.
+
+**Impact.** Amends EA-0012 §D1/FR-5 and its change-control line, amends EA-0028 AC-22 to drive the
+factory-built runtime, adds per-type budgeting and snapshot coverage fields. Implementation is
+Codex's — it touches the kernel factory, an owner's persisted model, and an owner's spec.
