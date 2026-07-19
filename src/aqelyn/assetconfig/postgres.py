@@ -26,7 +26,9 @@ from aqelyn.conventions.errors import (
 
 _BASELINE_COLS = "id, name, asset_class, version, checks, tenant_id, set_by, set_at"
 _SNAPSHOT_COLS = (
-    "id, tenant_id, run_at, scope, baseline_ids, overall_score, asset_drifts, evidence_id"
+    "id, tenant_id, run_at, scope, baseline_ids, overall_score, asset_drifts, "
+    "coverage_complete, objects_in_scope, objects_assessed, unassessed_object_ids, "
+    "coverage_by_object_type, evidence_id"
 )
 
 
@@ -49,7 +51,13 @@ def _row_to_baseline(row: asyncpg.Record) -> Baseline:
 
 def _row_to_snapshot(row: asyncpg.Record) -> DriftSnapshot:
     data: dict[str, Any] = dict(row)
-    for key in ("scope", "baseline_ids", "asset_drifts"):
+    for key in (
+        "scope",
+        "baseline_ids",
+        "asset_drifts",
+        "unassessed_object_ids",
+        "coverage_by_object_type",
+    ):
         data[key] = _json_value(data[key])
     return DriftSnapshot.model_validate(data)
 
@@ -165,7 +173,7 @@ class PostgresDriftSnapshotStore:
             try:
                 await conn.execute(
                     f"INSERT INTO aq_acg_drift_snapshot ({_SNAPSHOT_COLS}) VALUES "
-                    "($1,$2,$3,$4,$5,$6,$7,$8)",
+                    "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)",
                     stored.id,
                     stored.tenant_id,
                     stored.run_at,
@@ -173,6 +181,13 @@ class PostgresDriftSnapshotStore:
                     json.dumps(stored.baseline_ids),
                     stored.overall_score,
                     json.dumps([drift.model_dump(mode="json") for drift in stored.asset_drifts]),
+                    stored.coverage_complete,
+                    stored.objects_in_scope,
+                    stored.objects_assessed,
+                    json.dumps(stored.unassessed_object_ids),
+                    json.dumps(
+                        [item.model_dump(mode="json") for item in stored.coverage_by_object_type]
+                    ),
                     stored.evidence_id,
                 )
             except asyncpg.UniqueViolationError as exc:

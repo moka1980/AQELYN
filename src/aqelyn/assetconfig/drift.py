@@ -14,6 +14,7 @@ from aqelyn.assetconfig.models import (
     Check,
     DriftItem,
     DriftSnapshot,
+    ObjectTypeAssessmentCoverage,
 )
 from aqelyn.assetconfig.store import (
     BaselineStore,
@@ -115,7 +116,10 @@ class AssetConfigAnalyzer:
             )
         drifts = assess_asset(asset, await self._matching_baselines(asset), self.config)
         if not drifts:
-            raise BaselineNotFound(f"no baseline applies to object {asset.id}")
+            raise BaselineNotFound(
+                f"no baseline applies to object {asset.id}",
+                details={"reason": "no_applicable_baseline", "object_id": asset.id},
+            )
         return drifts
 
     async def assess(
@@ -126,9 +130,13 @@ class AssetConfigAnalyzer:
         record_evidence: bool = True,
     ) -> DriftSnapshot:
         asset_drifts: list[AssetDrift] = []
-        assessed_objects = 0
         object_types = _assessment_object_types(self.config, scope)
-        async for page in _asset_pages(
+        in_scope_by_type: dict[str, set[str]] = {object_type: set() for object_type in object_types}
+        assessed_by_type: dict[str, set[str]] = {object_type: set() for object_type in object_types}
+        unassessed_by_type: dict[str, set[str]] = {
+            object_type: set() for object_type in object_types
+        }
+        async for object_type, page in _asset_pages(
             self.object_store,
             tenant_id=tenant_id,
             scope=scope,
@@ -136,16 +144,46 @@ class AssetConfigAnalyzer:
             object_types=object_types,
         ):
             for asset in sorted(page, key=lambda item: item.id):
-                assessed_objects += 1
-                asset_drifts.extend(
-                    assess_asset(asset, await self._matching_baselines(asset), self.config)
-                )
-        if assessed_objects == 0:
-            raise BaselineNotFound("assessment matched no assessable objects")
-        if not asset_drifts:
-            raise BaselineNotFound("assessment applied no baseline to in-scope objects")
+                if asset.id in in_scope_by_type[object_type]:
+                    continue
+                in_scope_by_type[object_type].add(asset.id)
+                baselines = await self._matching_baselines(asset)
+                if not baselines:
+                    unassessed_by_type[object_type].add(asset.id)
+                    continue
+                assessed_by_type[object_type].add(asset.id)
+                asset_drifts.extend(assess_asset(asset, baselines, self.config))
+
+        objects_in_scope = sum(len(object_ids) for object_ids in in_scope_by_type.values())
+        objects_assessed = sum(len(object_ids) for object_ids in assessed_by_type.values())
+        unassessed_object_ids = sorted(
+            object_id for object_ids in unassessed_by_type.values() for object_id in object_ids
+        )
+        if objects_in_scope == 0:
+            raise BaselineNotFound(
+                "assessment matched no assessable objects",
+                details={"reason": "no_assessable_objects", "object_types": list(object_types)},
+            )
+        if objects_assessed == 0:
+            raise BaselineNotFound(
+                "assessment applied no baseline to in-scope objects",
+                details={
+                    "reason": "no_applicable_baseline",
+                    "objects_in_scope": objects_in_scope,
+                    "unassessed_object_ids": unassessed_object_ids,
+                },
+            )
         asset_drifts.sort(key=lambda item: (item.asset_id, item.baseline_id))
         baseline_ids = sorted({item.baseline_id for item in asset_drifts})
+        coverage_by_object_type = [
+            ObjectTypeAssessmentCoverage(
+                object_type=object_type,
+                objects_in_scope=len(in_scope_by_type[object_type]),
+                objects_assessed=len(assessed_by_type[object_type]),
+                unassessed_object_ids=sorted(unassessed_by_type[object_type]),
+            )
+            for object_type in object_types
+        ]
         snapshot = DriftSnapshot(
             id=new_drift_snapshot_id(),
             tenant_id=tenant_id,
@@ -159,6 +197,11 @@ class AssetConfigAnalyzer:
             baseline_ids=baseline_ids,
             overall_score=_mean([item.score for item in asset_drifts], default=1.0),
             asset_drifts=asset_drifts,
+            coverage_complete=True,
+            objects_in_scope=objects_in_scope,
+            objects_assessed=objects_assessed,
+            unassessed_object_ids=unassessed_object_ids,
+            coverage_by_object_type=coverage_by_object_type,
             evidence_id=None,
         )
         if record_evidence:
@@ -285,6 +328,13 @@ class AssetConfigAnalyzer:
                 "baseline_ids": snapshot.baseline_ids,
                 "overall_score": snapshot.overall_score,
                 "asset_drifts": [drift.model_dump(mode="json") for drift in snapshot.asset_drifts],
+                "coverage_complete": snapshot.coverage_complete,
+                "objects_in_scope": snapshot.objects_in_scope,
+                "objects_assessed": snapshot.objects_assessed,
+                "unassessed_object_ids": snapshot.unassessed_object_ids,
+                "coverage_by_object_type": [
+                    item.model_dump(mode="json") for item in snapshot.coverage_by_object_type
+                ],
             },
             content_hash="",
             confidence=1.0,
@@ -417,13 +467,13 @@ async def _asset_pages(
     scope: ObjectQuery | None,
     batch_size: int,
     object_types: Sequence[str],
-) -> AsyncIterator[list[AQObject]]:
-    remaining = scope.limit if scope is not None else None
+) -> AsyncIterator[tuple[str, list[AQObject]]]:
     if scope is not None and scope.cursor is not None and len(object_types) != 1:
         raise BaselineConfigInvalid(
             "a cursor requires one scoped object_type when multiple types are assessable"
         )
     for object_type in object_types:
+        remaining = scope.limit if scope is not None else None
         cursor = scope.cursor if scope is not None else None
         seen_cursors: set[str] = set()
         while True:
@@ -438,11 +488,11 @@ async def _asset_pages(
                 limit=limit,
             )
             rows, next_cursor = await object_store.query(query)
-            yield rows
+            yield object_type, rows
             if remaining is not None:
                 remaining -= len(rows)
                 if remaining <= 0:
-                    return
+                    break
             if next_cursor is None or next_cursor in seen_cursors:
                 break
             seen_cursors.add(next_cursor)
@@ -487,9 +537,8 @@ def _scope_dump(
             "tenant_id": tenant_id,
             "object_type": object_types[0] if len(object_types) == 1 else None,
             "include_states": ("active",),
-            "limit": min(scope.limit, batch_size) if scope is not None else batch_size,
+            "limit": scope.limit if scope is not None else batch_size,
             "cursor": scope.cursor if scope is not None else None,
-            "assessable_object_types": list(object_types),
         }
     )
     return data

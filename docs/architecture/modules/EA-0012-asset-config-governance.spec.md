@@ -5,6 +5,7 @@
 **Consumed by:** asset & configuration UI (inventory, drift dashboards, baseline coverage — a WCAG 2.2 AA surface), the Finding pipeline (drift → findings), EA-0010 governance reporting, auditors (baseline-conformance evidence)
 **Status:** Accepted
 **Build milestone:** C-009 (see `C-009_Task_Bundle.md`)
+**Change control:** ECR-0027, ECR-0028
 **Definition of Ready:** see §11
 
 ---
@@ -30,10 +31,12 @@ turns misconfiguration into prioritized, provable findings.
 
 ## 2. Design decisions
 
-- **D1 — Assets & configurations are EA-0002 objects.** `object_type ∈ {asset,
-  configuration}`; an asset's observed configuration lives in its `attributes`
-  (or a linked `configuration` object). Relationships express dependency/
-  composition. No separate asset store.
+- **D1 — Assessed resources are EA-0002 objects.** The default assessment scope
+  is `object_type "asset"`; `ACGConfig.assessable_object_types` may add owner-
+  sanctioned resource types such as `cloud_storage`, without relabelling them
+  as assets. A resource's observed configuration lives in its `attributes` (or
+  a linked `configuration` object). Relationships express dependency/
+  composition. No separate asset store (ECR-0027/ECR-0028).
 - **D2 — Desired state is a declarative baseline.** A `Baseline` is data: a set
   of expected `(key, expected_value, comparator)` checks scoped to an asset
   class. Drift = the diff of observed vs expected. No imperative config logic.
@@ -48,19 +51,21 @@ turns misconfiguration into prioritized, provable findings.
 - **D6 — Baselines may be authored as Policy rules (EA-0009), optionally.** A
   baseline can reference Policy compliance rules for consistency with the
   governance engine; the native comparator model is the default.
-- **D7 — Tenant-scoped, bounded** (paged over the estate). Registered as an
-  `AQService` (D8).
+- **D7 — Tenant-scoped, bounded** (paged over the estate). A caller-supplied
+  `ObjectQuery.limit` is applied independently to each configured object type;
+  one type cannot consume another type's budget. Registered as an `AQService`
+  (D8) (ECR-0028).
 
 ## 3. Ubiquitous language
 
 | Term | Meaning |
 |---|---|
-| **Asset** | A tracked thing with configuration (`object_type "asset"`): host, container, bucket, service. |
+| **Assessed resource** | A tracked EA-0002 object whose type is listed in `ACGConfig.assessable_object_types`; defaults to `asset` and may include owner-sanctioned types such as `cloud_storage`. |
 | **Configuration** | The asset's observed settings (`attributes.observed_state` or a linked `configuration` object). |
 | **Baseline** | Declarative desired state: named checks `(key, expected, comparator)` scoped to an asset class. |
 | **Check** | One expected-state assertion within a baseline. |
 | **Drift** | An asset failing a baseline check (observed ≠ expected), with the diff. |
-| **Drift snapshot** | The persisted result of a drift assessment: per-asset/per-check status + score + time. |
+| **Drift snapshot** | The persisted result of a drift assessment: per-object/per-check status, score, time, and explicit baseline coverage. |
 | **Classification** | An asset's assigned class/sensitivity (drives which baselines apply). |
 
 ## 4. Types
@@ -79,9 +84,18 @@ AssetDrift = { asset_id, baseline_id, evaluated: int, passed: int, failed: int,
                score: float, items: list[DriftItem] }
 DriftSnapshot = { id, tenant_id: str | null, run_at: datetime, scope: dict,
                   baseline_ids: list[str], overall_score: float,
-                  asset_drifts: list[AssetDrift], evidence_id: str | null }
+                  asset_drifts: list[AssetDrift], coverage_complete: bool,
+                  objects_in_scope: int, objects_assessed: int,
+                  unassessed_object_ids: list[str],
+                  coverage_by_object_type: list[ObjectTypeAssessmentCoverage],
+                  evidence_id: str | null }
 
-ACGConfig  = { batch_size: int, classification_rules: list[dict],
+ObjectTypeAssessmentCoverage = { object_type: str, objects_in_scope: int,
+                                 objects_assessed: int,
+                                 unassessed_object_ids: list[str] }
+
+ACGConfig  = { batch_size: int, assessable_object_types: list[str],
+               classification_rules: list[dict],
                unknown_is_fail: bool }                              # missing observed value handling
 ```
 
@@ -130,12 +144,16 @@ class AssetConfigGovernanceEngine(Protocol):
 (structured, EA-0009-style matchers over `attributes`) to assign an
 `asset_class`; unmatched → `"unclassified"`, flagged.
 
-**Drift (`assess`).** Enumerate in-scope assets via `ObjectStore.query` (paged,
-tenant-scoped). For each asset, select baselines matching its class; for each
+**Drift (`assess`).** Enumerate in-scope configured object types via
+`ObjectStore.query` (paged, tenant-scoped, with an explicit limit applied per
+object type). For each object, select baselines matching its class; for each
 `Check`, read the observed value from `attributes.observed_state[key]` and
 compare with the `comparator`. Missing observed → `unknown` (counts as `fail` if
 `unknown_is_fail`). `AssetDrift.score = passed / evaluated` (1.0 if none).
-`overall_score` = mean over assets. Persist a `DriftSnapshot` (D4); if
+`overall_score` = mean over assessed drift records. Persist a `DriftSnapshot`
+only when at least one baseline applied; it declares objects in scope, objects
+assessed, uncovered object ids, and per-type coverage. Historical snapshots
+whose coverage predates ECR-0028 carry `coverage_complete=false`. If
 `record_evidence`, write an `EvidenceRecord`. Deterministic (D3).
 
 **Drift → findings.** For each failing check (or grouped per asset), raise a
@@ -148,11 +166,11 @@ if `propose_remediation`, create a **proposed** Workflow run (§0/D5); if
 
 ### Functional (testable)
 
-- **FR-1** `assess` SHALL enumerate in-scope assets via `ObjectStore.query`, paged and tenant-scoped, and evaluate each matching baseline's checks against the asset's observed state (D1/D2).
+- **FR-1** `assess` SHALL enumerate in-scope configured object types via `ObjectStore.query`, paged and tenant-scoped, and evaluate each matching baseline's checks against the object's observed state. A caller-supplied limit SHALL apply independently per object type (D1/D2/D7; ECR-0028).
 - **FR-2** Drift detection SHALL be deterministic and pure; identical estate + baselines + config → identical snapshot (excluding ids/timestamps) (D3).
 - **FR-3** Each `DriftItem` SHALL report `key`, `expected`, `observed`, `status`, `severity`, and a `reason` (D3).
 - **FR-4** A missing observed value SHALL yield `unknown`, counted as `fail` iff `unknown_is_fail`; never a crash or silent pass.
-- **FR-5** `assess` SHALL persist a `DriftSnapshot`; `latest`/`history`/`trend` SHALL return persisted snapshots (D4).
+- **FR-5** A successful `assess` SHALL persist a `DriftSnapshot`; `latest`/`history`/`trend` SHALL return persisted snapshots. If no assessable object matches, or no baseline applies to any in-scope object, `assess` SHALL refuse and persist no clean-looking snapshot. The two refusal states SHALL carry distinct stable reasons (D4; ECR-0027/ECR-0028).
 - **FR-6** `classify` SHALL assign an `asset_class` from declarative rules; unmatched → `"unclassified"`, flagged.
 - **FR-7** Only baselines matching an asset's class (and its tenant/global) SHALL apply to that asset.
 - **FR-8** `drift_to_findings` SHALL raise a finding per failing check/asset with the check severity, snapshot evidence, and the asset as affected object; optional Mission prioritization; and, when requested, a **proposed** Workflow run — never a direct asset/config change (§0/D5).
@@ -161,6 +179,8 @@ if `propose_remediation`, create a **proposed** Workflow run (§0/D5); if
 - **FR-11** Invalid config/baseline (unknown comparator, `batch_size ≤ 0`, check missing `key`/`expected`) SHALL raise `BaselineConfigInvalid` at `put`/construction.
 - **FR-12** `BaselineStore` and `DriftSnapshotStore` in-memory and Postgres implementations SHALL each pass one contract suite.
 - **FR-13** `AssetConfigGovernanceService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
+- **FR-14** Every newly issued `DriftSnapshot` SHALL declare complete aggregate and per-object-type baseline coverage: objects in scope, objects assessed, and every in-scope object id with no applicable baseline. Partial coverage SHALL remain visible independently of `overall_score` (ECR-0028).
+- **FR-15** `assess_asset` SHALL raise `BaselineNotFound` with reason `no_applicable_baseline` when the selected object has no matching baseline; it SHALL NOT return an empty list that can be mistaken for a clean assessment (ECR-0028).
 
 ### Non-functional
 
@@ -189,6 +209,11 @@ if `propose_remediation`, create a **proposed** Workflow run (§0/D5); if
 | AC-14 | Bounded batching over large estate | `test_acg_bounded_batches` |
 | AC-15 | Baseline & snapshot stores pass one suite each | `test_acg_baseline_contract[...]` / `test_acg_snapshot_contract[...]` |
 | AC-16 | Registers as AQService with health | `test_acg_service_health` |
+| AC-17 | Per-type query budgets prevent later-type starvation | `test_acg_scope_limit_is_per_object_type` |
+| AC-18 | Partial baseline coverage is explicit in the snapshot | `test_acg_snapshot_declares_partial_baseline_coverage` |
+| AC-19 | Empty scope and no-applicable-baseline refuse with distinct reasons | `test_acg_assess_refuses_zero_coverage` |
+| AC-20 | Single-object assessment refuses when no baseline applies | `test_acg_assess_asset_refuses_no_baseline` |
+| AC-21 | Inconsistent snapshot coverage is rejected at construction/store validation | `test_acg_snapshot_coverage_invalid` |
 
 ## 9. Error taxonomy (contributions)
 
@@ -210,6 +235,9 @@ count), `aqelyn.config.assessment_completed` (payload: `overall_score`) — via
   service `unavailable` until fixed.
 - Dependency unavailable → `StoreUnavailable`; service `degraded`; a partial run
   is marked incomplete in the snapshot, never presented as a clean pass.
+- No matching assessable object → `BaselineNotFound` with
+  `details.reason="no_assessable_objects"`; in-scope objects with no applicable
+  baseline → `BaselineNotFound` with `details.reason="no_applicable_baseline"`.
 - A single check error is recorded on that `DriftItem` (`unknown`, flagged) and
   does not abort the run.
 - A failed remediation proposal leaves the finding raised and surfaces the

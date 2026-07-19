@@ -198,6 +198,45 @@ class AssetDrift(BaseModel):
         return self
 
 
+class ObjectTypeAssessmentCoverage(BaseModel):
+    """Coverage for one object type in a completed drift assessment."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    object_type: str
+    objects_in_scope: int
+    objects_assessed: int
+    unassessed_object_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("object_type")
+    @classmethod
+    def _object_type(cls, value: str) -> str:
+        return _require_nonempty(value, field="coverage object_type")
+
+    @field_validator("objects_in_scope", "objects_assessed", mode="before")
+    @classmethod
+    def _counts(cls, value: object) -> int:
+        return _require_nonnegative_int(value, field="assessment coverage count")
+
+    @field_validator("unassessed_object_ids")
+    @classmethod
+    def _unassessed_object_ids(cls, values: list[str]) -> list[str]:
+        selected = sorted(
+            require_typed_id(value, "obj", field="unassessed_object_ids") for value in values
+        )
+        if len(selected) != len(set(selected)):
+            raise BaselineConfigInvalid("unassessed_object_ids must not contain duplicates")
+        return selected
+
+    @model_validator(mode="after")
+    def _consistent_counts(self) -> ObjectTypeAssessmentCoverage:
+        if self.objects_assessed + len(self.unassessed_object_ids) != self.objects_in_scope:
+            raise BaselineConfigInvalid(
+                "coverage objects_in_scope must equal assessed plus unassessed objects"
+            )
+        return self
+
+
 class DriftSnapshot(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -208,6 +247,11 @@ class DriftSnapshot(BaseModel):
     baseline_ids: list[str] = Field(default_factory=list)
     overall_score: float
     asset_drifts: list[AssetDrift] = Field(default_factory=list)
+    coverage_complete: bool = False
+    objects_in_scope: int = 0
+    objects_assessed: int = 0
+    unassessed_object_ids: list[str] = Field(default_factory=list)
+    coverage_by_object_type: list[ObjectTypeAssessmentCoverage] = Field(default_factory=list)
     evidence_id: str | None = None
 
     @field_validator("id")
@@ -233,12 +277,91 @@ class DriftSnapshot(BaseModel):
     def _overall_score(cls, value: float) -> float:
         return _require_unit_interval(value, field="overall_score")
 
+    @field_validator("objects_in_scope", "objects_assessed", mode="before")
+    @classmethod
+    def _coverage_counts(cls, value: object) -> int:
+        return _require_nonnegative_int(value, field="assessment coverage count")
+
+    @field_validator("unassessed_object_ids")
+    @classmethod
+    def _unassessed_object_ids(cls, values: list[str]) -> list[str]:
+        selected = sorted(
+            require_typed_id(value, "obj", field="unassessed_object_ids") for value in values
+        )
+        if len(selected) != len(set(selected)):
+            raise BaselineConfigInvalid("unassessed_object_ids must not contain duplicates")
+        return selected
+
+    @field_validator("coverage_by_object_type")
+    @classmethod
+    def _coverage_by_object_type(
+        cls, values: list[ObjectTypeAssessmentCoverage]
+    ) -> list[ObjectTypeAssessmentCoverage]:
+        selected = sorted(values, key=lambda item: item.object_type)
+        object_types = [item.object_type for item in selected]
+        if len(object_types) != len(set(object_types)):
+            raise BaselineConfigInvalid("coverage object types must not contain duplicates")
+        return selected
+
     @field_validator("evidence_id")
     @classmethod
     def _evidence_id(cls, value: str | None) -> str | None:
         if value is None:
             return None
         return require_typed_id(value, "evd", field="evidence_id")
+
+    @model_validator(mode="after")
+    def _consistent_coverage(self) -> DriftSnapshot:
+        if not self.coverage_complete:
+            if (
+                self.objects_in_scope != 0
+                or self.objects_assessed != 0
+                or self.unassessed_object_ids
+                or self.coverage_by_object_type
+            ):
+                raise BaselineConfigInvalid(
+                    "coverage fields must be empty when coverage_complete is false"
+                )
+            return self
+
+        if not self.coverage_by_object_type:
+            raise BaselineConfigInvalid(
+                "completed assessment coverage requires per-object-type coverage"
+            )
+        if self.objects_assessed < 1:
+            raise BaselineConfigInvalid("completed assessment coverage requires an assessed object")
+
+        if self.objects_in_scope != sum(
+            item.objects_in_scope for item in self.coverage_by_object_type
+        ):
+            raise BaselineConfigInvalid(
+                "objects_in_scope must equal the per-object-type coverage total"
+            )
+        if self.objects_assessed != sum(
+            item.objects_assessed for item in self.coverage_by_object_type
+        ):
+            raise BaselineConfigInvalid(
+                "objects_assessed must equal the per-object-type coverage total"
+            )
+
+        per_type_unassessed = sorted(
+            object_id
+            for item in self.coverage_by_object_type
+            for object_id in item.unassessed_object_ids
+        )
+        if self.unassessed_object_ids != per_type_unassessed:
+            raise BaselineConfigInvalid(
+                "unassessed_object_ids must equal the per-object-type uncovered objects"
+            )
+
+        assessed_ids = {drift.asset_id for drift in self.asset_drifts}
+        if len(assessed_ids) != self.objects_assessed:
+            raise BaselineConfigInvalid(
+                "objects_assessed must equal the objects represented by asset_drifts"
+            )
+        if assessed_ids.intersection(self.unassessed_object_ids):
+            raise BaselineConfigInvalid("an object cannot be both assessed and unassessed")
+        return self
 
 
 class ACGConfig(BaseModel):

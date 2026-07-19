@@ -215,7 +215,12 @@ async def test_acg_assess_configured_cloud_object_type() -> None:
 
     assert snapshot.baseline_ids == ["cis-aws-storage"]
     assert snapshot.scope["object_type"] == "cloud_storage"
-    assert snapshot.scope["assessable_object_types"] == ["cloud_storage"]
+    assert ObjectQuery.model_validate(snapshot.scope).object_type == "cloud_storage"
+    assert snapshot.coverage_complete is True
+    assert snapshot.objects_in_scope == 1
+    assert snapshot.objects_assessed == 1
+    assert snapshot.unassessed_object_ids == []
+    assert [item.object_type for item in snapshot.coverage_by_object_type] == ["cloud_storage"]
     assert len(snapshot.asset_drifts) == 1
     assert snapshot.asset_drifts[0].asset_id == cloud.id
     assert snapshot.asset_drifts[0].failed == 1
@@ -230,8 +235,9 @@ async def test_acg_assess_refuses_zero_coverage() -> None:
         config=_config(),
     )
 
-    with pytest.raises(BaselineNotFound, match="matched no assessable objects"):
+    with pytest.raises(BaselineNotFound, match="matched no assessable objects") as no_objects:
         await analyzer.assess(tenant_id=None, record_evidence=False)
+    assert no_objects.value.details["reason"] == "no_assessable_objects"
 
     await empty_store.upsert(
         _asset(
@@ -240,8 +246,115 @@ async def test_acg_assess_refuses_zero_coverage() -> None:
             observed={"ssh.root": "no"},
         )
     )
-    with pytest.raises(BaselineNotFound, match="applied no baseline"):
+    with pytest.raises(BaselineNotFound, match="applied no baseline") as no_baseline:
         await analyzer.assess(tenant_id=None, record_evidence=False)
+    assert no_baseline.value.details["reason"] == "no_applicable_baseline"
+
+
+async def test_acg_assess_asset_refuses_no_baseline() -> None:
+    store = _store()
+    asset = await store.upsert(
+        _asset("unclassified", attrs={"os_family": "network"}, observed={"ssh.root": "no"})
+    )
+    analyzer = AssetConfigAnalyzer(store, [], config=_config())
+
+    with pytest.raises(BaselineNotFound, match="no baseline applies") as error:
+        await analyzer.assess_asset(asset.id, tenant_id=None)
+
+    assert error.value.details == {
+        "reason": "no_applicable_baseline",
+        "object_id": asset.id,
+    }
+
+
+async def test_acg_snapshot_declares_partial_baseline_coverage() -> None:
+    store = _store()
+    covered = await store.upsert(
+        _asset("covered", attrs={"os_family": "linux"}, observed={"ssh.root": "no"})
+    )
+    uncovered = await store.upsert(
+        _asset("uncovered", attrs={"os_family": "network"}, observed={"ssh.root": "no"})
+    )
+    analyzer = AssetConfigAnalyzer(
+        store,
+        [_baseline("cis-linux", "linux_server", _check("ssh-root", "ssh.root", "no"))],
+        config=_config(),
+    )
+
+    snapshot = await analyzer.assess(tenant_id=None, record_evidence=False)
+
+    assert snapshot.coverage_complete is True
+    assert snapshot.objects_in_scope == 2
+    assert snapshot.objects_assessed == 1
+    assert snapshot.unassessed_object_ids == [uncovered.id]
+    assert {drift.asset_id for drift in snapshot.asset_drifts} == {covered.id}
+    assert snapshot.coverage_by_object_type[0].model_dump() == {
+        "object_type": "asset",
+        "objects_in_scope": 2,
+        "objects_assessed": 1,
+        "unassessed_object_ids": [uncovered.id],
+    }
+
+
+async def test_acg_scope_limit_is_per_object_type() -> None:
+    store = _store()
+    store.registry.register("cloud_storage", 1, None)
+    asset = await store.upsert(
+        _asset("asset", attrs={"os_family": "linux"}, observed={"ssh.root": "no"})
+    )
+    cloud = await store.upsert(
+        _asset(
+            "bucket",
+            object_type="cloud_storage",
+            attrs={"provider": "aws"},
+            observed={"encryption_enabled": False},
+        )
+    )
+    analyzer = AssetConfigAnalyzer(
+        store,
+        [
+            _baseline("cis-linux", "linux_server", _check("ssh-root", "ssh.root", "no")),
+            _baseline(
+                "cis-cloud",
+                "cloud_storage",
+                _check("encryption", "encryption_enabled", True),
+            ),
+        ],
+        config=ACGConfig(
+            assessable_object_types=["asset", "cloud_storage"],
+            classification_rules=[
+                *_config().classification_rules,
+                {
+                    "asset_class": "cloud_storage",
+                    "condition": {
+                        "op": "eq",
+                        "attr": "object_type",
+                        "value": "cloud_storage",
+                    },
+                },
+            ],
+        ),
+    )
+
+    snapshot = await analyzer.assess(
+        tenant_id=None,
+        scope=ObjectQuery(limit=1),
+        record_evidence=False,
+    )
+
+    assert snapshot.objects_in_scope == 2
+    assert snapshot.objects_assessed == 2
+    assert ObjectQuery.model_validate(snapshot.scope).object_type is None
+    assert "assessable_object_types" not in snapshot.scope
+    assert {drift.asset_id for drift in snapshot.asset_drifts} == {asset.id, cloud.id}
+    assert {
+        item.object_type: item.objects_assessed for item in snapshot.coverage_by_object_type
+    } == {
+        "asset": 1,
+        "cloud_storage": 1,
+    }
+    cloud_drift = next(drift for drift in snapshot.asset_drifts if drift.asset_id == cloud.id)
+    assert cloud_drift.failed == 1
 
 
 async def test_acg_deterministic() -> None:
