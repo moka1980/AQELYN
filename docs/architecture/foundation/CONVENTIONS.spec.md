@@ -256,6 +256,10 @@ Every created/changed record and every event carries the responsible actor.
 | `IdentityNotReplayable` | EA-0027 | no |
 | `CloudConfigInvalid` | EA-0028 | no |
 | `CloudObjectNotFound` | EA-0028 | no |
+| `SaaSConfigInvalid` | EA-0029 | no |
+| `SaaSObjectNotFound` | EA-0029 | no |
+| `IntegrationNotFound` | EA-0029 | no |
+| `UnmappedSaaSType` | EA-0029 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |

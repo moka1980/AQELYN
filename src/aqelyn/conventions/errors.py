@@ -461,6 +461,23 @@ class CloudObjectNotFound(AQError):
     code = "CloudObjectNotFound"
 
 
+# --- EA-0029 ---
+class SaaSConfigInvalid(AQError):
+    code = "SaaSConfigInvalid"
+
+
+class SaaSObjectNotFound(AQError):
+    code = "SaaSObjectNotFound"
+
+
+class IntegrationNotFound(AQError):
+    code = "IntegrationNotFound"
+
+
+class UnmappedSaaSType(AQError):
+    code = "UnmappedSaaSType"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
