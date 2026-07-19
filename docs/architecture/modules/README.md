@@ -39,7 +39,8 @@ EA-0024 → `src/aqelyn/vuln/` + `tests/vuln/`;
 EA-0025 → `src/aqelyn/inventory/` + `tests/inventory/`;
 EA-0027 → `src/aqelyn/idthreat/` + `tests/idthreat/`;
 EA-0028 → `src/aqelyn/cspm/` + `tests/cspm/`;
-EA-0029 → `src/aqelyn/sspm/` + `tests/sspm/`.
+EA-0029 → `src/aqelyn/sspm/` + `tests/sspm/`;
+EA-0030 → `src/aqelyn/supplychain/` + `tests/supplychain/`.
 
 ## Rules for AI agents and developers
 
@@ -81,6 +82,7 @@ EA-0029 → `src/aqelyn/sspm/` + `tests/sspm/`.
 | [EA-0027 Identity Threat Detection & Behavioral Analytics](EA-0027-identity-threat-detection-behavioral-analytics.spec.md) | EA-0027 | EA-0017, EA-0011, EA-0006, EA-0020, EA-0013, EA-0008 | [C-024](C-024_Task_Bundle.md) | Accepted (see ECR-0016, ECR-0017) |
 | [EA-0028 Cloud Security Posture (CSPM)](EA-0028-cloud-security-posture.spec.md) | EA-0028 | EA-0025, EA-0012, EA-0010, EA-0023, EA-0011, EA-0013, EA-0006 | [C-025](C-025_Task_Bundle.md) | Accepted (see ECR-0020–0026) |
 | [EA-0029 SaaS Security Posture (SSPM)](EA-0029-saas-security-posture.spec.md) | EA-0029 | EA-0025, EA-0012, EA-0010, EA-0011, EA-0013, EA-0005, EA-0023, EA-0006 | [C-026](C-026_Task_Bundle.md) | Accepted (ECR-0033; ECR-0032 Proposed) |
+| [EA-0030 Software Supply Chain & SBOM](EA-0030-software-supply-chain-sbom.spec.md) | EA-0030 | EA-0005, EA-0024, EA-0025, EA-0004, EA-0010, EA-0013 | [C-027](C-027_Task_Bundle.md) | Accepted |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).
@@ -88,7 +90,7 @@ specs (currently ECR-0001 against EA-0005).
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0029 (SaaS Security Posture Management) onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0031 (Data Security Posture Management) onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).
