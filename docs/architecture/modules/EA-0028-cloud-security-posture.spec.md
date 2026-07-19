@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (cloud resources are objects)**, **EA-0025 (inventory), EA-0012 (config/baseline), EA-0010 (compliance), EA-0023 (exposure), EA-0011 (cloud identity), EA-0013 (risk)** — the owners it feeds; EA-0006 (source reliability), EA-0004 (evidence)
 **Consumed by:** the six owner engines above (as normalized cloud objects/signals); the cloud posture UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025, ECR-0026, ECR-0027, ECR-0028, ECR-0029
+**Change control:** ECR-0020, ECR-0021, ECR-0022, ECR-0023, ECR-0024, ECR-0025, ECR-0026, ECR-0027, ECR-0028, ECR-0029, ECR-0033
 **Build milestone:** C-025 (see `C-025_Task_Bundle.md`)
 **Definition of Ready:** see §8
 
@@ -173,7 +173,8 @@ class CloudNormalizationStore(Protocol):
     async def get(self, object_id: str, *,
                   tenant_id: str | None) -> NormalizedCloudObject | None: ...
     async def query(self, *, tenant_id: str | None, provider: str | None = None,
-                    limit: int = 1000) -> list[NormalizedCloudObject]: ...
+                    limit: int = 1000, cursor: str | None = None
+                    ) -> tuple[list[NormalizedCloudObject], str | None]: ...
 
 class CloudOwnerRouter(Protocol):
     owner: str
@@ -253,7 +254,7 @@ to exhaustion and records no synthetic `limit` in the snapshot scope (ECR-0029).
 - **FR-8** Cloud compliance SHALL be **EA-0010**, cloud exposure **EA-0023**, cloud identity **EA-0011**, cloud risk **EA-0013**; the module SHALL implement none of them (§0).
 - **FR-9** The module SHALL raise no findings directly and execute nothing; findings arise from the owners it routes to.
 - **FR-10** All operations SHALL be tenant-scoped and bounded. `NormalizedCloudObject` SHALL carry `tenant_id`, and every store read SHALL require an explicit tenant scope (ECR-0022). Invalid config (unknown `type_map` target, unknown `baseline_id`, invalid/orphaned `fact_paths`, `batch_size ≤ 0`) SHALL raise `CloudConfigInvalid`.
-- **FR-11** `CloudNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite.
+- **FR-11** `CloudNormalizationStore` in-memory and Postgres implementations SHALL pass one contract suite and SHALL use stable id-ordered pagination: filters before limit, exclusive cursor, and non-null `next_cursor` exactly when another matching row exists (EA-0002 D8/ECR-0033).
 - **FR-12** `CloudPostureService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 - **FR-13** `NormalizedCloudObject` SHALL use `extra="forbid"` and SHALL define no severity, score, risk score, compliance status, finding, or action field. Its constructor SHALL recursively reject those reserved verdict keys, **case-insensitively**, anywhere in normalized state, including `native_facts`, `field_provenance`, and `conflicts`; such provider material may exist only in raw EA-0004 evidence (D5/ECR-0020). This name check is a **backstop**: the primary guarantee is FR-3's provenance binding, under which an invented verdict key has no raw source and cannot be constructed (**ECR-0021**).
 - **FR-14** A handed-in `reported_deleted` descriptor SHALL route to EA-0025 `mark_unreported` / `aqelyn.inventory.asset_unreported`; it SHALL NOT delete or decommission an asset without positive evidence or an attributed EA-0008-gated decision (EA-0025 S3/ECR-0014/ECR-0020).
@@ -292,6 +293,7 @@ to exhaustion and records no synthetic `limit` in the snapshot scope (ECR-0029).
 | AC-21 | A fact absent from a later snapshot is retained as `unreported` + flagged + recorded, never dropped (ECR-0025) | `test_cspm_unreported_fact_retained` |
 | AC-22 | A non-compliant cloud object is actually assessed through the factory-built runtime by its real EA-0012 engine (end-to-end, not a spy or hand-built analyzer); coverage is complete and persisted (ECR-0027/ECR-0028) | `test_cspm_cloud_baseline_assessed_end_to_end` |
 | AC-23 | A no-scope cloud-baseline run over more than `ObjectQuery`'s default limit pages to exhaustion, omits a synthetic limit from scope, and includes the late non-compliant object (ECR-0029) | `test_cspm_cloud_baseline_without_scope_pages_to_exhaustion` |
+| AC-24 | Normalization-store queries page after filters without silently capping either backend | `test_cspm_store_pagination[inmemory]` / `[postgres]` |
 
 ## 9. Error taxonomy (contributions)
 
