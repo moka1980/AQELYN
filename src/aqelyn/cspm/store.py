@@ -27,7 +27,8 @@ class CloudNormalizationStore(Protocol):
         tenant_id: str | None,
         provider: str | None = None,
         limit: int = 1000,
-    ) -> list[NormalizedCloudObject]: ...
+        cursor: str | None = None,
+    ) -> tuple[list[NormalizedCloudObject], str | None]: ...
 
 
 def validate_cloud_object(obj: NormalizedCloudObject) -> NormalizedCloudObject:
@@ -57,3 +58,9 @@ def validate_query_limit(value: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 10_000:
         raise CloudConfigInvalid("limit must be in [1,10000]")
     return value
+
+
+def validate_query_cursor(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return validate_cloud_object_id(value)
