@@ -10,6 +10,7 @@ from typing import Any, cast
 import pytest
 
 from aqelyn.conventions import new_id
+from aqelyn.dspm import DataStoreKnownSurfaceSource
 from aqelyn.events import EventTypeRegistry
 from aqelyn.inventory import DiscoverySource, InventoryKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime, create_runtime
@@ -142,13 +143,20 @@ async def test_sspm_surface_source_wired(backend: str) -> None:
     if backend == "postgres":
         inventory_store = cast(Any, runtime.inventory_store)
         saas_store = cast(Any, runtime.saas_normalization_store)
+        dspm_store = cast(Any, runtime.dspm_store)
         async with inventory_store._pool.acquire() as connection:
             await connection.execute("TRUNCATE aq_inventory_asset_history, aq_inventory_asset")
         async with saas_store._pool.acquire() as connection:
             await connection.execute("TRUNCATE aq_saas_normalization, aq_saas_integration")
+        async with dspm_store._pool.acquire() as connection:
+            await connection.execute(
+                "TRUNCATE aq_dspm_assessment, aq_dspm_exposure, aq_dspm_asset, aq_dspm_asset_key"
+            )
     source = runtime.exposure_engine.source
     assert isinstance(source, SaaSIntegrationKnownSurfaceSource)
-    assert isinstance(source.upstream, InventoryKnownSurfaceSource)
+    assert isinstance(source.upstream, DataStoreKnownSurfaceSource)
+    assert isinstance(source.upstream.upstream, InventoryKnownSurfaceSource)
+    assert source.upstream.store is runtime.dspm_store
     assert source.store is runtime.saas_normalization_store
 
     await runtime.kernel.start()

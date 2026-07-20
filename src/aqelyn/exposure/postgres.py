@@ -21,7 +21,7 @@ from aqelyn.exposure.store import (
 
 _EXPOSURE_COLS = (
     "id, tenant_id, asset_ref, exposure_type, reachability, basis, score, confidence, "
-    "derivation, rationale, flagged, discovered_at, validated_at, status"
+    "impact_context, derivation, rationale, flagged, discovered_at, validated_at, status"
 )
 
 
@@ -59,9 +59,9 @@ class PostgresExposureStore:
                 await conn.execute(
                     "INSERT INTO aq_exposure_record "
                     "(id, tenant_id, asset_ref, exposure_type, reachability, basis, score, "
-                    "confidence, derivation, rationale, flagged, discovered_at, validated_at, "
-                    "status) "
-                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
+                    "confidence, impact_context, derivation, rationale, flagged, discovered_at, "
+                    "validated_at, status) "
+                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
                     *_exposure_args(stored),
                 )
         except asyncpg.UniqueViolationError as exc:
@@ -131,6 +131,7 @@ def _exposure_args(exposure: ExposureRecord) -> tuple[Any, ...]:
         json.dumps([basis.model_dump(mode="json") for basis in exposure.basis]),
         exposure.score,
         exposure.confidence,
+        _dump_json_or_none(exposure.impact_context),
         _dump_json_or_none(exposure.derivation),
         exposure.rationale,
         exposure.flagged,
@@ -142,9 +143,9 @@ def _exposure_args(exposure: ExposureRecord) -> tuple[Any, ...]:
 
 def _row_to_exposure(row: asyncpg.Record) -> ExposureRecord:
     data: dict[str, Any] = dict(row)
-    for key in ("asset_ref", "basis", "derivation"):
+    for key in ("asset_ref", "basis", "impact_context", "derivation"):
         data[key] = _json_value(data[key])
-    return ExposureRecord.model_validate(data)
+    return validate_exposure(ExposureRecord.model_validate(data))
 
 
 def _json_value(value: Any) -> Any:

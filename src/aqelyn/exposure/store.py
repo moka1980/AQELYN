@@ -31,7 +31,13 @@ def validate_exposure_id(value: str, *, field: str = "exposure_id") -> str:
 
 
 def validate_exposure(exposure: ExposureRecord) -> ExposureRecord:
-    return ExposureRecord.model_validate(exposure.model_dump(mode="json"))
+    stored = ExposureRecord.model_validate(exposure.model_dump(mode="json"))
+    if stored.score is not None:
+        # Keep persistence as a validity gate without introducing a module import cycle.
+        from aqelyn.exposure.engine import validate_replayable_exposure
+
+        return validate_replayable_exposure(stored)
+    return stored
 
 
 def validate_tenant(value: str | None) -> str | None:

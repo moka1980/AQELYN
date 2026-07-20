@@ -7,6 +7,11 @@ import os
 
 import pytest
 
+from aqelyn.dspm import (
+    DataStoreKnownSurfaceSource,
+    InMemoryDSPMStore,
+    PostgresDSPMStore,
+)
 from aqelyn.events import EventTypeRegistry
 from aqelyn.exposure import (
     EXPOSURE_EVENTS,
@@ -38,10 +43,12 @@ async def test_exp_service_health(backend: str) -> None:
     if backend == "memory":
         runtime = create_inmemory_runtime()
         assert isinstance(runtime.exposure_store, InMemoryExposureStore)
+        assert isinstance(runtime.dspm_store, InMemoryDSPMStore)
     else:
         assert PG_URL is not None
         runtime = await create_runtime(AQELYNConfig(backend="postgres", database_url=PG_URL))
         assert isinstance(runtime.exposure_store, PostgresExposureStore)
+        assert isinstance(runtime.dspm_store, PostgresDSPMStore)
 
     service = runtime.kernel.get_service("exposure_engine")
     assert service.name == "exposure_engine"
@@ -62,8 +69,13 @@ async def test_exp_service_health(backend: str) -> None:
     assert runtime.exposure_engine_service.store is runtime.exposure_store
     assert runtime.exposure_engine.store is runtime.exposure_store
     assert isinstance(runtime.exposure_engine.source, SaaSIntegrationKnownSurfaceSource)
-    assert isinstance(runtime.exposure_engine.source.upstream, InventoryKnownSurfaceSource)
-    assert runtime.exposure_engine.source.upstream.inventory is runtime.inventory_engine
+    assert isinstance(runtime.exposure_engine.source.upstream, DataStoreKnownSurfaceSource)
+    assert runtime.exposure_engine.source.upstream.store is runtime.dspm_store
+    assert isinstance(
+        runtime.exposure_engine.source.upstream.upstream,
+        InventoryKnownSurfaceSource,
+    )
+    assert runtime.exposure_engine.source.upstream.upstream.inventory is runtime.inventory_engine
     assert runtime.exposure_engine.graph is runtime.knowledge_graph
     assert runtime.exposure_engine.identity_provider is runtime.iag_engine
     assert runtime.exposure_engine.trend_provider is runtime.forecast_engine

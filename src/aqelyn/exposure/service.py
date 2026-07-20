@@ -13,7 +13,12 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.events.registry import EventTypeRegistry
 from aqelyn.exposure.engine import KnownDataExposureEngine
-from aqelyn.exposure.models import AssetRef, ExposureConfig, ExposureRecord
+from aqelyn.exposure.models import (
+    AssetRef,
+    ExposureConfig,
+    ExposureImpactContext,
+    ExposureRecord,
+)
 from aqelyn.exposure.store import ExposureStore
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.trust.models import TrustConfig
@@ -40,6 +45,7 @@ class ExposureManagementService:
         store: ExposureStore,
         risk_engine: object | None = None,
         close_store: Callable[[], Awaitable[None]] | None = None,
+        close_source_store: Callable[[], Awaitable[None]] | None = None,
         dependencies: Sequence[str] = (
             "inventory_engine",
             "acg_engine",
@@ -56,6 +62,7 @@ class ExposureManagementService:
         self.store = store
         self.risk_engine = risk_engine
         self._close_store = close_store
+        self._close_source_store = close_source_store
         self._dependencies = tuple(dependencies)
         self._critical = critical
         self._started = False
@@ -81,7 +88,11 @@ class ExposureManagementService:
             if self._close_store is not None:
                 await self._close_store()
         finally:
-            self._started = False
+            try:
+                if self._close_source_store is not None:
+                    await self._close_source_store()
+            finally:
+                self._started = False
 
     async def health(self) -> HealthStatus:
         dependencies: dict[str, str] = {}
@@ -146,8 +157,13 @@ class ExposureManagementService:
     ) -> ExposureRecord:
         return await self.engine.analyze_exposure(asset_ref=asset_ref, tenant_id=tenant_id)
 
-    async def score_exposure(self, exposure: ExposureRecord) -> ExposureRecord:
-        return await self.engine.score_exposure(exposure)
+    async def score_exposure(
+        self,
+        exposure: ExposureRecord,
+        *,
+        impact_context: ExposureImpactContext | None = None,
+    ) -> ExposureRecord:
+        return await self.engine.score_exposure(exposure, impact_context=impact_context)
 
     async def raise_exposure_finding(self, exposure: ExposureRecord) -> object:
         return await self.engine.raise_exposure_finding(exposure)
