@@ -74,7 +74,13 @@ if TYPE_CHECKING:
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.service import ThreatDetectionService
     from aqelyn.detection.store import ProfileStore, RuleStore
-    from aqelyn.dspm import DSPMStore
+    from aqelyn.dspm import (
+        DataStoreKnownSurfaceSource,
+        DSPMConfig,
+        DSPMEngine,
+        DSPMService,
+        DSPMStore,
+    )
     from aqelyn.executive import (
         ExecutiveIntelligenceService,
         ExecutiveKPIEngine,
@@ -204,6 +210,8 @@ class Runtime:
     inventory_engine: InventoryIntelligenceEngine
     inventory_engine_service: InventoryIntelligenceService
     dspm_store: DSPMStore
+    dspm_engine: DSPMEngine
+    dspm_engine_service: DSPMService
     exposure_store: ExposureStore
     exposure_engine: KnownDataExposureEngine
     exposure_engine_service: ExposureManagementService
@@ -355,6 +363,21 @@ def _runtime_saas_config(config: AQELYNConfig) -> SaaSConfig:
     )
 
 
+def _runtime_dspm_config(config: AQELYNConfig) -> DSPMConfig:
+    from aqelyn.dspm import DSPMConfig
+
+    return DSPMConfig.model_validate(
+        {
+            "classifier_rules": config.dspm_classifier_rules,
+            "sensitivity_factors": config.dspm_sensitivity_factors,
+            "batch_size": config.dspm_batch_size,
+            "max_work": config.dspm_max_work,
+            "max_fields_per_store": config.dspm_max_fields_per_store,
+            "max_signals_per_field": config.dspm_max_signals_per_field,
+        }
+    )
+
+
 def _register_runtime_services(
     kernel: AQKernel,
     *,
@@ -407,6 +430,9 @@ def _register_runtime_services(
     executive_report_engine: ExecutiveReportEngine,
     inventory_store: AssetStore,
     inventory_engine: InventoryIntelligenceEngine,
+    dspm_store: DSPMStore,
+    dspm_engine: DSPMEngine,
+    dspm_known_surface_source: DataStoreKnownSurfaceSource,
     exposure_store: ExposureStore,
     exposure_engine: KnownDataExposureEngine,
     vuln_store: VulnerabilityStore,
@@ -470,6 +496,7 @@ def _register_runtime_services(
     ExecutiveIntelligenceService,
     InventoryIntelligenceService,
     ExposureManagementService,
+    DSPMService,
     VulnerabilityIntelligenceService,
     CloudPostureService,
     SaaSPostureService,
@@ -479,6 +506,7 @@ def _register_runtime_services(
     from aqelyn.cspm.service import CloudPostureService
     from aqelyn.decision.service import DecisionIntelligenceService
     from aqelyn.detection.service import ThreatDetectionService
+    from aqelyn.dspm.service import DSPMService
     from aqelyn.executive.service import ExecutiveIntelligenceService
     from aqelyn.exposure.service import ExposureManagementService
     from aqelyn.forecast.service import ForecastingService
@@ -661,9 +689,23 @@ def _register_runtime_services(
         store=exposure_store,
         risk_engine=risk_engine,
         close_store=close_exposure_store,
-        close_source_store=close_dspm_store,
     )
     kernel.register(exposure_service)
+    dspm_service = DSPMService(
+        dspm_engine,
+        store=dspm_store,
+        known_surface_source=dspm_known_surface_source,
+        owner_services={
+            "inventory_engine": inventory_service,
+            "exposure_engine": exposure_service,
+            "iag_engine": iag_service,
+            "compliance_engine": compliance_service,
+            "trust_engine": trust_service,
+            "workflow_engine": workflow_service,
+        },
+        close_store=close_dspm_store,
+    )
+    kernel.register(dspm_service)
     vuln_service = VulnerabilityIntelligenceService(
         vuln_engine,
         store=vuln_store,
@@ -737,6 +779,7 @@ def _register_runtime_services(
         executive_service,
         inventory_service,
         exposure_service,
+        dspm_service,
         vuln_service,
         cloud_service,
         saas_service,
@@ -768,7 +811,12 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.memory import InMemoryProfileStore, InMemoryRuleStore
     from aqelyn.detection.service import register_detection_events
-    from aqelyn.dspm import DataStoreKnownSurfaceSource, InMemoryDSPMStore
+    from aqelyn.dspm import (
+        DataStoreKnownSurfaceSource,
+        DSPMEngine,
+        InMemoryDSPMStore,
+        register_dspm_events,
+    )
     from aqelyn.executive import (
         EmptyExecutiveValueSource,
         EmptyMaterialExceptionSource,
@@ -875,6 +923,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_forecast_events(registry)
     register_executive_events(registry)
     register_inventory_events(registry)
+    register_dspm_events(registry)
     register_exposure_events(registry)
     register_vuln_events(registry)
     register_cloud_events(registry)
@@ -1069,6 +1118,10 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         graph=knowledge_graph,
     )
     dspm_store = InMemoryDSPMStore(mode=cfg.tenant_mode)
+    dspm_known_surface_source = DataStoreKnownSurfaceSource(
+        InventoryKnownSurfaceSource(inventory_engine),
+        dspm_store,
+    )
     saas_normalization_store = InMemorySaaSNormalizationStore(mode=cfg.tenant_mode)
     saas_actor = ActorRef(actor_type="system", actor_id="sspm_engine")
     saas_inventory_router = InventorySaaSOwnerRouter(
@@ -1101,10 +1154,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
         SaaSIntegrationKnownSurfaceSource(
-            DataStoreKnownSurfaceSource(
-                InventoryKnownSurfaceSource(inventory_engine),
-                dspm_store,
-            ),
+            dspm_known_surface_source,
             saas_normalization_store,
         ),
         graph=knowledge_graph,
@@ -1114,6 +1164,19 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_provider=trust_engine,
         mission_provider=mission_engine,
         finding_store=finding_store,
+    )
+    dspm_engine = DSPMEngine(
+        dspm_store,
+        object_store=object_store,
+        inventory=inventory_engine,
+        evidence_store=evidence_store,
+        trust=trust_engine,
+        config=_runtime_dspm_config(cfg),
+        exposure_owner=exposure_engine,
+        iag_owner=iag_engine,
+        compliance_owner=compliance_engine,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
     )
     vuln_store = InMemoryVulnerabilityStore(mode=cfg.tenant_mode)
     vuln_engine = VulnerabilityIntelligenceEngine(
@@ -1188,6 +1251,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_engine_service,
         inventory_engine_service,
         exposure_engine_service,
+        dspm_engine_service,
         vuln_engine_service,
         cloud_posture_service,
         saas_posture_service,
@@ -1243,6 +1307,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_report_engine=executive_report_engine,
         inventory_store=inventory_store,
         inventory_engine=inventory_engine,
+        dspm_store=dspm_store,
+        dspm_engine=dspm_engine,
+        dspm_known_surface_source=dspm_known_surface_source,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         vuln_store=vuln_store,
@@ -1328,6 +1395,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         inventory_engine=inventory_engine,
         inventory_engine_service=inventory_engine_service,
         dspm_store=dspm_store,
+        dspm_engine=dspm_engine,
+        dspm_engine_service=dspm_engine_service,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,
@@ -1372,7 +1441,12 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.detection.engine import ThreatDetectionEngine
     from aqelyn.detection.postgres import PostgresProfileStore, PostgresRuleStore
     from aqelyn.detection.service import register_detection_events
-    from aqelyn.dspm import DataStoreKnownSurfaceSource, PostgresDSPMStore
+    from aqelyn.dspm import (
+        DataStoreKnownSurfaceSource,
+        DSPMEngine,
+        PostgresDSPMStore,
+        register_dspm_events,
+    )
     from aqelyn.executive import (
         EmptyExecutiveValueSource,
         EmptyMaterialExceptionSource,
@@ -1484,6 +1558,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_forecast_events(registry)
     register_executive_events(registry)
     register_inventory_events(registry)
+    register_dspm_events(registry)
     register_exposure_events(registry)
     register_vuln_events(registry)
     register_cloud_events(registry)
@@ -1723,6 +1798,10 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cfg.database_url,
         mode=cfg.tenant_mode,
     )
+    dspm_known_surface_source = DataStoreKnownSurfaceSource(
+        InventoryKnownSurfaceSource(inventory_engine),
+        dspm_store,
+    )
     saas_normalization_store = await PostgresSaaSNormalizationStore.connect(
         cfg.database_url,
         mode=cfg.tenant_mode,
@@ -1761,10 +1840,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
         SaaSIntegrationKnownSurfaceSource(
-            DataStoreKnownSurfaceSource(
-                InventoryKnownSurfaceSource(inventory_engine),
-                dspm_store,
-            ),
+            dspm_known_surface_source,
             saas_normalization_store,
         ),
         graph=knowledge_graph,
@@ -1774,6 +1850,19 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         trust_provider=trust_engine,
         mission_provider=mission_engine,
         finding_store=finding_store,
+    )
+    dspm_engine = DSPMEngine(
+        dspm_store,
+        object_store=object_store,
+        inventory=inventory_engine,
+        evidence_store=evidence_store,
+        trust=trust_engine,
+        config=_runtime_dspm_config(cfg),
+        exposure_owner=exposure_engine,
+        iag_owner=iag_engine,
+        compliance_owner=compliance_engine,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
     )
     vuln_store = await PostgresVulnerabilityStore.connect(
         cfg.database_url,
@@ -1857,6 +1946,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_engine_service,
         inventory_engine_service,
         exposure_engine_service,
+        dspm_engine_service,
         vuln_engine_service,
         cloud_posture_service,
         saas_posture_service,
@@ -1912,6 +2002,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         executive_report_engine=executive_report_engine,
         inventory_store=inventory_store,
         inventory_engine=inventory_engine,
+        dspm_store=dspm_store,
+        dspm_engine=dspm_engine,
+        dspm_known_surface_source=dspm_known_surface_source,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         vuln_store=vuln_store,
@@ -2028,6 +2121,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         inventory_engine=inventory_engine,
         inventory_engine_service=inventory_engine_service,
         dspm_store=dspm_store,
+        dspm_engine=dspm_engine,
+        dspm_engine_service=dspm_engine_service,
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,
