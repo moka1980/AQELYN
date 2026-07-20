@@ -38,6 +38,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
 | ECR-0032 | EA-0028 + EA-0029 | Proposed | Consider extracting a shared posture-normalization base once CSPM and SSPM are both green. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
+| ECR-0034 | EA-0025 (+ EA-0023, EA-0024, EA-0030) | Proposed | `InventoryIntelligenceEngine.inventory()` reads `store.query(limit=10_000)` and returns `degraded=False` unconditionally; `AssetStore.query` has no cursor and no more-remaining signal. A tenant above 10 000 assets gets its first 10 000 reported as the complete inventory. That report is EA-0023's known-surface denominator and EA-0024's coverage base (`unscanned = inventory − scanned`), and both of their fail-closed gates are keyed on the `degraded` flag that is hardcoded `False` — so a silent cap shrinks the attack surface, under-reports unscanned assets, and cannot trip either refusal. EA-0030 now ingests SBOM components into the same store, making the cap reachable in ordinary operation. |
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
 | ECR-0036 | EA-0029 | Accepted | Make Z3's owner references and blast-radius read tenant-correct: `SaaSRoutingResult.inventory_ref` is an EA-0025 `ast_` id (not an EA-0002 `obj_` id), and `integration_blast_radius` requires explicit `tenant_id` so it cannot read the tenant-scoped integration store through an unscoped interface. |
 | ECR-0037 | EA-0030 | Accepted | Make Q2's Trust reconciliation durable and its store pagination honest: components pin the winning source/time and retain every conflict candidate, malformed documents persist as flagged quarantine records, and `SBOMStore.query` adopts EA-0002 D8 cursor semantics. |
@@ -1576,6 +1577,88 @@ and acceptance criteria; amends EA-0028's store interface, FR-11 and AC-24; adds
 the cross-owner store follow-up to C-025 and makes it a required C-026 Z2
 deliverable. No production code changes in this docs PR; implementation starts
 only after the amended contract merges.
+
+---
+
+## ECR-0034 — the inventory denominator is silently capped at 10 000
+
+**Raised by:** Claude Code (found while reviewing PR #168's composite known-surface source;
+re-verified against `main` @54122e0 after C-026 and C-027 merged).
+**Severity:** blocking for EA-0025's S4 guarantee; it silently weakens three downstream owners.
+
+Not a defect in PR #168 — found by following what that PR composes with.
+
+**Problem.** `InventoryIntelligenceEngine.inventory()` (`src/aqelyn/inventory/engine.py:242-257`):
+
+```python
+rows = await self.store.query(tenant_id=selected_tenant, limit=10_000)
+...
+return InventoryReport(assets=sorted(...), total=len(included), degraded=False, ...)
+```
+
+`AssetStore.query` (`src/aqelyn/inventory/store.py:17-23`) returns `list[AssetRecord]` — no cursor,
+no `next_cursor`, no more-remaining flag. So at 10 000 the engine cannot tell a complete estate from
+a truncated one, and it hardcodes `degraded=False`. A tenant with 10 001 assets receives a report
+whose `total` asserts 10 000 and whose `degraded=False` asserts the count is trustworthy.
+
+`sweep_unreported` (`engine.py:169`) reads the same capped query, so assets beyond the cap are also
+never swept — they cannot be marked `unreported` because they are never seen.
+
+**Reproduced** (in-memory store, 10 050 active assets, one tenant):
+
+```
+assets actually in store        : 10050
+InventoryReport.total           : 10000
+InventoryReport.degraded        : False
+missing, unreported to caller   : 50
+EA-0023 known-surface records   : 10000   (fail-closed gate did not fire)
+EA-0024 coverage denominator    : 10000
+EA-0024 unscanned reported      : 10000   (50 assets neither scanned nor unscanned)
+```
+
+**Why it matters beyond EA-0025.** That report is a denominator three owners depend on:
+
+- **EA-0023** — `InventoryKnownSurfaceSource` (`inventory/service.py:61-90`) turns it into the
+  known-surface set. A capped inventory is a shrunken attack surface, and the missing assets are
+  absent rather than flagged. EA-0029's `SaaSIntegrationKnownSurfaceSource` (ECR-0033) composes
+  with this source and fails closed on partial reads; the guarantee is only as strong as its
+  weakest input.
+- **EA-0024** — the coverage provider computes `unscanned = inventory − scanned`. With a capped
+  inventory, `unscanned` under-reports: assets past the cap are neither scanned nor counted as
+  unscanned. ECR-0013 made that provider refuse rather than report an optimistic default; the
+  store contract underneath re-introduces the optimism.
+- **EA-0030** — `SupplyChainEngine` is constructed with `inventory=inventory_engine` in both
+  factory runtimes and calls `inventory.ingest(...)` for every parsed SBOM component and every
+  provenance-status update. Software components therefore land in the *same* `AssetStore` the cap
+  reads, so 10 000 is no longer a large-estate threshold — a few thousand hosts plus the component
+  inventory of a handful of applications reaches it in ordinary operation.
+
+Both EA-0023's and EA-0024's refusals are keyed on `report.degraded`
+(`inventory/service.py:67`, `:110`). Because the engine hardcodes `degraded=False`, those gates are
+structurally unreachable for store truncation: the fail-closed path exists and cannot fire.
+
+**Why EA-0025's S4 does not catch it.** S4 protects against *source* degradation shrinking the
+inventory — `degraded → FAIL, never shrink`. This is *store* truncation, a different axis, and the
+`degraded` flag is not wired to it. "Shrinking inventory that looks like good news" was made
+structurally impossible for the absence case and remains reachable through the page limit.
+
+**Resolution.**
+
+1. `AssetStore.query` adopts the EA-0002 D8 shape (ECR-0030): stable id order, exclusive cursor,
+   `next_cursor` non-null exactly when another row matches. Both backends, one contract suite.
+2. `inventory()` pages to completion under a work budget, **or** — if a hard bound is wanted —
+   refuses rather than truncates: an inventory that cannot enumerate its estate is
+   `InventoryUnavailable`, not a smaller inventory. `degraded=False` SHALL be asserted only when
+   the enumeration was complete. ECR-0031 is the precedent for not trading a silent cap for
+   unbounded per-request work.
+3. `sweep_unreported` pages the same way; an asset past the cap must not be invisible to the sweep.
+4. EA-0023's, EA-0024's and EA-0030's adapters inherit the guarantee — no separate fix needed once
+   the denominator is honest. Add a regression test that an over-cap estate either enumerates
+   fully or trips `degraded`, and that both downstream gates then refuse.
+
+**Impact.** Amends EA-0025's store contract, `inventory()`, and `sweep_unreported`; adds
+pagination ACs on both backends. EA-0023/EA-0024/EA-0030 need no change beyond re-verification.
+Implementation is Codex's.
 
 ---
 
