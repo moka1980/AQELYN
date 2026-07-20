@@ -47,7 +47,8 @@ AC-12, AC-18.
 
 Deliver:
 
-- ids/errors and all EA-0031 models;
+- ids/errors and all EA-0031 models; register `dsa`, `dxe`, and `dpa` in
+  `aqelyn.conventions.ids.PREFIXES` and prove the registry accepts them;
 - import Classification and SchemaType from aqelyn.lake.models;
 - typed metadata-only descriptor shapes with extra="forbid";
 - FieldClassification and DataAsset invariants;
@@ -94,8 +95,15 @@ Deliver:
 
 - additive EA-0023 ExposureImpactContext model, optional ExposureRecord field,
   score_exposure argument, derivation binding, and owner spec/tests;
+- additive EA-0023 `AssetRef.object_id`: `ref_id` remains the known-surface row
+  identity while `object_id` is the optional EA-0002 scoring/finding subject;
+  validate it as `obj_` and reject disagreement when `ref_id` is also `obj_`;
+- Postgres persistence for `ExposureRecord.impact_context`: migration-safe
+  `impact_context jsonb NULL` DDL plus `_EXPOSURE_COLS`, INSERT arguments,
+  `_exposure_args`, and `_row_to_exposure` mappings;
 - DataStoreKnownSurfaceSource over the DSPM store, composed with the existing
-  source at both factory sites;
+  source at both factory sites; emit `ref_id=inventory_ref` and
+  `object_id=object_id`, never the reverse;
 - data exposure analysis through the real EA-0023 engine;
 - known sensitivity factor passed to EA-0023; no local final scorer;
 - unknown sensitivity -> flagged classification_gap with no factor/score;
@@ -107,10 +115,13 @@ Deliver:
 Behavioral proof:
 
 - upstream rows survive;
-- same-ref placeholder replacement does not duplicate;
+- a real InventoryKnownSurfaceSource placeholder and its DSPM replacement
+  compose to exactly one `ast_`-keyed row carrying the `obj_` scoring subject;
 - a page failure or repeated cursor refuses instead of serving partial data;
 - higher known sensitivity cannot lower the real EA-0023 score;
-- tampering with the impact context/derivation is rejected.
+- `impact_context` round-trips on both stores and still binds the derivation;
+- unknown or tampered impact context raises the existing
+  `ExposureConfigInvalid`, never an unregistered error or a zero factor.
 
 ## P4 - Access, compliance, findings/risk, and delegated remediation
 
@@ -159,7 +170,9 @@ Review each ticket behaviorally per ECR-0007, in this order:
 2. **Unknown is not safe.** Unknown sensitivity is not public; unknown reach is
    not unreachable/internal; pending/partial assessments cannot look complete.
 3. **Real owner seams.** EA-0019 types are imported. EA-0023 uses
-   KnownSurfaceSource and ExposureImpactContext. No SurfaceFacet appears.
+   KnownSurfaceSource and ExposureImpactContext. Surface identity is the `ast_`
+   inventory ref and scoring identity is the `obj_` object id. No SurfaceFacet
+   appears.
 4. **Connectivity, not just intent.** Run at least one data store end to end
    against each real owner. Spies remain useful for envelope preservation but
    do not prove the receiving owner can act.

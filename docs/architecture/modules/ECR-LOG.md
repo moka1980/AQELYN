@@ -1945,18 +1945,30 @@ access, compliance, and finding methods omitted explicit tenant scope, and
 "data access via EA-0011" did not say how a store maps to the identity-centric
 shipped API.
 
+**Problem 5 - surface identity and scoring identity were conflated.** The draft
+promised to replace an EA-0025 inventory placeholder but keyed the DSPM row on
+`DataAsset.object_id` (`obj_`). The shipped `InventoryKnownSurfaceSource` keys
+that placeholder on the inventory id (`ast_`), so one store would produce two
+rows and the stronger evidenced row could not supersede the weaker one. Simply
+switching `ref_id` to `ast_` was also insufficient because shipped EA-0023
+requires an `obj_` subject for Mission, Risk, correlation, and findings.
+
 **Resolution.**
 
 1. DSPM ships a store-backed `DataStoreKnownSurfaceSource` that composes
    with the existing source, preserves upstream records, replaces only the same
    object placeholder, pages to exhaustion with repeated-cursor protection, and
-   fails instead of serving a partial source.
+   fails instead of serving a partial source. It keys the row on
+   `DataAsset.inventory_ref` and carries `DataAsset.object_id` separately.
 2. EA-0023 gains an optional `ExposureImpactContext` on the
    exposure/scoring path. A known context carries a unit factor,
    source/evidence, and reason; EA-0023 applies it to the owner risk seed and
    binds it into the replayable derivation. Existing callers without a context
    retain existing behavior. Unknown context has no numeric factor and cannot
    be scored as zero; DSPM records a flagged, unscored classification gap.
+   The existing `ExposureConfigInvalid` is the refusal error. Postgres adds a
+   migration-safe nullable JSONB column and explicit write/read mappings so the
+   context cannot disappear outside the in-memory backend.
 3. Descriptor metadata becomes typed and `extra="forbid"`: field
    names/types, detector refs/counts, tags, and evidence refs only. No raw
    value/content/sample field exists. Classification and exposure models use
@@ -1971,9 +1983,16 @@ shipped API.
 6. Compliance delegates to EA-0010 assessment. Risk consumes evidence-backed
    Findings through EA-0013's existing finding path; no new `SignalKind` is
    added.
+7. EA-0023 `AssetRef` additively separates surface identity (`ref_id`) from an
+   optional EA-0002 scoring subject (`object_id`). Existing callers remain
+   unchanged; inventory-keyed adapters must supply the `obj_` subject, and the
+   scorer refuses when it is absent or invalid.
 
 **Impact.** EA-0031 and C-028 are rewritten before implementation. EA-0023
 receives one additive model field/argument plus replay and monotonicity tests in
-C-028 P3; current callers and scores are unchanged when no context is supplied.
+C-028 P3; its Postgres DDL/mappings persist that field, and its `AssetRef`
+receives an optional scoring subject. Current callers and scores are unchanged
+when no context is supplied. EA-0031 typed ids are registered in the canonical
+`PREFIXES` registry during P1.
 EA-0019's taxonomy and EA-0011's APIs are reused without modification. The
 shared posture-base decision remains ECR-0032 Proposed and outside C-028.

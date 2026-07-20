@@ -74,6 +74,13 @@ existing source. It replaces the same-object inventory placeholder only when an
 evidenced descriptor has more specific reachability; it never drops upstream
 rows and fails rather than serving a partial source.
 
+Known-surface identity is the EA-0025 inventory id. The DSPM row therefore uses
+`AssetRef.ref_id=DataAsset.inventory_ref` so it collides with and replaces the
+upstream `ast_` placeholder. It also carries
+`AssetRef.object_id=DataAsset.object_id` as the EA-0002 `obj_` subject used by
+EA-0023 scoring, Mission, Risk, and findings. Using `object_id` as the row key is
+forbidden because it would produce two surface rows for one store.
+
 EA-0023 currently scores reachability but has no way to carry sensitivity.
 ECR-0041 adds an optional, evidence-backed ExposureImpactContext to the owner
 API. DSPM supplies the domain factor; EA-0023 remains the only exposure scorer
@@ -122,7 +129,9 @@ evidence-bound.
 ## 3. Design decisions
 
 - **D1 - Normalize once.** DataStoreDescriptor becomes one EA-0002 object plus
-  one EA-0025 inventory record; DataAsset stores both object_id and inventory_ref.
+  one EA-0025 inventory record; DataAsset stores both `object_id` and
+  `inventory_ref`. The inventory ref is surface identity; the object id is the
+  scoring/finding subject. They are not interchangeable.
 - **D2 - Metadata-only classification.** Rules are typed EA-0009 Conditions over
   descriptor metadata. No eval, free-form SQL, regex execution, or raw samples.
 - **D3 - Trust-backed claims.** Every classification cites evidence and receives
@@ -258,6 +267,10 @@ DataAsset = {
 # partial => known and unknown fields coexist; max_known_sensitivity is present.
 # unknown => no known field and max_known_sensitivity is None.
 # conflict => at least one unresolved conflict; flagged is true.
+
+# ECR-0041 additively extends EA-0023 AssetRef:
+# ref_id is the known-surface identity; object_id is the optional EA-0002 subject.
+# DSPM sets ref_id=inventory_ref (ast_) and object_id=object_id (obj_).
 
 ExposureImpactContext = {
   kind: Literal["data_sensitivity"],
@@ -431,13 +444,19 @@ delete, a local risk scorer, and a local exposure scorer.
 
 DataStoreKnownSurfaceSource reads the DSPM store with cursor pagination,
 starting from the composed upstream KnownSurfaceSource. For each evidenced
-reachability claim it replaces only the same object_id row with a
+reachability claim it replaces only the same inventory-ref row with a
 KnownSurfaceRecord containing:
 
-- AssetRef(kind="asset", ref_id=DataAsset.object_id),
+- AssetRef(kind="asset", ref_id=DataAsset.inventory_ref,
+  object_id=DataAsset.object_id),
 - reachability from the claim,
 - an evidence-backed inventory/access basis,
 - observed_at from the descriptor.
+
+The composed source keys rows on `AssetRef.ref_id`. Against the real
+`InventoryKnownSurfaceSource`, one data store therefore yields exactly one row:
+the evidenced DSPM row supersedes the weaker `ast_` placeholder while retaining
+the `obj_` subject required by owner scoring.
 
 Repeated cursors raise StoreUnavailable. Any page failure aborts the source; a
 partial surface is never served.
@@ -506,10 +525,12 @@ set only when the cursor is exhausted.
   unresolved ties SHALL remain unknown.
 - **FR-7** DSPMStore SHALL implement EA-0002 D8 pagination: filters before limit,
   exclusive cursor, and next_cursor exactly when another matching row exists.
-- **FR-8** DSPM SHALL use EA-0023's real KnownSurfaceSource seam and preserve
-  upstream completeness.
+- **FR-8** DSPM SHALL use EA-0023's real KnownSurfaceSource seam, key replacement
+  on `inventory_ref`, carry `object_id` separately for scoring, and preserve
+  upstream completeness. One inventory store SHALL produce one composed row.
 - **FR-9** Sensitivity weighting SHALL use ECR-0041 ExposureImpactContext and
-  EA-0023 score_exposure; DSPM SHALL implement no exposure scorer.
+  EA-0023 score_exposure; DSPM SHALL implement no exposure scorer. Unknown or
+  tampered context SHALL be refused with `ExposureConfigInvalid`.
 - **FR-10** Unknown reachability SHALL be pending. Unknown sensitivity with known
   reachability SHALL be a flagged, unscored classification gap.
 - **FR-11** Access context SHALL cite handed-in claims plus the real EA-0011
@@ -549,7 +570,7 @@ set only when the cursor is exhausted.
 | AC-6 | Conflicts retain candidates; reliability winner and unresolved tie are deterministic | test_dspm_conflict_recorded |
 | AC-7 | Real EA-0002 object and EA-0025 inventory records are created | test_dspm_store_to_inventory |
 | AC-8 | DSPM store has D8 cursor semantics on in-memory and Postgres | test_dspm_store_contract[inmemory] / [postgres] |
-| AC-9 | DataStoreKnownSurfaceSource composes upstream, replaces same-ref only, and fails on partial/repeated cursor | test_dspm_known_surface_contract |
+| AC-9 | Against real InventoryKnownSurfaceSource, DataStoreKnownSurfaceSource replaces the same `inventory_ref`, preserves the `object_id` scoring subject, yields exactly one row, and fails on partial/repeated cursor | test_dspm_known_surface_contract |
 | AC-10 | pii/secret plus known reachability produces DataExposure through real EA-0023 | test_dspm_exposure_intersection |
 | AC-11 | Sensitivity reaches real EA-0023 scoring/derivation; higher known factor is monotonic | test_dspm_sensitivity_weights_exposure |
 | AC-12 | Reachable plus incomplete classification is flagged/unscored; a known-sensitive exposure and its unknown-field gap coexist; unknown reachability is pending/unscored | test_dspm_unknown_exposure_states |
@@ -566,7 +587,7 @@ set only when the cursor is exhausted.
 
 New errors: DSPMConfigInvalid, DataAssetNotFound, DataExposureNotFound,
 ClassificationUnavailable. Reuses StoreUnavailable, TenantScopeRequired,
-CrossTenantReference, and owner errors.
+CrossTenantReference, `ExposureConfigInvalid`, and owner errors.
 
 Owned events:
 

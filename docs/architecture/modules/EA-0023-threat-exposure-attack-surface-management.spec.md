@@ -140,7 +140,12 @@ attack to see**.
 Reachability = "external" | "internal" | "unknown"          # unknown is a first-class value (S2)
 
 AssetRef  = { kind: "asset"|"cloud"|"api"|"identity"|"domain"|"cert",
-              ref_id: str, evidence_id: str | null }          # lineage to EA-0012 (S3)
+              ref_id: str, object_id: str | null = null,
+              evidence_id: str | null }                       # lineage to EA-0012 (S3)
+# ref_id is the known-surface identity. object_id, when present, is the EA-0002
+# obj_ subject used by scoring/findings. Existing obj_-keyed callers may omit
+# object_id and continue to use ref_id as both identities. A supplied object_id
+# must be a valid obj_ id; when ref_id is also obj_, the two must match (ECR-0041).
 ExposureBasis = { kind: "inventory"|"telemetry"|"access"|"graph", ref: str,
                   as_of: datetime, evidence_id: str | null }  # derived-from, never scanned (S1)
 
@@ -225,6 +230,13 @@ cannot receive a lower score. An unknown context has no factor and is refused
 for scoring rather than treated as zero. Existing callers that omit the context
 retain their existing score.
 
+For an `AssetRef` whose surface identity is not an EA-0002 id, scoring resolves
+the subject as `asset_ref.object_id`; otherwise it retains the existing
+`asset_ref.ref_id` behavior. The resolved subject MUST be a tenant-matching
+`obj_` id and is used consistently for Mission, Risk, correlation, and finding
+affected-object references. A non-`obj_` surface ref without `object_id` is
+refused with `ExposureConfigInvalid`.
+
 **Paths.** `reachable_paths` calls EA-0005 `paths()` with the config `max_work`
 budget (S4/ECR-0001).
 
@@ -257,6 +269,13 @@ gated run / EA-0020 recommendation; it never remediates (S8).
   included in the replayable derivation. Known factors SHALL be monotonic;
   unknown context SHALL NOT be scored as zero. Omitting the context SHALL
   preserve the pre-ECR-0041 result.
+- **FR-16** `AssetRef.ref_id` SHALL identify the known-surface row. When that
+  identity is not an EA-0002 `obj_` id, `AssetRef.object_id` SHALL carry the
+  scoring/finding subject; scoring SHALL refuse a missing or invalid subject.
+  When both values are `obj_` ids they SHALL match.
+- **FR-17** Postgres SHALL persist `ExposureRecord.impact_context` in a nullable
+  JSONB column and restore it on every read path; in-memory and Postgres
+  round-trips SHALL preserve identical derivation-bound context.
 
 ### Non-functional
 
@@ -289,6 +308,8 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 | AC-16 | Registers as AQService with health | `test_exp_service_health` |
 | AC-17 | Known impact context is derivation-bound and monotonic; omitted context preserves existing score | `test_exp_impact_context` |
 | AC-18 | Unknown/tampered impact context is refused, never scored as zero | `test_exp_impact_context_unknown_or_tampered` |
+| AC-19 | Inventory-keyed AssetRef uses its obj_ object_id for scoring, correlation, and findings; missing/invalid/contradictory object_id is refused | `test_exp_asset_ref_scoring_subject` |
+| AC-20 | impact_context round-trips identically through in-memory and Postgres stores and still verifies against its derivation | `test_exp_impact_context_store_contract[inmemory]` / `test_exp_impact_context_store_contract[postgres]` |
 
 ## 10. Error taxonomy (contributions)
 
@@ -314,7 +335,8 @@ CONVENTIONS §9). Reuses EA-0020 `DerivationNotReplayable`, `StoreUnavailable`,
   score presented as current (S9, overrides master §28.3).
 - Composed score fails to replay → withheld, not served with a caveat (EA-0020).
 - Unknown ECR-0041 impact context → scoring refused; the caller retains a
-  flagged, unscored gap rather than receiving a zero-impact score.
+  flagged, unscored gap rather than receiving a zero-impact score. Unknown,
+  tampered, or invalid scoring-subject context raises `ExposureConfigInvalid`.
 - A request to actively scan → `ScanNotPermitted` unless delivered as an EA-0008
   `scan.active` gated run (S1/§0.1/FR-12).
 
