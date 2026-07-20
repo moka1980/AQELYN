@@ -36,10 +36,24 @@ class DSPMStore(Protocol):
 
     async def put_exposure(self, exposure: DataExposure) -> DataExposure: ...
 
+    async def get_exposure(
+        self,
+        exposure_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> DataExposure | None: ...
+
     async def put_assessment(
         self,
         assessment: DataPostureAssessment,
     ) -> DataPostureAssessment: ...
+
+    async def get_assessment(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> DataPostureAssessment | None: ...
 
     async def query_assets(
         self,
@@ -67,6 +81,14 @@ def validate_assessment(assessment: DataPostureAssessment) -> DataPostureAssessm
 
 def validate_asset_id(value: str, *, field: str = "asset_id") -> str:
     return require_typed_id(value, "dsa", field=field)
+
+
+def validate_exposure_id(value: str, *, field: str = "exposure_id") -> str:
+    return require_typed_id(value, "dxe", field=field)
+
+
+def validate_assessment_id(value: str, *, field: str = "assessment_id") -> str:
+    return require_typed_id(value, "dpa", field=field)
 
 
 def validate_store_id(value: str) -> str:

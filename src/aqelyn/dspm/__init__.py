@@ -3,9 +3,12 @@
 from aqelyn.dspm.classify import ClassificationResult, TrustAssessor, classify_descriptor
 from aqelyn.dspm.engine import (
     DATA_STORE_OBJECT_TYPE,
+    DataStoreComplianceOwner,
     DataStoreExposureOwner,
+    DataStoreIAGOwner,
     DataStoreInventoryOwner,
     DSPMEngine,
+    WorkflowProposer,
     ensure_data_store_object_type,
 )
 from aqelyn.dspm.memory import InMemoryDSPMStore
@@ -81,8 +84,10 @@ __all__ = [
     "DataExposure",
     "DataFieldDescriptor",
     "DataPostureAssessment",
+    "DataStoreComplianceOwner",
     "DataStoreDescriptor",
     "DataStoreExposureOwner",
+    "DataStoreIAGOwner",
     "DataStoreInventoryOwner",
     "DataStoreKnownSurfaceSource",
     "DataStoreLocation",
@@ -96,6 +101,7 @@ __all__ = [
     "SchemaType",
     "Sensitivity",
     "TrustAssessor",
+    "WorkflowProposer",
     "classify_descriptor",
     "ensure_data_store_object_type",
 ]

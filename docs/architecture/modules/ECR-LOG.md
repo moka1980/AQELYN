@@ -46,6 +46,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0039 | EA-0030 (+ EA-0004 boundary) | Accepted | Evidence hash-chain integrity is not attestation authenticity: Q4 verifies EA-0004 integrity first, delegates cryptographic/bundle authenticity to a typed verifier, and keeps missing/unavailable verification flagged `unverified` while completed mismatches are `failed`. |
 | ECR-0040 | EA-0030 + EA-0024 | Accepted | Preserve unknown component reachability through vulnerability prioritization: factors carry `known|unknown`, unknown factors remain in the derivation but are excluded from the score denominator; add an asset-scoped vulnerability query and explicit Q5 owner methods. |
 | ECR-0041 | EA-0031 + EA-0023 | Accepted | Connect DSPM to EA-0023's shipped `KnownSurfaceSource` seam, add an optional evidence-backed exposure-impact context for sensitivity-aware owner scoring, and make unknown/minimal-retention/pagination guarantees structural before C-028. |
+| ECR-0042 | EA-0031 | Accepted | Make P4's assessment-to-finding handoff durable: add tenant-scoped assessment/exposure reads to DSPMStore, refuse incomplete assessments, and re-run a complete assessment's frozen scope through the owner exposure path when it carries no material ids. |
 
 ---
 
@@ -1996,3 +1997,31 @@ when no context is supplied. EA-0031 typed ids are registered in the canonical
 `PREFIXES` registry during P1.
 EA-0019's taxonomy and EA-0011's APIs are reused without modification. The
 shared posture-base decision remains ECR-0032 Proposed and outside C-028.
+
+---
+
+## ECR-0042 - P4 findings require a durable assessment read path
+
+**Raised by:** Codex (C-028 P4 implementation against the Accepted EA-0031
+interface).
+**Severity:** blocking within P4 - the declared method cannot be implemented
+durably from the declared store protocol.
+
+**Problem.** `exposures_to_findings(assessment_id, ...)` accepts only an id, but
+the Accepted `DSPMStore` can write assessments and exposures and cannot read
+either one. An engine-local cache would make the method fail after restart and
+would bypass tenant-scoped persistence. The gap is sharper when an assessment
+carries no material ids: returning an empty finding list would mean either
+"owner analysis found nothing" or "owner analysis never ran".
+
+**Resolution.** Add tenant-scoped `get_assessment` and `get_exposure` methods to
+both stores. P4 reads the immutable assessment, refuses pending or truncated
+coverage, and loads every cited exposure. When a complete assessment has no
+material ids, it re-runs that assessment's scope through the real EA-0023 owner
+path before returning an empty result. Findings remain the only EA-0013 handoff,
+and remediation remains an EA-0008 proposal.
+
+**Impact.** Additive protocol and implementation methods over existing tables;
+no schema migration. The Postgres and in-memory implementations share
+tenant-isolation and immutable-read tests. EA-0031 section 5/6.3 and FR-12 plus
+C-028 P4 are amended.

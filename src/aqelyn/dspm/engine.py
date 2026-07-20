@@ -10,13 +10,18 @@ from aqelyn.conventions.errors import (
     AQError,
     CrossTenantReference,
     DataAssetNotFound,
+    DataExposureNotFound,
     DSPMConfigInvalid,
+    EvidenceTampered,
     StoreUnavailable,
 )
+from aqelyn.decision import replay
 from aqelyn.dspm.classify import ClassificationResult, TrustAssessor, classify_descriptor
 from aqelyn.dspm.models import (
     AssetClassificationStatus,
     Classification,
+    DataAccessClaim,
+    DataAccessContext,
     DataAsset,
     DataExposure,
     DataPostureAssessment,
@@ -29,9 +34,14 @@ from aqelyn.dspm.models import (
 from aqelyn.dspm.store import DSPMStore
 from aqelyn.evidence import EvidenceStore
 from aqelyn.exposure import AssetRef, ExposureImpactContext, ExposureRecord
+from aqelyn.findings import Automation, Finding, FindingStore, Remediation
+from aqelyn.findings.models import Severity
+from aqelyn.governance import ComplianceSnapshot
+from aqelyn.iag import AccessPath, AccessRisk, AccessRiskReport
 from aqelyn.inventory import AssetRecord, DiscoverySource
-from aqelyn.objects import AQObject, NaturalKey, ObjectStore, SourceRef
+from aqelyn.objects import AQObject, NaturalKey, ObjectQuery, ObjectStore, SourceRef
 from aqelyn.objects.registry import ObjectTypeRegistry
+from aqelyn.workflow import Playbook, Run, Step
 
 DATA_STORE_OBJECT_TYPE = "data_store"
 _DSPM_ACTOR = ActorRef(actor_type="system", actor_id="dspm_engine")
@@ -67,6 +77,42 @@ class DataStoreExposureOwner(Protocol):
     ) -> ExposureRecord: ...
 
 
+class DataStoreIAGOwner(Protocol):
+    async def access_paths(
+        self,
+        identity_id: str,
+        *,
+        tenant_id: str | None = None,
+    ) -> list[AccessPath]: ...
+
+    async def analyze_risk(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: ObjectQuery | None = None,
+    ) -> AccessRiskReport: ...
+
+
+class DataStoreComplianceOwner(Protocol):
+    async def assess(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: ObjectQuery | None = None,
+        record_evidence: bool = True,
+    ) -> ComplianceSnapshot: ...
+
+
+class WorkflowProposer(Protocol):
+    async def propose(
+        self,
+        playbook: Playbook,
+        *,
+        by: ActorRef,
+        source_finding: Finding | None = None,
+    ) -> Run: ...
+
+
 def ensure_data_store_object_type(object_store: object) -> None:
     registry = getattr(object_store, "registry", None)
     if isinstance(registry, ObjectTypeRegistry):
@@ -91,6 +137,10 @@ class DSPMEngine:
         trust: TrustAssessor,
         config: DSPMConfig,
         exposure_owner: DataStoreExposureOwner | None = None,
+        iag_owner: DataStoreIAGOwner | None = None,
+        compliance_owner: DataStoreComplianceOwner | None = None,
+        finding_store: FindingStore | None = None,
+        workflow_engine: WorkflowProposer | None = None,
         actor: ActorRef | None = None,
     ) -> None:
         self.store = store
@@ -100,6 +150,10 @@ class DSPMEngine:
         self.trust = trust
         self.config = config
         self.exposure_owner = exposure_owner
+        self.iag_owner = iag_owner
+        self.compliance_owner = compliance_owner
+        self.finding_store = finding_store
+        self.workflow_engine = workflow_engine
         self.actor = actor or _DSPM_ACTOR
         ensure_data_store_object_type(object_store)
 
@@ -300,6 +354,199 @@ class DSPMEngine:
             ),
         }
 
+    async def access_context(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> DataAccessContext:
+        selected_tenant = require_tenant_id(tenant_id)
+        asset = await self.store.get_asset(asset_id, tenant_id=selected_tenant)
+        if asset is None:
+            raise DataAssetNotFound(asset_id)
+        claims = sorted(
+            (claim.model_copy(deep=True) for claim in asset.access_claims),
+            key=lambda claim: (claim.identity_id, claim.claim_kind, claim.evidence_id),
+        )
+        if not claims:
+            return DataAccessContext(
+                data_asset_id=asset.id,
+                status="pending",
+                claims=[],
+                reason="No evidenced identity access claims were handed in for this data store.",
+            )
+        iag_owner = self.iag_owner
+        try:
+            await self._verify_access_claims(claims, tenant_id=selected_tenant)
+            if iag_owner is None:
+                return DataAccessContext(
+                    data_asset_id=asset.id,
+                    status="pending",
+                    claims=claims,
+                    reason="EA-0011 access context is unavailable.",
+                )
+            paths: list[AccessPath] = []
+            for identity_id in sorted({claim.identity_id for claim in claims}):
+                identity_paths = await iag_owner.access_paths(
+                    identity_id,
+                    tenant_id=selected_tenant,
+                )
+                if any(path.identity_id != identity_id for path in identity_paths):
+                    raise DSPMConfigInvalid(
+                        "EA-0011 returned an access path for a different identity"
+                    )
+                paths.extend(identity_paths)
+            report = await iag_owner.analyze_risk(
+                tenant_id=selected_tenant,
+                scope=ObjectQuery(tenant_id=selected_tenant, limit=self.config.max_work),
+            )
+        except AQError as exc:
+            if not exc.retriable:
+                raise
+            return DataAccessContext(
+                data_asset_id=asset.id,
+                status="pending",
+                claims=claims,
+                reason=f"EA-0011 access context is unavailable: {exc.code}.",
+            )
+
+        paths = _deduplicate_access_paths(paths)
+        subject_ids = {claim.identity_id for claim in claims}
+        for path in paths:
+            if path.account_id is not None:
+                subject_ids.add(path.account_id)
+            subject_ids.update(path.entitlement_ids)
+        risks = sorted(
+            (risk.model_copy(deep=True) for risk in report.risks if risk.subject_id in subject_ids),
+            key=_access_risk_key,
+        )
+        return DataAccessContext(
+            data_asset_id=asset.id,
+            status="known",
+            claims=claims,
+            paths=paths,
+            risks=risks,
+            truncated=report.truncated,
+            reason=(
+                "EA-0011 evaluated the evidenced identity claims and returned "
+                f"{len(paths)} matching access paths and {len(risks)} matching risks."
+            ),
+        )
+
+    async def data_compliance(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: ObjectQuery,
+    ) -> ComplianceSnapshot:
+        selected_tenant = require_tenant_id(tenant_id)
+        if scope.tenant_id not in (None, selected_tenant):
+            raise CrossTenantReference(
+                "compliance scope tenant does not match explicit tenant scope"
+            )
+        if self.compliance_owner is None:
+            raise StoreUnavailable("EA-0010 data compliance owner is unavailable")
+        selected_scope = scope.model_copy(
+            update={"tenant_id": selected_tenant, "object_type": DATA_STORE_OBJECT_TYPE},
+            deep=True,
+        )
+        return await self.compliance_owner.assess(
+            tenant_id=selected_tenant,
+            scope=selected_scope,
+        )
+
+    async def exposures_to_findings(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+        by: ActorRef,
+        propose_remediation: bool = True,
+    ) -> list[str]:
+        selected_tenant = require_tenant_id(tenant_id)
+        if self.finding_store is None:
+            raise StoreUnavailable("finding path is unavailable")
+        workflow = self.workflow_engine
+        if propose_remediation and workflow is None:
+            raise StoreUnavailable("workflow proposal path is unavailable")
+        assessment = await self.store.get_assessment(
+            assessment_id,
+            tenant_id=selected_tenant,
+        )
+        if assessment is None:
+            raise DSPMConfigInvalid(f"assessment not found: {assessment_id}")
+        if assessment.coverage_status != "complete":
+            raise DSPMConfigInvalid(
+                "findings require a complete DSPM assessment; partial coverage is not clean"
+            )
+
+        exposure_ids = list(dict.fromkeys([*assessment.exposure_ids, *assessment.gap_ids]))
+        exposures: list[DataExposure] = []
+        if exposure_ids:
+            for exposure_id in exposure_ids:
+                exposure = await self.store.get_exposure(
+                    exposure_id,
+                    tenant_id=selected_tenant,
+                )
+                if exposure is None:
+                    raise DataExposureNotFound(exposure_id)
+                exposures.append(exposure)
+        else:
+            exposures = await self.analyze_exposure(
+                tenant_id=selected_tenant,
+                scope=assessment.scope,
+            )
+
+        material = sorted(
+            (
+                exposure
+                for exposure in exposures
+                if exposure.state in {"confirmed", "classification_gap"}
+            ),
+            key=lambda exposure: (exposure.object_id, exposure.state, exposure.id),
+        )
+        finding_ids: list[str] = []
+        for exposure in material:
+            if exposure.derivation is not None:
+                replay(exposure.derivation)
+            finding = await self.finding_store.raise_finding(
+                _finding_for_data_exposure(
+                    exposure,
+                    assessment_id=assessment.id,
+                    by=by,
+                )
+            )
+            finding_ids.append(finding.id)
+            if propose_remediation:
+                if workflow is None:
+                    raise StoreUnavailable("workflow proposal path became unavailable")
+                # Eligibility "none" forbids finding-driven execution. The finding id remains
+                # an explicit input while this separately proposed run stays human-gated.
+                await workflow.propose(
+                    _data_remediation_playbook(exposure, finding=finding),
+                    by=by,
+                )
+        return finding_ids
+
+    async def _verify_access_claims(
+        self,
+        claims: Sequence[DataAccessClaim],
+        *,
+        tenant_id: str | None,
+    ) -> None:
+        for claim in claims:
+            evidence = await self.evidence_store.get(claim.evidence_id, actor=self.actor)
+            verification = await self.evidence_store.verify(claim.evidence_id)
+            if evidence.tenant_id != tenant_id:
+                raise CrossTenantReference(
+                    "access-claim evidence tenant does not match the data asset"
+                )
+            if not verification.ok:
+                raise EvidenceTampered(
+                    "access-claim evidence failed integrity verification",
+                    details={"evidence_id": claim.evidence_id},
+                )
+
     async def _assets_for_exposure(
         self,
         *,
@@ -443,6 +690,154 @@ class DSPMEngine:
             len(field.signals) > self.config.max_signals_per_field for field in descriptor.fields
         ):
             raise DSPMConfigInvalid("descriptor field exceeds max_signals_per_field")
+
+
+def _deduplicate_access_paths(paths: Sequence[AccessPath]) -> list[AccessPath]:
+    selected: dict[tuple[object, ...], AccessPath] = {}
+    for path in paths:
+        key = (
+            path.identity_id,
+            path.account_id,
+            tuple(path.entitlement_ids),
+            tuple(path.via.node_ids),
+            tuple(edge.id for edge in path.via.edges),
+        )
+        selected[key] = path.model_copy(deep=True)
+    return [selected[key] for key in sorted(selected, key=repr)]
+
+
+def _access_risk_key(risk: AccessRisk) -> tuple[str, str, str]:
+    return risk.subject_id, risk.kind, risk.reason
+
+
+def _finding_for_data_exposure(
+    exposure: DataExposure,
+    *,
+    assessment_id: str,
+    by: ActorRef,
+) -> Finding:
+    confirmed = exposure.state == "confirmed"
+    score = exposure.score if exposure.score is not None else 50.0
+    severity = _finding_severity(score) if confirmed else "medium"
+    title = (
+        f"Sensitive data exposure on {exposure.object_id}"
+        if confirmed
+        else f"Data classification gap on {exposure.object_id}"
+    )
+    action = "data.restrict_access" if confirmed else "data.review_classification"
+    return Finding(
+        id=new_id("fnd"),
+        tenant_id=exposure.tenant_id,
+        finding_type="data_exposure" if confirmed else "data_classification_gap",
+        schema_version=1,
+        dedup_key=f"dspm:{exposure.object_id}:{exposure.state}",
+        title=title,
+        severity=severity,
+        severity_score=round(score, 6),
+        status="open",
+        what_happened=exposure.reason,
+        why_it_matters=(
+            "Sensitive data with known reachability can increase the impact of unauthorized access."
+            if confirmed
+            else "Known reachability combined with incomplete classification can hide material "
+            "data exposure."
+        ),
+        how_determined=(
+            "DSPM intersected metadata-only classification with EA-0023 reachability and cited "
+            "the evidence-backed owner records; it did not inspect data content."
+        ),
+        risk_of_inaction=(
+            "Leaving this condition unresolved can expose sensitive data or preserve an "
+            "unmeasured data-security gap."
+        ),
+        evidence_ids=list(exposure.evidence_ids),
+        affected_object_ids=[exposure.object_id],
+        expert_details={
+            "assessment_id": assessment_id,
+            "data_exposure_id": exposure.id,
+            "data_asset_id": exposure.data_asset_id,
+            "exposure_ref": exposure.exposure_ref,
+            "state": exposure.state,
+            "sensitivity": exposure.sensitivity,
+            "reachability": exposure.reachability,
+            "derivation": (
+                None if exposure.derivation is None else exposure.derivation.model_dump(mode="json")
+            ),
+            "proposed_action": action,
+            "requested_by": by.model_dump(mode="json"),
+        },
+        remediation=Remediation(
+            summary="Review the evidence and route any change through the Workflow Engine.",
+            steps=[
+                "Validate the cited classification and reachability evidence.",
+                "Decide whether access or classification metadata must change.",
+                "Use the gated workflow proposal before changing the source system.",
+            ],
+            difficulty="medium",
+            estimated_effort=None,
+            expected_outcome="The exposure is reduced or the classification gap is resolved.",
+        ),
+        automation=Automation(
+            eligibility="none",
+            action_ref=None,
+            requires_approval=True,
+            risk_note="DSPM raises findings and proposes gated runs; it never acts directly.",
+        ),
+        confidence=1.0,
+        source_engine="dspm_engine",
+        correlation_id=assessment_id,
+        first_detected_at=exposure.detected_at,
+        last_detected_at=exposure.detected_at,
+    )
+
+
+def _data_remediation_playbook(
+    exposure: DataExposure,
+    *,
+    finding: Finding,
+) -> Playbook:
+    action = (
+        "data.restrict_access" if exposure.state == "confirmed" else "data.review_classification"
+    )
+    return Playbook(
+        id=f"dspm-{action.replace('.', '-')}-{finding.id}",
+        version=1,
+        name=(
+            "Propose data access restriction"
+            if exposure.state == "confirmed"
+            else "Propose data classification review"
+        ),
+        description=(
+            "DSPM proposes remediation only; EA-0008 re-validates capability and approval "
+            "before any execution."
+        ),
+        tenant_id=exposure.tenant_id,
+        steps=[
+            Step(
+                id="review-and-remediate",
+                action_type=action,
+                inputs={
+                    "data_asset_id": exposure.data_asset_id,
+                    "object_id": exposure.object_id,
+                    "exposure_id": exposure.id,
+                    "finding_id": finding.id,
+                    "evidence_ids": list(exposure.evidence_ids),
+                },
+                idempotency_key=f"dspm:{finding.id}:{action}",
+                requires_approval=True,
+            )
+        ],
+    )
+
+
+def _finding_severity(score: float) -> Severity:
+    if score >= 90.0:
+        return "critical"
+    if score >= 70.0:
+        return "high"
+    if score >= 40.0:
+        return "medium"
+    return "low"
 
 
 def _data_store_object(
