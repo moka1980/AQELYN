@@ -13,6 +13,7 @@ from aqelyn.conventions.errors import (
     ExposureBasisMissing,
     ExposureConfigInvalid,
     ScanNotPermitted,
+    SchemaValidationError,
 )
 from aqelyn.decision import Derivation
 from aqelyn.workflow.models import ActionSpec
@@ -22,6 +23,8 @@ AssetKind = Literal["asset", "cloud", "api", "identity", "domain", "cert"]
 ExposureBasisKind = Literal["inventory", "telemetry", "access", "graph"]
 ExposureStatus = Literal["open", "revalidated", "closed"]
 ExposureLevel = Literal["high", "medium", "low", "unknown"]
+ExposureImpactKind = Literal["data_sensitivity"]
+ExposureImpactStatus = Literal["known", "unknown"]
 
 VALID_REACHABILITY: Final[frozenset[str]] = frozenset(("external", "internal", "unknown"))
 VALID_ASSET_KINDS: Final[frozenset[str]] = frozenset(
@@ -66,6 +69,7 @@ class AssetRef(BaseModel):
 
     kind: str
     ref_id: str
+    object_id: str | None = None
     evidence_id: str | None = None
 
     @field_validator("kind")
@@ -80,12 +84,35 @@ class AssetRef(BaseModel):
     def _ref_id(cls, value: str) -> str:
         return _nonempty(value, field="asset ref_id")
 
+    @field_validator("object_id")
+    @classmethod
+    def _object_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            return require_typed_id(value, "obj", field="asset object_id")
+        except SchemaValidationError as exc:
+            raise ExposureConfigInvalid(exc.message) from exc
+
     @field_validator("evidence_id")
     @classmethod
     def _evidence_id(cls, value: str | None) -> str | None:
         if value is None:
             return None
         return require_typed_id(value, "evd", field="evidence_id")
+
+    @model_validator(mode="after")
+    def _identity_consistency(self) -> AssetRef:
+        if self.ref_id.startswith("obj_"):
+            try:
+                subject = require_typed_id(self.ref_id, "obj", field="asset ref_id")
+            except SchemaValidationError as exc:
+                raise ExposureConfigInvalid(exc.message) from exc
+            if self.object_id is not None and self.object_id != subject:
+                raise ExposureConfigInvalid(
+                    "asset object_id must match ref_id when the surface identity is obj_"
+                )
+        return self
 
 
 class ExposureBasis(BaseModel):
@@ -116,6 +143,42 @@ class ExposureBasis(BaseModel):
         return require_typed_id(value, "evd", field="evidence_id")
 
 
+class ExposureImpactContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: ExposureImpactKind = "data_sensitivity"
+    status: ExposureImpactStatus
+    factor: float | None = None
+    source_ref: str
+    evidence_id: str
+    reason: str
+
+    @field_validator("source_ref", "reason")
+    @classmethod
+    def _text(cls, value: str) -> str:
+        return _nonempty(value, field="exposure impact context field")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="impact context evidence_id")
+
+    @field_validator("factor", mode="before")
+    @classmethod
+    def _factor(cls, value: object) -> float | None:
+        if value is None:
+            return None
+        return _unit(value, field="impact context factor")
+
+    @model_validator(mode="after")
+    def _status_consistency(self) -> ExposureImpactContext:
+        if self.status == "known" and self.factor is None:
+            raise ExposureConfigInvalid("known impact context requires a factor")
+        if self.status == "unknown" and self.factor is not None:
+            raise ExposureConfigInvalid("unknown impact context cannot carry a factor")
+        return self
+
+
 class ExposureRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -125,6 +188,7 @@ class ExposureRecord(BaseModel):
     exposure_type: str
     reachability: str
     basis: list[ExposureBasis]
+    impact_context: ExposureImpactContext | None = None
     score: float | None = None
     confidence: float | None = None
     derivation: Derivation | None = None
@@ -191,6 +255,12 @@ class ExposureRecord(BaseModel):
     def _unknown_is_flagged(self) -> ExposureRecord:
         if self.reachability == "unknown" and not self.flagged:
             raise ExposureConfigInvalid("unknown reachability must be flagged")
+        if (
+            self.score is not None
+            and self.impact_context is not None
+            and self.impact_context.status != "known"
+        ):
+            raise ExposureConfigInvalid("scored exposure cannot carry unknown impact context")
         return self
 
 

@@ -3,6 +3,7 @@
 from aqelyn.dspm.classify import ClassificationResult, TrustAssessor, classify_descriptor
 from aqelyn.dspm.engine import (
     DATA_STORE_OBJECT_TYPE,
+    DataStoreExposureOwner,
     DataStoreInventoryOwner,
     DSPMEngine,
     ensure_data_store_object_type,
@@ -47,6 +48,7 @@ from aqelyn.dspm.models import (
 )
 from aqelyn.dspm.postgres import PostgresDSPMStore
 from aqelyn.dspm.store import DSPMStore
+from aqelyn.dspm.surface import DataStoreKnownSurfaceSource
 
 __all__ = [
     "DATA_STORE_OBJECT_TYPE",
@@ -80,7 +82,9 @@ __all__ = [
     "DataFieldDescriptor",
     "DataPostureAssessment",
     "DataStoreDescriptor",
+    "DataStoreExposureOwner",
     "DataStoreInventoryOwner",
+    "DataStoreKnownSurfaceSource",
     "DataStoreLocation",
     "DataStoreType",
     "ExposureState",

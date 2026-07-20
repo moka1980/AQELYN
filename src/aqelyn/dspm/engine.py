@@ -18,6 +18,7 @@ from aqelyn.dspm.models import (
     AssetClassificationStatus,
     Classification,
     DataAsset,
+    DataExposure,
     DataPostureAssessment,
     DataStoreDescriptor,
     DSPMConfig,
@@ -27,6 +28,7 @@ from aqelyn.dspm.models import (
 )
 from aqelyn.dspm.store import DSPMStore
 from aqelyn.evidence import EvidenceStore
+from aqelyn.exposure import AssetRef, ExposureImpactContext, ExposureRecord
 from aqelyn.inventory import AssetRecord, DiscoverySource
 from aqelyn.objects import AQObject, NaturalKey, ObjectStore, SourceRef
 from aqelyn.objects.registry import ObjectTypeRegistry
@@ -47,6 +49,22 @@ class DataStoreInventoryOwner(Protocol):
         source: DiscoverySource,
         tenant_id: str | None,
     ) -> list[AssetRecord]: ...
+
+
+class DataStoreExposureOwner(Protocol):
+    async def analyze_exposure(
+        self,
+        *,
+        asset_ref: AssetRef,
+        tenant_id: str | None,
+    ) -> ExposureRecord: ...
+
+    async def score_exposure(
+        self,
+        exposure: ExposureRecord,
+        *,
+        impact_context: ExposureImpactContext | None = None,
+    ) -> ExposureRecord: ...
 
 
 def ensure_data_store_object_type(object_store: object) -> None:
@@ -72,6 +90,7 @@ class DSPMEngine:
         evidence_store: EvidenceStore,
         trust: TrustAssessor,
         config: DSPMConfig,
+        exposure_owner: DataStoreExposureOwner | None = None,
         actor: ActorRef | None = None,
     ) -> None:
         self.store = store
@@ -80,6 +99,7 @@ class DSPMEngine:
         self.evidence_store = evidence_store
         self.trust = trust
         self.config = config
+        self.exposure_owner = exposure_owner
         self.actor = actor or _DSPM_ACTOR
         ensure_data_store_object_type(object_store)
 
@@ -173,6 +193,142 @@ class DSPMEngine:
         if asset is None:
             raise DataAssetNotFound(asset_id)
         return [item.model_copy(deep=True) for item in asset.field_classifications]
+
+    async def analyze_exposure(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: DSPMScope | None = None,
+    ) -> list[DataExposure]:
+        selected_tenant = require_tenant_id(tenant_id)
+        if self.exposure_owner is None:
+            raise StoreUnavailable("EA-0023 exposure owner is unavailable")
+        selected_scope = (scope or DSPMScope(limit=self.config.max_work)).model_copy(deep=True)
+        assets = await self._assets_for_exposure(
+            tenant_id=selected_tenant,
+            scope=selected_scope,
+        )
+        results: list[DataExposure] = []
+        for asset in assets:
+            if selected_scope.store_types and asset.store_type not in selected_scope.store_types:
+                continue
+            claim = asset.reachability_claim
+            asset_ref = AssetRef(
+                kind="asset",
+                ref_id=asset.inventory_ref,
+                object_id=asset.object_id,
+                evidence_id=asset.evidence_id if claim is None else claim.evidence_id,
+            )
+            owner_exposure = await self.exposure_owner.analyze_exposure(
+                asset_ref=asset_ref,
+                tenant_id=selected_tenant,
+            )
+            evidence_ids = _exposure_evidence_ids(asset, owner_exposure)
+            if owner_exposure.reachability == "unknown":
+                pending = _dspm_exposure(
+                    asset,
+                    owner_exposure,
+                    state="reachability_pending",
+                    sensitivity=asset.max_known_sensitivity or "unknown",
+                    score=None,
+                    derivation=None,
+                    evidence_ids=evidence_ids,
+                    reason=(
+                        "Reachability was not computed by EA-0023; no exposure score was assigned."
+                    ),
+                )
+                results.append(await self.store.put_exposure(pending))
+                continue
+
+            if asset.max_known_sensitivity in {"pii", "secret"}:
+                sensitivity = asset.max_known_sensitivity
+                context = ExposureImpactContext(
+                    status="known",
+                    factor=self.config.sensitivity_factors[sensitivity],
+                    source_ref=asset.id,
+                    evidence_id=asset.evidence_id,
+                    reason=(
+                        f"DSPM classified {asset.store_id} with maximum known "
+                        f"sensitivity {sensitivity}."
+                    ),
+                )
+                scored = await self.exposure_owner.score_exposure(
+                    owner_exposure,
+                    impact_context=context,
+                )
+                confirmed = _dspm_exposure(
+                    asset,
+                    scored,
+                    state="confirmed",
+                    sensitivity=sensitivity,
+                    score=scored.score,
+                    derivation=scored.derivation,
+                    evidence_ids=_exposure_evidence_ids(asset, scored),
+                    reason=scored.rationale,
+                )
+                results.append(await self.store.put_exposure(confirmed))
+
+            if asset.classification_status != "complete":
+                gap = _dspm_exposure(
+                    asset,
+                    owner_exposure,
+                    state="classification_gap",
+                    sensitivity="unknown",
+                    score=None,
+                    derivation=None,
+                    evidence_ids=evidence_ids,
+                    reason=(
+                        "Reachability is known, but at least one field classification is "
+                        "unknown or unresolved."
+                    ),
+                )
+                results.append(await self.store.put_exposure(gap))
+        return [item.model_copy(deep=True) for item in results]
+
+    def explain(self, exposure: DataExposure) -> dict[str, object]:
+        return {
+            "exposure_id": exposure.id,
+            "data_asset_id": exposure.data_asset_id,
+            "state": exposure.state,
+            "sensitivity": exposure.sensitivity,
+            "reachability": exposure.reachability,
+            "score": exposure.score,
+            "reason": exposure.reason,
+            "evidence_ids": list(exposure.evidence_ids),
+            "derivation": (
+                None if exposure.derivation is None else exposure.derivation.model_dump(mode="json")
+            ),
+        }
+
+    async def _assets_for_exposure(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: DSPMScope,
+    ) -> list[DataAsset]:
+        budget = min(scope.limit, self.config.max_work)
+        cursor = scope.cursor
+        seen_cursors: set[str] = set()
+        assets: list[DataAsset] = []
+        while len(assets) < budget:
+            page, next_cursor = await self.store.query_assets(
+                tenant_id=tenant_id,
+                flagged=scope.flagged,
+                limit=min(self.config.batch_size, budget - len(assets)),
+                cursor=cursor,
+            )
+            assets.extend(page)
+            if next_cursor is None:
+                return assets
+            if not page:
+                raise StoreUnavailable("DSPMStore returned an empty page with a cursor")
+            if next_cursor == cursor or next_cursor in seen_cursors:
+                raise StoreUnavailable("DSPMStore returned a repeated pagination cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        if cursor is not None:
+            raise StoreUnavailable("DSPM exposure analysis exceeded its work budget")
+        return assets
 
     async def assess(
         self,
@@ -384,3 +540,47 @@ def _asset_status(result: ClassificationResult) -> tuple[AssetClassificationStat
     if known:
         return "partial", True
     return "unknown", True
+
+
+def _exposure_evidence_ids(
+    asset: DataAsset,
+    exposure: ExposureRecord,
+) -> list[str]:
+    values = [asset.evidence_id]
+    values.extend(basis.evidence_id for basis in exposure.basis if basis.evidence_id is not None)
+    if exposure.asset_ref.evidence_id is not None:
+        values.append(exposure.asset_ref.evidence_id)
+    if exposure.impact_context is not None:
+        values.append(exposure.impact_context.evidence_id)
+    return sorted(set(values))
+
+
+def _dspm_exposure(
+    asset: DataAsset,
+    owner: ExposureRecord,
+    *,
+    state: str,
+    sensitivity: str,
+    score: float | None,
+    derivation: object,
+    evidence_ids: list[str],
+    reason: str,
+) -> DataExposure:
+    return DataExposure.model_validate(
+        {
+            "tenant_id": asset.tenant_id,
+            "data_asset_id": asset.id,
+            "object_id": asset.object_id,
+            "exposure_ref": owner.id,
+            "sensitivity": sensitivity,
+            "reachability": owner.reachability,
+            "state": state,
+            "flagged": state != "confirmed",
+            "score": score,
+            "derivation": derivation,
+            "access_evidence_ids": [],
+            "reason": reason,
+            "evidence_ids": evidence_ids,
+            "detected_at": owner.discovered_at,
+        }
+    )

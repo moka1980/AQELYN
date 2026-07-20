@@ -10,6 +10,7 @@ import pytest
 
 from aqelyn.conventions import new_id
 from aqelyn.conventions.errors import CoverageUnavailable
+from aqelyn.dspm import DataStoreKnownSurfaceSource
 from aqelyn.exposure import AssetRef
 from aqelyn.inventory import (
     DiscoverySource,
@@ -49,14 +50,23 @@ async def test_inv_seams_wired(backend: str) -> None:
         runtime = await create_runtime(AQELYNConfig(backend="postgres", database_url=PG_URL))
         inventory_store = cast(Any, runtime.inventory_store)
         vuln_store = cast(Any, runtime.vuln_store)
+        dspm_store = cast(Any, runtime.dspm_store)
         async with inventory_store._pool.acquire() as conn:
             await conn.execute("TRUNCATE aq_inventory_asset_history, aq_inventory_asset")
         async with vuln_store._pool.acquire() as conn:
             await conn.execute("TRUNCATE aq_vuln_history, aq_vuln_record")
+        async with dspm_store._pool.acquire() as conn:
+            await conn.execute(
+                "TRUNCATE aq_dspm_assessment, aq_dspm_exposure, aq_dspm_asset, aq_dspm_asset_key"
+            )
 
     assert isinstance(runtime.exposure_engine.source, SaaSIntegrationKnownSurfaceSource)
-    assert isinstance(runtime.exposure_engine.source.upstream, InventoryKnownSurfaceSource)
-    assert runtime.exposure_engine.source.upstream.inventory is runtime.inventory_engine
+    assert isinstance(runtime.exposure_engine.source.upstream, DataStoreKnownSurfaceSource)
+    assert isinstance(
+        runtime.exposure_engine.source.upstream.upstream,
+        InventoryKnownSurfaceSource,
+    )
+    assert runtime.exposure_engine.source.upstream.upstream.inventory is runtime.inventory_engine
     assert isinstance(
         runtime.vuln_engine.coverage_provider,
         InventoryVulnerabilityCoverageProvider,
