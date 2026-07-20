@@ -37,6 +37,15 @@ def _default_acg_classification_rules() -> list[dict[str, Any]]:
     ]
 
 
+def _default_dspm_sensitivity_factors() -> dict[str, float]:
+    return {
+        "public": 0.0,
+        "internal": 0.25,
+        "pii": 0.8,
+        "secret": 1.0,
+    }
+
+
 class AQELYNConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AQELYN_", extra="ignore")
 
@@ -62,6 +71,14 @@ class AQELYNConfig(BaseSettings):
     sspm_sensitive_scopes: list[str] = Field(default_factory=list)
     sspm_batch_size: int = 100
     sspm_integration_max_nodes: int = 10_000
+    dspm_classifier_rules: list[dict[str, Any]] = Field(default_factory=list)
+    dspm_sensitivity_factors: dict[str, float] = Field(
+        default_factory=_default_dspm_sensitivity_factors
+    )
+    dspm_batch_size: int = 100
+    dspm_max_work: int = 5_000
+    dspm_max_fields_per_store: int = 1_000
+    dspm_max_signals_per_field: int = 100
     supplychain_license_policy_id: str | None = None
     supplychain_sensitive_scopes: list[str] = Field(default_factory=list)
     supplychain_max_depth: int = 6

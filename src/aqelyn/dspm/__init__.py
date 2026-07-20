@@ -50,11 +50,13 @@ from aqelyn.dspm.models import (
     Sensitivity,
 )
 from aqelyn.dspm.postgres import PostgresDSPMStore
+from aqelyn.dspm.service import DSPM_EVENTS, DSPMService, register_dspm_events
 from aqelyn.dspm.store import DSPMStore
 from aqelyn.dspm.surface import DataStoreKnownSurfaceSource
 
 __all__ = [
     "DATA_STORE_OBJECT_TYPE",
+    "DSPM_EVENTS",
     "VALID_ASSET_CLASSIFICATION_STATUSES",
     "VALID_CLASSIFICATIONS",
     "VALID_CLASSIFICATION_STATUSES",
@@ -76,6 +78,7 @@ __all__ = [
     "DSPMConfig",
     "DSPMEngine",
     "DSPMScope",
+    "DSPMService",
     "DSPMStore",
     "DataAccessClaim",
     "DataAccessClaimKind",
@@ -104,4 +107,5 @@ __all__ = [
     "WorkflowProposer",
     "classify_descriptor",
     "ensure_data_store_object_type",
+    "register_dspm_events",
 ]
