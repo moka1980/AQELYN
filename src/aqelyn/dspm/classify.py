@@ -5,10 +5,15 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Protocol
+from typing import Literal, Protocol
 
 from aqelyn.conventions import ActorRef
-from aqelyn.conventions.errors import AQError, ClassificationUnavailable, CrossTenantReference
+from aqelyn.conventions.errors import (
+    AQError,
+    ClassificationUnavailable,
+    CrossTenantReference,
+    EvidenceTampered,
+)
 from aqelyn.dspm.models import (
     Classification,
     ClassificationCandidate,
@@ -61,10 +66,8 @@ async def classify_descriptor(
         evidence_store=evidence_store,
         actor=actor,
         tenant_id=tenant_id,
-        required=True,
+        context="descriptor",
     )
-    if descriptor_evidence is None:
-        raise ClassificationUnavailable("descriptor evidence is required")
     descriptor_assessment = await trust.assess(
         f"data-store:{descriptor.store_id}",
         [descriptor_evidence],
@@ -73,7 +76,7 @@ async def classify_descriptor(
 
     selected_fields: list[FieldClassification] = []
     conflicts: list[ClassificationConflict] = []
-    cache: dict[str, tuple[EvidenceRecord, float] | None] = {
+    cache: dict[str, tuple[EvidenceRecord, float]] = {
         descriptor_evidence.id: (descriptor_evidence, descriptor_assessment.score)
     }
     for field in descriptor.fields:
@@ -110,7 +113,7 @@ async def _classify_field(
     trust: TrustAssessor,
     actor: ActorRef,
     tenant_id: str | None,
-    cache: dict[str, tuple[EvidenceRecord, float] | None],
+    cache: dict[str, tuple[EvidenceRecord, float]],
 ) -> tuple[FieldClassification, ClassificationConflict | None]:
     candidates: dict[tuple[str, str, str], _Candidate] = {}
     if field.existing_classification is not None:
@@ -136,7 +139,7 @@ async def _classify_field(
         for signal in sorted(field.signals, key=lambda item: item.id):
             if not condition_matches(rule.condition, _metadata_payload(descriptor, field, signal)):
                 continue
-            evidence_and_score = await _optional_evidence_score(
+            evidence, score = await _signal_evidence_score(
                 signal.evidence_id,
                 descriptor=descriptor,
                 field=field,
@@ -146,9 +149,6 @@ async def _classify_field(
                 tenant_id=tenant_id,
                 cache=cache,
             )
-            if evidence_and_score is None:
-                continue
-            evidence, score = evidence_and_score
             _add_candidate(
                 candidates,
                 classification=rule.classification,
@@ -236,7 +236,7 @@ async def _classify_field(
     )
 
 
-async def _optional_evidence_score(
+async def _signal_evidence_score(
     evidence_id: str,
     *,
     descriptor: DataStoreDescriptor,
@@ -245,25 +245,22 @@ async def _optional_evidence_score(
     trust: TrustAssessor,
     actor: ActorRef,
     tenant_id: str | None,
-    cache: dict[str, tuple[EvidenceRecord, float] | None],
-) -> tuple[EvidenceRecord, float] | None:
+    cache: dict[str, tuple[EvidenceRecord, float]],
+) -> tuple[EvidenceRecord, float]:
     if evidence_id not in cache:
         evidence = await _load_evidence(
             evidence_id,
             evidence_store=evidence_store,
             actor=actor,
             tenant_id=tenant_id,
-            required=False,
+            context="signal",
         )
-        if evidence is None:
-            cache[evidence_id] = None
-        else:
-            assessment = await trust.assess(
-                f"data-field:{descriptor.store_id}:{field.name}",
-                [evidence],
-                now=descriptor.observed_at,
-            )
-            cache[evidence_id] = (evidence, assessment.score)
+        assessment = await trust.assess(
+            f"data-field:{descriptor.store_id}:{field.name}",
+            [evidence],
+            now=descriptor.observed_at,
+        )
+        cache[evidence_id] = (evidence, assessment.score)
     return cache[evidence_id]
 
 
@@ -273,23 +270,27 @@ async def _load_evidence(
     evidence_store: EvidenceStore,
     actor: ActorRef,
     tenant_id: str | None,
-    required: bool,
-) -> EvidenceRecord | None:
+    context: Literal["descriptor", "signal"],
+) -> EvidenceRecord:
     try:
         evidence = await evidence_store.get(evidence_id, actor=actor)
         verification: VerifyResult = await evidence_store.verify(evidence_id)
     except AQError as exc:
-        if required or exc.retriable:
+        if context == "descriptor" or exc.retriable:
             raise ClassificationUnavailable(
                 f"classification evidence unavailable: {exc.code}"
             ) from exc
-        return None
+        raise
     if evidence.tenant_id != tenant_id:
         raise CrossTenantReference("classification evidence tenant does not match descriptor")
     if not verification.ok:
-        if required:
+        if context == "descriptor":
             raise ClassificationUnavailable("descriptor evidence failed integrity verification")
-        return None
+        detail = verification.detail or "integrity check failed"
+        raise EvidenceTampered(
+            f"classification signal evidence failed integrity verification: {detail}",
+            details={"evidence_id": evidence_id, "verification_detail": detail},
+        )
     return evidence
 
 

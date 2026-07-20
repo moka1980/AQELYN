@@ -15,6 +15,8 @@ import pytest
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import (
     CrossTenantReference,
+    EvidenceNotFound,
+    EvidenceTampered,
     OptimisticConcurrencyConflict,
     StoreUnavailable,
     TenantScopeRequired,
@@ -415,6 +417,85 @@ async def test_dspm_conflict_recorded() -> None:
     assert resolved.field_classifications[0].classification == "secret"
     assert resolved.conflicts[0].resolved_by == secret_source
     assert len(resolved.conflicts[0].candidates) == 2
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_dspm_unusable_signal_evidence_never_improves_classification(kind: str) -> None:
+    async with _harness(kind) as harness:
+        descriptor_source = new_id("src")
+        descriptor_evidence = await _evidence(
+            harness,
+            source_id=descriptor_source,
+            reliability=0.9,
+        )
+
+        def descriptor_for(signal_evidence_id: str, *, store_id: str) -> DataStoreDescriptor:
+            signal = _field(
+                "credential",
+                detector_ref="detector:credential",
+                evidence_id=signal_evidence_id,
+            ).signals[0]
+            return _descriptor(
+                evidence_id=descriptor_evidence.id,
+                source_id=descriptor_source,
+                store_id=store_id,
+                fields=[
+                    DataFieldDescriptor(
+                        name="credential",
+                        data_type="string",
+                        signals=[signal],
+                        existing_classification="public",
+                    )
+                ],
+            )
+
+        with pytest.raises(EvidenceNotFound):
+            await harness.engine.ingest_store(
+                [descriptor_for(new_id("evd"), store_id="missing-signal-evidence")],
+                tenant_id=TENANT,
+            )
+
+        tampered = await _evidence(
+            harness,
+            source_id=new_id("src"),
+            reliability=0.9,
+        )
+        harness.evidence_store._by_id[tampered.id].content = {"tampered": True}
+        with pytest.raises(EvidenceTampered):
+            await harness.engine.ingest_store(
+                [descriptor_for(tampered.id, store_id="tampered-signal-evidence")],
+                tenant_id=TENANT,
+            )
+
+        assets_before_valid, cursor = await harness.store.query_assets(
+            tenant_id=TENANT,
+            limit=10,
+        )
+        objects_before_valid, object_cursor = await harness.object_store.query(
+            ObjectQuery(tenant_id=TENANT, limit=10)
+        )
+        assert assets_before_valid == []
+        assert cursor is None
+        assert objects_before_valid == []
+        assert object_cursor is None
+
+        valid = await _evidence(
+            harness,
+            source_id=new_id("src"),
+            reliability=0.9,
+        )
+        asset = (
+            await harness.engine.ingest_store(
+                [descriptor_for(valid.id, store_id="valid-signal-evidence")],
+                tenant_id=TENANT,
+            )
+        )[0]
+
+    selected = asset.field_classifications[0]
+    assert selected.classification == "unknown"
+    assert selected.status == "conflict"
+    assert selected.flagged is True
+    assert len(asset.conflicts) == 1
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])

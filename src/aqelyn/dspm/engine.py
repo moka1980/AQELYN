@@ -361,6 +361,7 @@ def _inventory_ref(object_id: str) -> str:
     prefix, payload = parse_id(object_id)
     if prefix != "obj":
         raise StoreUnavailable("EA-0002 data store id must use obj_ prefix")
+    # Preserve one stable payload while keeping each owner's typed identity distinct.
     return f"ast_{payload}"
 
 
