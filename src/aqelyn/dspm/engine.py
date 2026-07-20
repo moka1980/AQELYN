@@ -520,11 +520,10 @@ class DSPMEngine:
             if propose_remediation:
                 if workflow is None:
                     raise StoreUnavailable("workflow proposal path became unavailable")
-                # Eligibility "none" forbids finding-driven execution. The finding id remains
-                # an explicit input while this separately proposed run stays human-gated.
                 await workflow.propose(
                     _data_remediation_playbook(exposure, finding=finding),
                     by=by,
+                    source_finding=finding,
                 )
         return finding_ids
 

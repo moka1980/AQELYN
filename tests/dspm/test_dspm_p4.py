@@ -16,6 +16,7 @@ from aqelyn.conventions.errors import (
     DSPMConfigInvalid,
     EvidenceNotFound,
     StoreUnavailable,
+    UnauthorizedAction,
 )
 from aqelyn.decision import ClaimRef, Derivation, DerivationStep, build_derivation
 from aqelyn.dspm import (
@@ -62,7 +63,15 @@ from aqelyn.objects import (
 from aqelyn.policy import ComplianceResult, PolicyEngine
 from aqelyn.risk import InMemoryRiskSnapshotStore, InMemoryRiskStore, RiskIntelligenceEngine
 from aqelyn.trust import InMemorySourceReliabilityRegistry, TrustEngine
-from aqelyn.workflow import Playbook, Run
+from aqelyn.workflow import (
+    ActionSpec,
+    Approval,
+    InMemoryActionRegistry,
+    InMemoryRunStore,
+    Playbook,
+    Run,
+    WorkflowEngine,
+)
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
 NOW = datetime(2026, 7, 20, 20, 0, tzinfo=UTC)
@@ -188,6 +197,64 @@ class _WorkflowSpy:
 
     async def invoke_handler(self, *args: object, **kwargs: object) -> None:
         self.handler_calls.append((args, kwargs))
+
+
+class _ExecutionCountingHandler:
+    def __init__(self, action_type: str) -> None:
+        self.spec = ActionSpec(
+            action_type=action_type,
+            capability=f"capability:{action_type}",
+            effect="reversible",
+            reversible=True,
+            description="Exercise the DSPM remediation execution gate.",
+        )
+        self.executed = 0
+
+    async def simulate(
+        self,
+        inputs: dict[str, Any],
+        *,
+        tenant_id: str | None,
+    ) -> dict[str, Any]:
+        return {"inputs": dict(inputs), "tenant_id": tenant_id}
+
+    async def execute(
+        self,
+        inputs: dict[str, Any],
+        *,
+        tenant_id: str | None,
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        self.executed += 1
+        return {
+            "inputs": dict(inputs),
+            "tenant_id": tenant_id,
+            "idempotency_key": idempotency_key,
+        }
+
+    async def rollback(self, rollback_ref: str, *, tenant_id: str | None) -> None:
+        raise AssertionError("DSPM eligibility refusal must not reach rollback")
+
+
+class _RecordingWorkflow:
+    def __init__(self, engine: WorkflowEngine) -> None:
+        self.engine = engine
+        self.proposals: list[tuple[Playbook, Finding | None, Run]] = []
+
+    async def propose(
+        self,
+        playbook: Playbook,
+        *,
+        by: ActorRef,
+        source_finding: Finding | None = None,
+    ) -> Run:
+        run = await self.engine.propose(
+            playbook,
+            by=by,
+            source_finding=source_finding,
+        )
+        self.proposals.append((playbook.model_copy(deep=True), source_finding, run))
+        return run
 
 
 @asynccontextmanager
@@ -639,7 +706,10 @@ async def test_dspm_remediation_gated_and_risk_consumes_finding(backend: str) ->
             "data.review_classification",
         }
         assert all(proposal.steps[0].requires_approval for proposal, _ in workflow.proposals)
-        assert all(source_finding is None for _, source_finding in workflow.proposals)
+        assert all(source_finding is not None for _, source_finding in workflow.proposals)
+        assert {
+            cast(Finding, source_finding).id for _, source_finding in workflow.proposals
+        } == set(finding_ids)
         assert {
             proposal.steps[0].inputs["finding_id"] for proposal, _ in workflow.proposals
         } == set(finding_ids)
@@ -657,6 +727,82 @@ async def test_dspm_remediation_gated_and_risk_consumes_finding(backend: str) ->
         assert correlated[0].impact == 0.8
         assert {signal.kind for signal in correlated[0].signals} == {"finding"}
         assert {signal.ref_id for signal in correlated[0].signals} == set(finding_ids)
+
+
+async def test_dspm_bound_remediation_refused_after_human_approval() -> None:
+    evidence_id = new_id("evd")
+    store = InMemoryDSPMStore(mode="enterprise")
+    exposure = await store.put_exposure(
+        DataExposure(
+            tenant_id=TENANT,
+            data_asset_id=new_id("dsa"),
+            object_id=new_id("obj"),
+            exposure_ref=new_id("exp"),
+            sensitivity="secret",
+            reachability="external",
+            state="confirmed",
+            flagged=False,
+            score=80.0,
+            derivation=_score_derivation(80.0, evidence_id),
+            reason="Secret data has evidence-backed external reachability.",
+            evidence_ids=[evidence_id],
+            detected_at=NOW,
+        )
+    )
+    assessment = await store.put_assessment(
+        DataPostureAssessment(
+            tenant_id=TENANT,
+            run_at=NOW,
+            scope=DSPMScope(limit=1),
+            coverage_status="complete",
+            stores_evaluated=1,
+            exposure_ids=[exposure.id],
+        )
+    )
+    handler = _ExecutionCountingHandler("data.restrict_access")
+    registry = InMemoryActionRegistry()
+    registry.register(handler)
+    workflow_owner = WorkflowEngine(
+        store=InMemoryRunStore(mode="enterprise"),
+        registry=registry,
+        evidence_store=InMemoryEvidenceStore(),
+        granted_capabilities={handler.spec.capability},
+    )
+    workflow = _RecordingWorkflow(workflow_owner)
+    engine = _engine(
+        store,
+        object_store=InMemoryObjectStore(mode="enterprise"),
+        evidence_store=InMemoryEvidenceStore(),
+        finding_store=InMemoryFindingStore(mode="enterprise"),
+        workflow_engine=workflow,
+    )
+
+    finding_ids = await engine.exposures_to_findings(
+        assessment.id,
+        tenant_id=TENANT,
+        by=ACTOR,
+    )
+
+    assert len(workflow.proposals) == 1
+    _, source_finding, run = workflow.proposals[0]
+    assert source_finding is not None
+    assert source_finding.id == finding_ids[0]
+    assert run.source_finding_id == source_finding.id
+    assert handler.executed == 0
+
+    approved = await workflow_owner.approve(
+        run.id,
+        Approval(
+            step_ids=["review-and-remediate"],
+            approver=ACTOR,
+            reason="Human reviewed the proposed remediation.",
+            at=NOW,
+        ),
+    )
+    assert approved.status == "approved"
+    with pytest.raises(UnauthorizedAction, match="eligibility 'none'"):
+        await workflow_owner.execute(run.id, by=ACTOR)
+    assert handler.executed == 0
 
 
 async def test_dspm_findings_refuse_incomplete_assessment() -> None:
