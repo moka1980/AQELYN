@@ -32,6 +32,7 @@ from aqelyn.sspm import SaaSIntegrationKnownSurfaceSource
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
 NOW = datetime(2026, 7, 20, 22, 0, tzinfo=UTC)
 SYSTEM = ActorRef(actor_type="system", actor_id="dspm-p5-test")
+TENANT = "018f0000-0000-7000-8000-000000310501"
 DSPM_EVENT_TYPES = {
     "aqelyn.data.store_classified",
     "aqelyn.data.exposure_detected",
@@ -39,15 +40,21 @@ DSPM_EVENT_TYPES = {
 }
 
 
-async def _runtime(backend: str) -> Runtime:
+async def _runtime(backend: str, *, tenant_mode: str = "local") -> Runtime:
+    config = AQELYNConfig(backend=backend, tenant_mode=tenant_mode)
     if backend == "memory":
-        return create_inmemory_runtime(AQELYNConfig(backend="memory"))
+        return create_inmemory_runtime(config)
     if not PG_URL:
         pytest.skip("AQELYN_DATABASE_URL not set")
-    return await create_runtime(AQELYNConfig(backend="postgres", database_url=PG_URL))
+    return await create_runtime(config.model_copy(update={"database_url": PG_URL}))
 
 
-async def _descriptor_evidence(runtime: Runtime, *, store_id: str) -> EvidenceRecord:
+async def _descriptor_evidence(
+    runtime: Runtime,
+    *,
+    store_id: str,
+    tenant_id: str | None = None,
+) -> EvidenceRecord:
     return await runtime.evidence_store.add(
         EvidenceRecord(
             id="",
@@ -65,13 +72,17 @@ async def _descriptor_evidence(runtime: Runtime, *, store_id: str) -> EvidenceRe
             seq=0,
             prev_hash=None,
             record_hash="",
+            tenant_id=tenant_id,
         )
     )
 
 
-@pytest.mark.parametrize("backend", ["memory", "postgres"])
-async def test_dspm_service_health(backend: str) -> None:
-    runtime = await _runtime(backend)
+@pytest.mark.parametrize(
+    ("backend", "tenant_mode"),
+    [("memory", "local"), ("postgres", "local"), ("memory", "enterprise")],
+)
+async def test_dspm_service_health(backend: str, tenant_mode: str) -> None:
+    runtime = await _runtime(backend, tenant_mode=tenant_mode)
     service = runtime.kernel.get_service("dspm_engine")
 
     if backend == "memory":
@@ -119,22 +130,34 @@ async def test_dspm_service_health(backend: str) -> None:
     assert pre_start.dependencies["known_surface_source"] == "healthy"
     assert pre_start.dependencies["finding_store"] == "healthy"
 
-    await runtime.kernel.start()
-    try:
-        state = await runtime.kernel.health()
-        health = state.services["dspm_engine"]
-        assert health.status == "healthy"
+    if tenant_mode == "local":
+        await runtime.kernel.start()
+        try:
+            state = await runtime.kernel.health()
+            health = state.services["dspm_engine"]
+            assert health.status == "healthy"
+            assert health.ready is True
+            for dependency in service.dependencies:
+                assert state.services[dependency].ready is True
+            assert state.services["_kernel"].ready is True
+        finally:
+            await runtime.kernel.stop()
+    else:
+        await service.start()
+        health = await service.health()
+        assert health.status == "degraded"
         assert health.ready is True
-        for dependency in service.dependencies:
-            assert state.services[dependency].ready is True
-        assert state.services["_kernel"].ready is True
-    finally:
-        await runtime.kernel.stop()
+        assert "exposure_engine" in (health.detail or "")
+        await service.stop()
 
 
-@pytest.mark.parametrize("backend", ["memory", "postgres"])
-async def test_dspm_factory_owner_connectivity(backend: str) -> None:
-    runtime = await _runtime(backend)
+@pytest.mark.parametrize(
+    ("backend", "tenant_mode"),
+    [("memory", "local"), ("postgres", "local"), ("memory", "enterprise")],
+)
+async def test_dspm_factory_owner_connectivity(backend: str, tenant_mode: str) -> None:
+    runtime = await _runtime(backend, tenant_mode=tenant_mode)
+    tenant_id = TENANT if tenant_mode == "enterprise" else None
     service = runtime.dspm_engine_service
     source = service.known_surface_source
     assert isinstance(source, DataStoreKnownSurfaceSource)
@@ -144,14 +167,20 @@ async def test_dspm_factory_owner_connectivity(backend: str) -> None:
     assert isinstance(runtime.exposure_engine.source, SaaSIntegrationKnownSurfaceSource)
     assert runtime.exposure_engine.source.upstream is source
 
-    await runtime.kernel.start()
+    if tenant_mode == "local":
+        await runtime.kernel.start()
     try:
         store_id = f"p5-store-{new_id('src')}"
-        evidence = await _descriptor_evidence(runtime, store_id=store_id)
+        evidence = await _descriptor_evidence(
+            runtime,
+            store_id=store_id,
+            tenant_id=tenant_id,
+        )
         [asset] = await service.ingest_store(
             [
                 DataStoreDescriptor(
                     store_id=store_id,
+                    tenant_id=tenant_id,
                     store_type="bucket",
                     location=DataStoreLocation(
                         provider="aws",
@@ -161,29 +190,30 @@ async def test_dspm_factory_owner_connectivity(backend: str) -> None:
                     reachability_claim=ReachabilityClaim(
                         reachability="external",
                         evidence_id=evidence.id,
-                        reason="The handed-in control-plane record reports public reachability.",
+                        reason=("The handed-in control-plane record reports public reachability."),
                     ),
                     source_id=evidence.source_id,
                     observed_at=NOW,
                     evidence_id=evidence.id,
                 )
             ],
-            tenant_id=None,
+            tenant_id=tenant_id,
         )
 
-        inventory = await runtime.inventory_engine.inventory(tenant_id=None)
+        inventory = await runtime.inventory_engine.inventory(tenant_id=tenant_id)
         assert asset.inventory_ref in inventory.assets
-        known = await source.list_known_surface(tenant_id=None)
+        known = await source.list_known_surface(tenant_id=tenant_id)
         known_row = next(row for row in known if row.asset_ref.ref_id == asset.inventory_ref)
         assert known_row.asset_ref.object_id == asset.object_id
         assert known_row.reachability == "external"
 
-        derived = await runtime.exposure_engine.derive_surface(tenant_id=None)
+        derived = await runtime.exposure_engine.derive_surface(tenant_id=tenant_id)
         exposure = next(row for row in derived if row.asset_ref.ref_id == asset.inventory_ref)
         assert exposure.asset_ref.object_id == asset.object_id
         assert exposure.exposure_level == "high"
     finally:
-        await runtime.kernel.stop()
+        if tenant_mode == "local":
+            await runtime.kernel.stop()
 
 
 def test_dspm_event_registration_and_import_isolation() -> None:

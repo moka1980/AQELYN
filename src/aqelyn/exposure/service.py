@@ -186,13 +186,13 @@ class ExposureManagementService:
 
     async def _check_store(self) -> None:
         try:
-            await self.store.get(new_id("exp"), tenant_id=None)
+            await self.store.get(new_id("exp"), tenant_id=self._health_tenant())
         except Exception as exc:
             raise StoreUnavailable(f"exposure store unavailable: {exc}") from exc
 
     async def _check_known_surface_source(self) -> None:
         try:
-            await self.engine.source.list_known_surface(tenant_id=None)
+            await self.engine.source.list_known_surface(tenant_id=self._health_tenant())
         except Exception as exc:
             raise StoreUnavailable(f"exposure source unavailable: {exc}") from exc
 
@@ -218,7 +218,9 @@ class ExposureManagementService:
         if self.engine.identity_provider is None:
             raise StoreUnavailable("exposure identity provider unavailable")
         try:
-            await self.engine.identity_provider.analyze_risk(tenant_id=None, scope=None)
+            await self.engine.identity_provider.analyze_risk(
+                tenant_id=self._health_tenant(), scope=None
+            )
         except StoreUnavailable:
             raise
         except Exception as exc:
@@ -279,3 +281,8 @@ class ExposureManagementService:
     def _check_risk_engine(self) -> None:
         if self.risk_engine is None:
             raise StoreUnavailable("exposure risk engine unavailable")
+
+    def _health_tenant(self) -> str | None:
+        if getattr(self.store, "mode", "local") == "enterprise":
+            return "018f0000-0000-7000-8000-000000230500"
+        return None
