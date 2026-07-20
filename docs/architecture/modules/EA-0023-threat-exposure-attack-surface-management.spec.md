@@ -2,9 +2,11 @@
 
 **Realizes:** EA-0023 / IS-023 (supersedes the placeholder `archive/EA-0023/EA-0023_Master.md` for implementation)
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0012 (asset/config inventory — the known surface)**, **EA-0019 (telemetry/discovery history)**, **EA-0005 (KG `paths()` — attack paths)**, **EA-0011 (identity/access risk — cited)**, **EA-0007 (mission) × EA-0006 (trust) — scoring**, EA-0013 (risk, via findings), EA-0021 (trends), EA-0020 (`Derivation` — explainability), EA-0004 (evidence), EA-0008 (Workflow — the only actor), EA-0009 (Policy)
-**Consumed by:** EA-0022 (executive exposure summaries), EA-0013 (exposures arrive as findings), EA-0024 (Vulnerability Intelligence — exposure as a prioritization input)
+**Consumed by:** EA-0022 (executive exposure summaries), EA-0013 (exposures arrive as findings), EA-0024 (Vulnerability Intelligence — exposure as a prioritization input), EA-0031 (data sensitivity context)
 **Status:** Accepted
 **Build milestone:** C-020 (see `C-020_Task_Bundle.md`)
+**Change control:** ECR-0011 (no-scan boundary), ECR-0030 (object pagination),
+ECR-0041 (optional evidence-backed exposure impact context for DSPM)
 **Definition of Ready:** see §9
 
 ---
@@ -142,9 +144,15 @@ AssetRef  = { kind: "asset"|"cloud"|"api"|"identity"|"domain"|"cert",
 ExposureBasis = { kind: "inventory"|"telemetry"|"access"|"graph", ref: str,
                   as_of: datetime, evidence_id: str | null }  # derived-from, never scanned (S1)
 
+ExposureImpactContext = { kind: str, status: "known"|"unknown",
+                          factor: float | null, source_ref: str,
+                          evidence_id: str, reason: str }
+# known => factor in [0,1]; unknown => factor is null and cannot be scored.
+
 ExposureRecord = { id, tenant_id, asset_ref: AssetRef, exposure_type: str,
                    reachability: Reachability,                # (S2/D2)
                    basis: list[ExposureBasis],                # MANDATORY (S3/D1)
+                   impact_context: ExposureImpactContext | null, # optional, ECR-0041
                    score: float | null, confidence: float | null,  # EA-0006 (S3)
                    derivation: "Derivation" | null,           # EA-0020 where composed (D4)
                    rationale: str, flagged: bool,             # unknown ⇒ flagged (S2)
@@ -182,7 +190,10 @@ class ExposureEngine(Protocol):
                                tenant_id: str | None) -> ExposureRecord: ...      # unknown⇒flagged (S2)
     async def reachable_paths(self, *, target_ref: str,
                               tenant_id: str | None) -> list[ReachablePath]: ...  # EA-0005 paths() (S4)
-    async def score(self, e: ExposureRecord, *, tenant_id: str | None) -> ExposureRecord: ...  # EA-0007×EA-0006×EA-0013 (S6)
+    async def score_exposure(
+        self, e: ExposureRecord, *,
+        impact_context: ExposureImpactContext | None = None
+    ) -> ExposureRecord: ...  # EA-0007×EA-0006×EA-0013; optional ECR-0041 factor
     async def identity_exposure(self, *, asset_ref: AssetRef,
                                 tenant_id: str | None) -> ExposureRecord: ...     # CITES EA-0011 (S5)
     async def trend(self, *, category: str, window_days: int,
@@ -206,6 +217,13 @@ alone**. No socket is opened (S1). Assets whose reachability is inconclusive →
 composing EA-0007 mission criticality × EA-0006 trust × EA-0013 risk; attach the
 EA-0020 `Derivation` (replayable) (S6/D4). A composed score without a replayable
 derivation is rejected (EA-0020 precedent).
+
+When an optional `ExposureImpactContext` is supplied (ECR-0041), a known
+factor scales the reachability impact in the EA-0023 risk seed and the exact
+context is pinned in the derivation. The same exposure with a higher factor
+cannot receive a lower score. An unknown context has no factor and is refused
+for scoring rather than treated as zero. Existing callers that omit the context
+retain their existing score.
 
 **Paths.** `reachable_paths` calls EA-0005 `paths()` with the config `max_work`
 budget (S4/ECR-0001).
@@ -235,6 +253,10 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 - **FR-12** Active scanning, if configured, SHALL be an EA-0008 `scan.active` `ActionSpec` consumed as stored results; the engine SHALL NOT originate it (S1/§0.1).
 - **FR-13** `ExposureStore` in-memory and Postgres implementations SHALL each pass one contract suite.
 - **FR-14** `ExposureManagementService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
+- **FR-15** An optional `ExposureImpactContext` SHALL be evidence-backed and
+  included in the replayable derivation. Known factors SHALL be monotonic;
+  unknown context SHALL NOT be scored as zero. Omitting the context SHALL
+  preserve the pre-ECR-0041 result.
 
 ### Non-functional
 
@@ -242,6 +264,8 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 - **NFR-2 (honest unknowns)** unresolved reachability is `unknown`+flagged, never defaulted — proven by test.
 - **NFR-3 (reuse, not rebuild)** paths delegate to EA-0005, identity cites EA-0011, trends delegate to EA-0021, scoring composes EA-0007×EA-0006 — proven behaviourally (spies/citation asserts), no duplicate engine.
 - **NFR-4 (bounded & typed)** paths/queries bounded by `max_work`; `mypy --strict` + `ruff` clean.
+- **NFR-5 (additive impact context)** ECR-0041 changes no existing caller result;
+  DSPM's sensitivity is an explicit owner input, not a second exposure scorer.
 
 ## 9. Acceptance Criteria ↔ Tests (Definition of Ready)
 
@@ -263,6 +287,8 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 | AC-14 | Active scan is an EA-0008 scan.active ActionSpec consumed as data | `test_exp_active_scan_is_actionspec` |
 | AC-15 | Exposure store passes one suite each backend | `test_exp_store_contract[...]` |
 | AC-16 | Registers as AQService with health | `test_exp_service_health` |
+| AC-17 | Known impact context is derivation-bound and monotonic; omitted context preserves existing score | `test_exp_impact_context` |
+| AC-18 | Unknown/tampered impact context is refused, never scored as zero | `test_exp_impact_context_unknown_or_tampered` |
 
 ## 10. Error taxonomy (contributions)
 
@@ -287,6 +313,8 @@ CONVENTIONS §9). Reuses EA-0020 `DerivationNotReplayable`, `StoreUnavailable`,
 - Re-score fails → recorded stale/unavailable, **not** a silently retained prior
   score presented as current (S9, overrides master §28.3).
 - Composed score fails to replay → withheld, not served with a caveat (EA-0020).
+- Unknown ECR-0041 impact context → scoring refused; the caller retains a
+  flagged, unscored gap rather than receiving a zero-impact score.
 - A request to actively scan → `ScanNotPermitted` unless delivered as an EA-0008
   `scan.active` gated run (S1/§0.1/FR-12).
 
@@ -298,7 +326,8 @@ CONVENTIONS §9). Reuses EA-0020 `DerivationNotReplayable`, `StoreUnavailable`,
   actor), EA-0009 (policy), EA-0001 `AQService`.
 - **Consumed by:** EA-0022 (executive exposure summaries — as cited figures),
   EA-0013 (exposures arrive as findings), EA-0024 (Vulnerability Intelligence —
-  exposure as a prioritization input; the seam is already here).
+  exposure as a prioritization input; the seam is already here), EA-0031
+  (evidence-backed data-sensitivity impact context).
 - **Explicitly NOT:** a scanner, a second path/trend/score engine, or an actor.
 
 ## 14. Resolved / deferred decisions
