@@ -1,5 +1,13 @@
 """Data Security Posture Management public API (EA-0031)."""
 
+from aqelyn.dspm.classify import ClassificationResult, TrustAssessor, classify_descriptor
+from aqelyn.dspm.engine import (
+    DATA_STORE_OBJECT_TYPE,
+    DataStoreInventoryOwner,
+    DSPMEngine,
+    ensure_data_store_object_type,
+)
+from aqelyn.dspm.memory import InMemoryDSPMStore
 from aqelyn.dspm.models import (
     VALID_ASSET_CLASSIFICATION_STATUSES,
     VALID_CLASSIFICATION_STATUSES,
@@ -37,8 +45,11 @@ from aqelyn.dspm.models import (
     SchemaType,
     Sensitivity,
 )
+from aqelyn.dspm.postgres import PostgresDSPMStore
+from aqelyn.dspm.store import DSPMStore
 
 __all__ = [
+    "DATA_STORE_OBJECT_TYPE",
     "VALID_ASSET_CLASSIFICATION_STATUSES",
     "VALID_CLASSIFICATIONS",
     "VALID_CLASSIFICATION_STATUSES",
@@ -51,13 +62,16 @@ __all__ = [
     "Classification",
     "ClassificationCandidate",
     "ClassificationConflict",
+    "ClassificationResult",
     "ClassificationSignal",
     "ClassificationSignalKind",
     "ClassificationStatus",
     "ClassifierRule",
     "CoverageStatus",
     "DSPMConfig",
+    "DSPMEngine",
     "DSPMScope",
+    "DSPMStore",
     "DataAccessClaim",
     "DataAccessClaimKind",
     "DataAccessContext",
@@ -66,12 +80,18 @@ __all__ = [
     "DataFieldDescriptor",
     "DataPostureAssessment",
     "DataStoreDescriptor",
+    "DataStoreInventoryOwner",
     "DataStoreLocation",
     "DataStoreType",
     "ExposureState",
     "FieldClassification",
+    "InMemoryDSPMStore",
+    "PostgresDSPMStore",
     "Reachability",
     "ReachabilityClaim",
     "SchemaType",
     "Sensitivity",
+    "TrustAssessor",
+    "classify_descriptor",
+    "ensure_data_store_object_type",
 ]

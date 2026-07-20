@@ -66,6 +66,13 @@ _CREDENTIAL_QUERY_KEYS: Final[frozenset[str]] = frozenset(
 )
 
 
+def classification_order() -> tuple[Classification, ...]:
+    """Return DSPM's sensitivity order after checking the owner taxonomy."""
+    if frozenset(_ORDERED_CLASSIFICATIONS) != VALID_CLASSIFICATIONS:
+        raise DSPMConfigInvalid("DSPM classification order must cover the EA-0019 taxonomy")
+    return _ORDERED_CLASSIFICATIONS
+
+
 def _nonempty(value: str, *, field: str) -> str:
     if not value.strip():
         raise DSPMConfigInvalid(f"{field} must not be empty")
@@ -516,7 +523,7 @@ class DataAsset(BaseModel):
             conflict.unresolved for conflict in self.conflicts
         )
         expected_max: Classification | None = None
-        for classification in _ORDERED_CLASSIFICATIONS:
+        for classification in classification_order():
             if classification in known:
                 expected_max = classification
         if self.max_known_sensitivity != expected_max:
@@ -799,7 +806,7 @@ class DSPMConfig(BaseModel):
 
     @model_validator(mode="after")
     def _factor_order(self) -> DSPMConfig:
-        ordered = [self.sensitivity_factors[key] for key in _ORDERED_CLASSIFICATIONS]
+        ordered = [self.sensitivity_factors[key] for key in classification_order()]
         if ordered != sorted(ordered):
             raise DSPMConfigInvalid("sensitivity_factors must be monotonic")
         return self
