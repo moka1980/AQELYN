@@ -2,11 +2,12 @@
 
 **Realizes:** EA-0023 / IS-023 (supersedes the placeholder `archive/EA-0023/EA-0023_Master.md` for implementation)
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0012 (asset/config inventory — the known surface)**, **EA-0019 (telemetry/discovery history)**, **EA-0005 (KG `paths()` — attack paths)**, **EA-0011 (identity/access risk — cited)**, **EA-0007 (mission) × EA-0006 (trust) — scoring**, EA-0013 (risk, via findings), EA-0021 (trends), EA-0020 (`Derivation` — explainability), EA-0004 (evidence), EA-0008 (Workflow — the only actor), EA-0009 (Policy)
-**Consumed by:** EA-0022 (executive exposure summaries), EA-0013 (exposures arrive as findings), EA-0024 (Vulnerability Intelligence — exposure as a prioritization input), EA-0031 (data sensitivity context)
+**Consumed by:** EA-0022 (executive exposure summaries), EA-0013 (exposures arrive as findings), EA-0024 (Vulnerability Intelligence — exposure as a prioritization input), EA-0031 (data sensitivity context), EA-0032 (credential sensitivity context)
 **Status:** Accepted
 **Build milestone:** C-020 (see `C-020_Task_Bundle.md`)
 **Change control:** ECR-0011 (no-scan boundary), ECR-0030 (object pagination),
-ECR-0041 (optional evidence-backed exposure impact context for DSPM)
+ECR-0041 (optional evidence-backed exposure impact context for DSPM), ECR-0044
+(semantic credential-sensitivity context with backward-compatible default)
 **Definition of Ready:** see §9
 
 ---
@@ -149,10 +150,14 @@ AssetRef  = { kind: "asset"|"cloud"|"api"|"identity"|"domain"|"cert",
 ExposureBasis = { kind: "inventory"|"telemetry"|"access"|"graph", ref: str,
                   as_of: datetime, evidence_id: str | null }  # derived-from, never scanned (S1)
 
-ExposureImpactContext = { kind: str, status: "known"|"unknown",
+ExposureImpactKind = "data_sensitivity" | "credential_sensitivity"
+ExposureImpactContext = { kind: ExposureImpactKind = "data_sensitivity",
+                          status: "known"|"unknown",
                           factor: float | null, source_ref: str,
                           evidence_id: str, reason: str }
 # known => factor in [0,1]; unknown => factor is null and cannot be scored.
+# Existing omitted-kind callers remain data_sensitivity. Other owners MUST set
+# their semantic kind explicitly; the complete context is derivation-bound.
 
 ExposureRecord = { id, tenant_id, asset_ref: AssetRef, exposure_type: str,
                    reachability: Reachability,                # (S2/D2)
@@ -230,6 +235,11 @@ cannot receive a lower score. An unknown context has no factor and is refused
 for scoring rather than treated as zero. Existing callers that omit the context
 retain their existing score.
 
+`data_sensitivity` remains the default context kind for backward compatibility.
+An EA-0032 producer supplies `credential_sensitivity` explicitly (ECR-0044).
+The kind is part of the replay-bound context; an owner cannot relabel credential
+criticality as data classification or omit its semantic kind.
+
 For an `AssetRef` whose surface identity is not an EA-0002 id, scoring resolves
 the subject as `asset_ref.object_id`; otherwise it retains the existing
 `asset_ref.ref_id` behavior. The resolved subject MUST be a tenant-matching
@@ -276,6 +286,10 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 - **FR-17** Postgres SHALL persist `ExposureRecord.impact_context` in a nullable
   JSONB column and restore it on every read path; in-memory and Postgres
   round-trips SHALL preserve identical derivation-bound context.
+- **FR-18** `ExposureImpactKind` SHALL accept `data_sensitivity` and
+  `credential_sensitivity`. `data_sensitivity` SHALL remain the omitted-kind
+  default; EA-0032 callers SHALL pass `credential_sensitivity` explicitly, and
+  the kind SHALL be pinned in the replayable derivation (ECR-0044).
 
 ### Non-functional
 
@@ -285,6 +299,9 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 - **NFR-4 (bounded & typed)** paths/queries bounded by `max_work`; `mypy --strict` + `ruff` clean.
 - **NFR-5 (additive impact context)** ECR-0041 changes no existing caller result;
   DSPM's sensitivity is an explicit owner input, not a second exposure scorer.
+- **NFR-6 (semantic compatibility)** ECR-0044 changes no omitted-kind caller;
+  data and credential sensitivity remain distinguishable in stored/replayed
+  contexts without introducing a second scorer.
 
 ## 9. Acceptance Criteria ↔ Tests (Definition of Ready)
 
@@ -310,6 +327,8 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 | AC-18 | Unknown/tampered impact context is refused, never scored as zero | `test_exp_impact_context_unknown_or_tampered` |
 | AC-19 | Inventory-keyed AssetRef uses its obj_ object_id for scoring, correlation, and findings; missing/invalid/contradictory object_id is refused | `test_exp_asset_ref_scoring_subject` |
 | AC-20 | impact_context round-trips identically through in-memory and Postgres stores and still verifies against its derivation | `test_exp_impact_context_store_contract[inmemory]` / `test_exp_impact_context_store_contract[postgres]` |
+| AC-21 | Omitted impact kind remains data_sensitivity and preserves the existing DSPM score/derivation | `test_exp_impact_context_kind_default_compat` |
+| AC-22 | Explicit credential_sensitivity is accepted, round-tripped, and pinned in replay | `test_exp_credential_impact_context_replay` |
 
 ## 10. Error taxonomy (contributions)
 
@@ -349,7 +368,8 @@ CONVENTIONS §9). Reuses EA-0020 `DerivationNotReplayable`, `StoreUnavailable`,
 - **Consumed by:** EA-0022 (executive exposure summaries — as cited figures),
   EA-0013 (exposures arrive as findings), EA-0024 (Vulnerability Intelligence —
   exposure as a prioritization input; the seam is already here), EA-0031
-  (evidence-backed data-sensitivity impact context).
+  (evidence-backed data-sensitivity impact context), EA-0032 (evidence-backed
+  credential-sensitivity impact context).
 - **Explicitly NOT:** a scanner, a second path/trend/score engine, or an actor.
 
 ## 14. Resolved / deferred decisions
@@ -362,3 +382,6 @@ CONVENTIONS §9). Reuses EA-0020 `DerivationNotReplayable`, `StoreUnavailable`,
 - **Four duplications mapped** — paths=EA-0005, identity=EA-0011 (cited),
   trends=EA-0021, scoring=EA-0007×EA-0006; exposures→EA-0013 via findings (S4–S7).
 - **Advisory; EA-0008 is the only actor** (S8).
+- **Impact context kinds are semantic, not interchangeable.**
+  `data_sensitivity` remains the backward-compatible default; EA-0032 must pass
+  `credential_sensitivity` explicitly. See **ECR-0044**.
