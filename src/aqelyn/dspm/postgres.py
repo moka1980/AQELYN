@@ -22,10 +22,12 @@ from aqelyn.dspm.models import (
 )
 from aqelyn.dspm.store import (
     validate_assessment,
+    validate_assessment_id,
     validate_asset,
     validate_asset_id,
     validate_classification_filter,
     validate_exposure,
+    validate_exposure_id,
     validate_query_cursor,
     validate_query_limit,
     validate_status_filter,
@@ -164,6 +166,21 @@ class PostgresDSPMStore:
         )
         return stored.model_copy(deep=True)
 
+    async def get_exposure(
+        self,
+        exposure_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> DataExposure | None:
+        selected_id = validate_exposure_id(exposure_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        payload = await self._get_immutable(
+            "aq_dspm_exposure",
+            selected_id,
+            selected_tenant,
+        )
+        return None if payload is None else DataExposure.model_validate(payload)
+
     async def put_assessment(
         self,
         assessment: DataPostureAssessment,
@@ -177,6 +194,21 @@ class PostgresDSPMStore:
             label="data assessment",
         )
         return stored.model_copy(deep=True)
+
+    async def get_assessment(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> DataPostureAssessment | None:
+        selected_id = validate_assessment_id(assessment_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        payload = await self._get_immutable(
+            "aq_dspm_assessment",
+            selected_id,
+            selected_tenant,
+        )
+        return None if payload is None else DataPostureAssessment.model_validate(payload)
 
     async def query_assets(
         self,
@@ -252,6 +284,25 @@ class PostgresDSPMStore:
                 if row is not None and row["tenant_id"] != tenant_id:
                     raise CrossTenantReference(f"{label} tenant_id cannot change") from exc
                 raise OptimisticConcurrencyConflict(f"{label} already exists: {record_id}") from exc
+
+    async def _get_immutable(
+        self,
+        table: str,
+        record_id: str,
+        tenant_id: str | None,
+    ) -> Any | None:
+        args: list[Any] = [record_id]
+        clauses = ["id=$1"]
+        self._tenant_clauses(clauses, args, tenant_id)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT payload FROM {table} WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        if row is None:
+            return None
+        payload = row["payload"]
+        return json.loads(payload) if isinstance(payload, str) else payload
 
     def _tenant_clauses(
         self,

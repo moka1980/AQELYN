@@ -11,7 +11,8 @@ the future DSPM UI
 **Status:** Accepted
 **Build milestone:** C-028 (see C-028_Task_Bundle.md)
 **Change control:** ECR-0041 (connect DSPM to shipped owner contracts and make
-unknown/minimal-retention guarantees structural)
+unknown/minimal-retention guarantees structural); ECR-0042 (make the
+assessment-to-finding handoff durably readable)
 **Definition of Ready:** see section 9
 
 ---
@@ -361,9 +362,15 @@ class DSPMStore(Protocol):
         self, store_id: str, *, tenant_id: str | None
     ) -> DataAsset | None: ...
     async def put_exposure(self, exposure: DataExposure) -> DataExposure: ...
+    async def get_exposure(
+        self, exposure_id: str, *, tenant_id: str | None
+    ) -> DataExposure | None: ...
     async def put_assessment(
         self, assessment: DataPostureAssessment
     ) -> DataPostureAssessment: ...
+    async def get_assessment(
+        self, assessment_id: str, *, tenant_id: str | None
+    ) -> DataPostureAssessment | None: ...
     async def query_assets(
         self,
         *,
@@ -494,6 +501,11 @@ does not evaluate controls locally.
 Material exposures and classification gaps become evidence-backed Findings with
 automation eligibility none and requires_approval true. EA-0013 consumes those
 through its existing finding path. No new SignalKind is added.
+The assessment-to-finding handoff reads the cited immutable assessment and
+exposures from DSPMStore under explicit tenant scope. If an assessment has no
+material exposure ids, DSPM re-runs the assessment's frozen scope through the
+owner exposure path before concluding that there are no findings. Pending or
+truncated assessments cannot emit findings.
 
 If remediation is requested, DSPM calls Workflow.propose with an ActionSpec such
 as data.restrict_access or data.review_classification. It never calls execute
@@ -536,7 +548,9 @@ set only when the cursor is exhausted.
 - **FR-11** Access context SHALL cite handed-in claims plus the real EA-0011
   access_paths/analyze_risk outputs; absent/unavailable context SHALL be pending.
 - **FR-12** Compliance SHALL delegate to EA-0010. Risk SHALL flow through
-  evidence-backed Findings into EA-0013.
+  evidence-backed Findings into EA-0013. The immutable assessment and exposure
+  records cited by that handoff SHALL be readable after process restart and
+  under explicit tenant scope.
 - **FR-13** Remediation SHALL be proposed through EA-0008 only; DSPM SHALL never
   move/delete data, revoke access, execute a run, or call an action handler.
 - **FR-14** Assessment coverage SHALL be complete/truncated/pending and SHALL

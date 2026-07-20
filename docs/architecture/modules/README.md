@@ -84,7 +84,7 @@ EA-0031 → `src/aqelyn/dspm/` + `tests/dspm/`.
 | [EA-0028 Cloud Security Posture (CSPM)](EA-0028-cloud-security-posture.spec.md) | EA-0028 | EA-0025, EA-0012, EA-0010, EA-0023, EA-0011, EA-0013, EA-0006 | [C-025](C-025_Task_Bundle.md) | Accepted (see ECR-0020–0026) |
 | [EA-0029 SaaS Security Posture (SSPM)](EA-0029-saas-security-posture.spec.md) | EA-0029 | EA-0025, EA-0012, EA-0010, EA-0011, EA-0013, EA-0005, EA-0023, EA-0006 | [C-026](C-026_Task_Bundle.md) | Accepted (ECR-0033; ECR-0032 Proposed) |
 | [EA-0030 Software Supply Chain & SBOM](EA-0030-software-supply-chain-sbom.spec.md) | EA-0030 | EA-0005, EA-0024, EA-0025, EA-0004, EA-0010, EA-0013 | [C-027](C-027_Task_Bundle.md) | Accepted |
-| [EA-0031 Data Security Posture Management](EA-0031-data-security-posture.spec.md) | EA-0031 | EA-0019, EA-0025, EA-0023, EA-0011, EA-0010, EA-0013, EA-0006, EA-0004, EA-0008 | [C-028](C-028_Task_Bundle.md) | Accepted (ECR-0041; ECR-0032 Proposed) |
+| [EA-0031 Data Security Posture Management](EA-0031-data-security-posture.spec.md) | EA-0031 | EA-0019, EA-0025, EA-0023, EA-0011, EA-0010, EA-0013, EA-0006, EA-0004, EA-0008 | [C-028](C-028_Task_Bundle.md) | Accepted (ECR-0041, ECR-0042; ECR-0032 Proposed) |
 
 Change control: [ECR-LOG.md](ECR-LOG.md) records approved amendments to Accepted
 specs (currently ECR-0001 against EA-0005).

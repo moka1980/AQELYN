@@ -14,10 +14,12 @@ from aqelyn.dspm.models import (
 )
 from aqelyn.dspm.store import (
     validate_assessment,
+    validate_assessment_id,
     validate_asset,
     validate_asset_id,
     validate_classification_filter,
     validate_exposure,
+    validate_exposure_id,
     validate_query_cursor,
     validate_query_limit,
     validate_status_filter,
@@ -100,6 +102,19 @@ class InMemoryDSPMStore:
         self._exposures[stored.id] = stored.model_copy(deep=True)
         return copy.deepcopy(stored)
 
+    async def get_exposure(
+        self,
+        exposure_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> DataExposure | None:
+        selected_id = validate_exposure_id(exposure_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        exposure = self._exposures.get(selected_id)
+        if exposure is None or not self._visible(exposure.tenant_id, selected_tenant):
+            return None
+        return copy.deepcopy(exposure)
+
     async def put_assessment(
         self,
         assessment: DataPostureAssessment,
@@ -112,6 +127,19 @@ class InMemoryDSPMStore:
             raise OptimisticConcurrencyConflict(f"data assessment already exists: {stored.id}")
         self._assessments[stored.id] = stored.model_copy(deep=True)
         return copy.deepcopy(stored)
+
+    async def get_assessment(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> DataPostureAssessment | None:
+        selected_id = validate_assessment_id(assessment_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        assessment = self._assessments.get(selected_id)
+        if assessment is None or not self._visible(assessment.tenant_id, selected_tenant):
+            return None
+        return copy.deepcopy(assessment)
 
     async def query_assets(
         self,

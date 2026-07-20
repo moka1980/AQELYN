@@ -125,7 +125,7 @@ Behavioral proof:
 
 ## P4 - Access, compliance, findings/risk, and delegated remediation
 
-**Spec:** sections 0/6.3; FR-11 through FR-13; AC-13 through AC-15.
+**Spec:** sections 0/6.3; ECR-0042; FR-11 through FR-13; AC-13 through AC-15.
 **Depends on:** P3.
 
 Deliver:
