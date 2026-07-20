@@ -36,7 +36,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 | ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
-| ECR-0032 | EA-0028 + EA-0029 | Proposed | Consider extracting a shared posture-normalization base once CSPM and SSPM are both green. |
+| ECR-0032 | EA-0028 + EA-0029 + EA-0031 | Proposed | DSPM is the third normalize/route posture module and triggers the planned shared-base revisit after C-028 is green; no extraction belongs in C-028. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
 | ECR-0034 | EA-0025 (+ EA-0023, EA-0024, EA-0030) | Proposed | `InventoryIntelligenceEngine.inventory()` reads `store.query(limit=10_000)` and returns `degraded=False` unconditionally; `AssetStore.query` has no cursor and no more-remaining signal. A tenant above 10 000 assets gets its first 10 000 reported as the complete inventory. That report is EA-0023's known-surface denominator and EA-0024's coverage base (`unscanned = inventory − scanned`), and both of their fail-closed gates are keyed on the `degraded` flag that is hardcoded `False` — so a silent cap shrinks the attack surface, under-reports unscanned assets, and cannot trip either refusal. EA-0030 now ingests SBOM components into the same store, making the cap reachable in ordinary operation. |
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
@@ -45,6 +45,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0038 | EA-0030 | Accepted | Make Q3's truncation and path proof representable: `dependency_paths` returns paths plus `truncated`, and transitive reach embeds the exact EA-0005 path with a deterministic content-addressed `path_ref`. |
 | ECR-0039 | EA-0030 (+ EA-0004 boundary) | Accepted | Evidence hash-chain integrity is not attestation authenticity: Q4 verifies EA-0004 integrity first, delegates cryptographic/bundle authenticity to a typed verifier, and keeps missing/unavailable verification flagged `unverified` while completed mismatches are `failed`. |
 | ECR-0040 | EA-0030 + EA-0024 | Accepted | Preserve unknown component reachability through vulnerability prioritization: factors carry `known|unknown`, unknown factors remain in the derivation but are excluded from the score denominator; add an asset-scoped vulnerability query and explicit Q5 owner methods. |
+| ECR-0041 | EA-0031 + EA-0023 | Accepted | Connect DSPM to EA-0023's shipped `KnownSurfaceSource` seam, add an optional evidence-backed exposure-impact context for sensitivity-aware owner scoring, and make unknown/minimal-retention/pagination guarantees structural before C-028. |
 
 ---
 
@@ -1471,7 +1472,7 @@ the repeated full-result sort/copy that made the measured paging cost superlinea
 
 ---
 
-## ECR-0032 — Consider a shared posture-normalization base (CSPM + SSPM)
+## ECR-0032 — Consider a shared posture-normalization base (CSPM + SSPM + DSPM)
 
 **Raised by:** planning (IS-029 spec pass).
 **Status:** Proposed — owner decision; **not** part of C-026.
@@ -1482,26 +1483,29 @@ next free number after the log's ECR-0031. The floor decision is untouched.
 **Observation.** EA-0028 (CSPM) and EA-0029 (SSPM) share an identical shape:
 `normalize(handed-in descriptor) -> AQObject + field_provenance + recorded
 conflicts -> route to owners`, differing only in provider vocabulary and
-`type_map`. That is now **two** instances of the same pattern — the threshold at
-which extraction stops being speculative.
+`type_map`. EA-0031 (DSPM) is now the **third** instance and adds a
+metadata-only classification step between normalization and routing. The
+revisit condition in this ECR has therefore been met.
 
-**Proposal.** After both CSPM and SSPM are merged and green, consider extracting a
+**Proposal.** After C-028 is merged and green, consider extracting a
 `posture_normalization` base (the descriptor→object→provenance→route
 machinery + the pending-not-safe routing discipline) that each specialises with
-its vocabulary. IS-028's spec already flagged this; IS-029 confirms it.
+its vocabulary. The design must accommodate DSPM's classify step without moving
+classification ownership or weakening any module's typed envelope.
 
 **Guardrails.**
-- **Do not build the base speculatively** and do not fold it into C-025 or C-026 —
+- **Do not build the base speculatively** and do not fold it into C-025, C-026,
+  or C-028 —
   each engine ships on its own footing first (avoids a premature abstraction that
   two slightly-divergent callers then fight).
 - Extraction is a **behaviour-preserving refactor**: the shared base must pass
-  both engines' existing suites unchanged (ECR-0007 — behavioural proof).
-- Revisit only if a **third** poster-child appears (e.g. an on-prem or PaaS
-  normalizer) or if maintenance of the duplicated shape becomes a real cost. Two
-  is enough to *consider*; it is not automatically enough to *act*.
+  all three engines' existing suites unchanged (ECR-0007 — behavioural proof).
+- The third poster-child now exists. That makes a review warranted, not an
+  extraction mandatory.
 
-**Recommendation.** Hold as Proposed. Decide after C-026 is green, with the real
-duplicated code in front of you rather than a predicted shape.
+**Recommendation.** Hold as Proposed. Decide after C-028 is green, against all
+three real implementations. Any extraction remains a separate,
+behaviour-preserving refactor whose existing suites pass unchanged.
 
 ---
 
@@ -1905,3 +1909,90 @@ EA-0024 engine and inspect the resulting replayable finding, proving an unknown
 reach factor remains unknown and contributes neither a favorable zero nor an
 invented value. Both vulnerability stores prove tenant- and asset-scoped
 filtering.
+
+---
+
+## ECR-0041 - make DSPM owner handoffs and unknown states connectable
+
+**Raised by:** Codex (EA-0031 pre-implementation contract verification).
+**Severity:** blocking before C-028 - the accepted sandbox draft named an
+EA-0023 type that does not exist, could not carry sensitivity into the real
+scorer, and left privacy and completeness guarantees representable only in
+prose.
+
+**Problem 1 - the exposure seam was imaginary.** The draft routed a
+`public_storage` `SurfaceFacet` to EA-0023. Shipped EA-0023 defines
+neither `SurfaceFacet` nor a facet taxonomy. Its real intake is
+`KnownSurfaceSource -> KnownSurfaceRecord -> ExposureRecord`.
+
+**Problem 2 - sensitivity disappeared at the scoring boundary.**
+`KnownSurfaceRecord.classification` reaches `AttackSurfaceAsset`, but
+`analyze_exposure` does not carry it into `ExposureRecord`.
+`score_exposure` derives impact from reachability alone. Merely passing a
+classification string therefore cannot make a medical-data store score
+differently from a non-sensitive store, while a DSPM-local final score would
+create the second exposure scorer the spec forbids.
+
+**Problem 3 - unknown and privacy were not structural.** Generic `location`,
+`schema`, and `sampled_signals` dictionaries could retain raw sensitive
+values. `FieldClassification` had no mandatory flag/status relationship,
+and `DataExposure.sensitivity` could not represent the required
+reachable-but-unclassified gap. A limit-only store query also repeated the
+pre-ECR-0030 capped-without-signal contract.
+
+**Problem 4 - delegation signatures were not tenant-complete.** The draft's
+access, compliance, and finding methods omitted explicit tenant scope, and
+"data access via EA-0011" did not say how a store maps to the identity-centric
+shipped API.
+
+**Problem 5 - surface identity and scoring identity were conflated.** The draft
+promised to replace an EA-0025 inventory placeholder but keyed the DSPM row on
+`DataAsset.object_id` (`obj_`). The shipped `InventoryKnownSurfaceSource` keys
+that placeholder on the inventory id (`ast_`), so one store would produce two
+rows and the stronger evidenced row could not supersede the weaker one. Simply
+switching `ref_id` to `ast_` was also insufficient because shipped EA-0023
+requires an `obj_` subject for Mission, Risk, correlation, and findings.
+
+**Resolution.**
+
+1. DSPM ships a store-backed `DataStoreKnownSurfaceSource` that composes
+   with the existing source, preserves upstream records, replaces only the same
+   object placeholder, pages to exhaustion with repeated-cursor protection, and
+   fails instead of serving a partial source. It keys the row on
+   `DataAsset.inventory_ref` and carries `DataAsset.object_id` separately.
+2. EA-0023 gains an optional `ExposureImpactContext` on the
+   exposure/scoring path. A known context carries a unit factor,
+   source/evidence, and reason; EA-0023 applies it to the owner risk seed and
+   binds it into the replayable derivation. Existing callers without a context
+   retain existing behavior. Unknown context has no numeric factor and cannot
+   be scored as zero; DSPM records a flagged, unscored classification gap.
+   The existing `ExposureConfigInvalid` is the refusal error. Postgres adds a
+   migration-safe nullable JSONB column and explicit write/read mappings so the
+   context cannot disappear outside the in-memory backend.
+3. Descriptor metadata becomes typed and `extra="forbid"`: field
+   names/types, detector refs/counts, tags, and evidence refs only. No raw
+   value/content/sample field exists. Classification and exposure models use
+   semantic states with validators; unknown/conflict is flagged and cannot
+   become public.
+4. DSPMStore adopts EA-0002 D8 cursor semantics from its first persistence
+   ticket. Assessment coverage is complete/truncated/pending.
+5. Store-specific access starts from evidenced identity claims in the handed-in
+   descriptor, then calls the real EA-0011 `access_paths` and
+   `analyze_risk` APIs. No claim or retriable outage is pending, not a
+   known-empty access result. All owner calls carry explicit tenant scope.
+6. Compliance delegates to EA-0010 assessment. Risk consumes evidence-backed
+   Findings through EA-0013's existing finding path; no new `SignalKind` is
+   added.
+7. EA-0023 `AssetRef` additively separates surface identity (`ref_id`) from an
+   optional EA-0002 scoring subject (`object_id`). Existing callers remain
+   unchanged; inventory-keyed adapters must supply the `obj_` subject, and the
+   scorer refuses when it is absent or invalid.
+
+**Impact.** EA-0031 and C-028 are rewritten before implementation. EA-0023
+receives one additive model field/argument plus replay and monotonicity tests in
+C-028 P3; its Postgres DDL/mappings persist that field, and its `AssetRef`
+receives an optional scoring subject. Current callers and scores are unchanged
+when no context is supplied. EA-0031 typed ids are registered in the canonical
+`PREFIXES` registry during P1.
+EA-0019's taxonomy and EA-0011's APIs are reused without modification. The
+shared posture-base decision remains ECR-0032 Proposed and outside C-028.
