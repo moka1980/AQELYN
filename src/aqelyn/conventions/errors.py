@@ -495,6 +495,23 @@ class ProvenanceUnverifiable(AQError):
     code = "ProvenanceUnverifiable"
 
 
+# --- EA-0031 ---
+class DSPMConfigInvalid(AQError):
+    code = "DSPMConfigInvalid"
+
+
+class DataAssetNotFound(AQError):
+    code = "DataAssetNotFound"
+
+
+class DataExposureNotFound(AQError):
+    code = "DataExposureNotFound"
+
+
+class ClassificationUnavailable(AQError):
+    code = "ClassificationUnavailable"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

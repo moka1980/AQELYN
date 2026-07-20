@@ -62,6 +62,9 @@ PREFIXES: dict[str, str] = {
     "idt": "identity_detection",
     "sbm": "sbom_document",
     "sca": "supply_chain_assessment",
+    "dsa": "data_asset",
+    "dxe": "data_exposure",
+    "dpa": "data_posture_assessment",
     "svc": "service",
 }
 

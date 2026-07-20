@@ -68,6 +68,9 @@ relies on. Other specs reference this rather than restating it.
 | `idt` | Identity detection | EA-0027 |
 | `sbm` | SBOM document | EA-0030 |
 | `sca` | Supply-chain assessment | EA-0030 |
+| `dsa` | Data asset | EA-0031 |
+| `dxe` | Data exposure | EA-0031 |
+| `dpa` | Data-posture assessment | EA-0031 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -266,6 +269,10 @@ Every created/changed record and every event carries the responsible actor.
 | `SBOMParseError` | EA-0030 | no |
 | `ComponentNotFound` | EA-0030 | no |
 | `ProvenanceUnverifiable` | EA-0030 | no |
+| `DSPMConfigInvalid` | EA-0031 | no |
+| `DataAssetNotFound` | EA-0031 | no |
+| `DataExposureNotFound` | EA-0031 | no |
+| `ClassificationUnavailable` | EA-0031 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
