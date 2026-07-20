@@ -71,6 +71,10 @@ relies on. Other specs reference this rather than restating it.
 | `dsa` | Data asset | EA-0031 |
 | `dxe` | Data exposure | EA-0031 |
 | `dpa` | Data-posture assessment | EA-0031 |
+| `sct` | Secret asset | EA-0032 |
+| `cky` | Cryptographic key | EA-0032 |
+| `x509` | X.509 certificate | EA-0032 |
+| `cas` | Crypto assessment | EA-0032 |
 | `svc` | Registered service/engine | EA-0001 |
 
 New families MUST register a prefix here before use.
@@ -273,6 +277,10 @@ Every created/changed record and every event carries the responsible actor.
 | `DataAssetNotFound` | EA-0031 | no |
 | `DataExposureNotFound` | EA-0031 | no |
 | `ClassificationUnavailable` | EA-0031 | no |
+| `CryptoConfigInvalid` | EA-0032 | no |
+| `SecretValueRejected` | EA-0032 | no |
+| `CryptoAssetNotFound` | EA-0032 | no |
+| `CertificateNotFound` | EA-0032 | no |
 | `ServiceStartFailed` | EA-0001 | maybe |
 | `DependencyUnavailable` | EA-0001 | yes |
 | `ConfigError` | EA-0001 | no |
