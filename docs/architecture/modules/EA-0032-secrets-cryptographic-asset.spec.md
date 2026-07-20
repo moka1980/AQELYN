@@ -5,7 +5,7 @@
 **Consumed by:** EA-0023, EA-0013, and a future secrets/crypto UI
 **Status:** Accepted
 **Build milestone:** C-029 (see `C-029_Task_Bundle.md`)
-**Change control:** ECR-0043
+**Change control:** ECR-0043, ECR-0044
 
 ---
 
@@ -46,17 +46,21 @@ All models use `extra="forbid"`. `SecretLocation` and assessment scope are typed
 not free-form mappings. Fingerprints use a validated, upstream-generated
 `hmac-sha256:<64 lowercase hex>` form so arbitrary credential text cannot be
 relabelled as a fingerprint. Resource references reject URL userinfo and known
-credential-bearing query keys. Raw mappings presenting `value`, `sample`,
+credential-bearing query keys. Raw mapping **field names** presenting `value`, `sample`,
 `content`, `payload`, `blob`, `credential`, `token`, `password`, `private_key`,
 or normalized variants are rejected with `SecretValueRejected` before model
-construction, without logging the rejected value.
+construction, without logging the rejected value. This check examines keys,
+not ordinary field values: `SecretKind="private_key"` is valid typed metadata
+and MUST remain constructible.
 
 ### 0.2 Two false friends
 
 - `PREFIXES["cert"]` already means EA-0011 access certification, not X.509.
   EA-0032 owns new `sct`, `cky`, `x509`, and `cas` prefixes and registers them in
   `conventions/ids.py::PREFIXES` and CONVENTIONS section 1. It has no EA-0011
-  certification dependency.
+  certification dependency. This typed-id ownership does not prohibit the
+  existing EA-0023 semantic `AssetRef.kind="cert"`, which EA-0032 uses for a
+  certificate surface record.
 - EA-0019 `Classification = public|internal|pii|secret` describes data
   sensitivity, while `conventions/logging.py::_SECRET_KEYS` names log-redaction
   keys. A `SecretAsset` is a credential record. It reuses the EA-0019 `secret`
@@ -81,7 +85,8 @@ changes no live credential or certificate.
 - **S3 - Exposure composes.** EA-0032 implements a `KnownSurfaceSource`, keys
   surface identity on the EA-0025 `ast_` id, carries the EA-0002 `obj_` scoring
   subject in `AssetRef.object_id`, and supplies an evidence-backed
-  `ExposureImpactContext`. It performs no reachability traversal or scoring.
+  `ExposureImpactContext(kind="credential_sensitivity")`. It performs no
+  reachability traversal or scoring.
 - **S4 - No value retention.** Section 0.1 applies recursively to every typed
   boundary and under `python -O`.
 - **S5 - One owner per capability.** Inventory, exposure, compliance, risk,
@@ -204,7 +209,7 @@ CryptographicExposure = {
   id, tenant_id, asset_id, surface_ref: ast_, object_id: obj_,
   exposure_record_id: exp_ | null,
   status: "confirmed" | "reachability_pending",
-  impact_context: ExposureImpactContext,
+  impact_context: ExposureImpactContext(kind="credential_sensitivity"),
   reason, evidence_id: evd_
 }
 CryptoAssessment = {
@@ -275,10 +280,14 @@ exposure, compliance, or risk engine.
    unknown. Missing rotation history is unknown, never recent.
 4. **Exposure:** produce evidence-backed `KnownSurfaceRecord`s keyed by
    `inventory_ref`, carrying `object_id`; EA-0023 derives and scores the exposure.
-   Credential sensitivity is an `ExposureImpactContext`. Unknown reachability
-   remains `reachability_pending`, with no favourable numeric substitute.
+   Credential sensitivity is an explicitly labelled
+   `ExposureImpactContext(kind="credential_sensitivity")` (ECR-0044); its kind,
+   factor, source, evidence, and reason are pinned together in EA-0023's
+   derivation. Unknown reachability remains `reachability_pending`, with no
+   favourable numeric substitute.
 5. **Compliance/risk/action:** compliance delegates to EA-0010. Material domain
    results raise evidence-backed, non-automatic findings for EA-0013. Rotation
+   loads the finding, verifies its tenant matches the explicit `tenant_id`, then
    proposes EA-0008 Workflow with that exact finding bound and never executes.
 6. **Assessment:** page the crypto store under `max_work`. Cursor exhaustion is
    complete; budget exhaustion is truncated; an unstarted/refused run remains
@@ -287,7 +296,9 @@ exposure, compliance, or risk engine.
 ## 7. Functional requirements
 
 - **FR-1:** Accepted and persisted models contain no secret/private-key value;
-  forbidden raw keys are rejected as `SecretValueRejected` before construction.
+  forbidden raw **field names** are rejected as `SecretValueRejected` before
+  construction. Ordinary typed values, including `SecretKind="private_key"`,
+  are not interpreted as secret material.
 - **FR-2:** Discovery is handed-in only. No scan, network, credential, bulk read,
   or collector surface exists.
 - **FR-3:** Every lifecycle attribute is tri-state, defaults unknown, and known
@@ -299,12 +310,14 @@ exposure, compliance, or risk engine.
 - **FR-6:** Missing/tampered evidence refuses; retriable unavailability is
   explicitly pending/unknown and cannot improve posture.
 - **FR-7:** Assets route to EA-0025 and retain distinct `obj_` and `ast_` ids.
-- **FR-8:** Exposure delegates through EA-0023's real source/context seam; the
-  module performs no reachability or exposure scoring.
+- **FR-8:** Exposure delegates through EA-0023's real source/context seam and
+  explicitly supplies `kind="credential_sensitivity"` (ECR-0044); the module
+  performs no reachability or exposure scoring.
 - **FR-9:** Compliance delegates to EA-0010; risk uses evidence-backed findings
   through EA-0013; no new `SignalKind` exists.
 - **FR-10:** Rotation/revocation only proposes a `requires_approval=True` EA-0008
-  run with `source_finding` bound. No effect executes in this module.
+  run with `source_finding` bound. Before proposing, the loaded finding's tenant
+  SHALL match the explicit request tenant. No effect executes in this module.
 - **FR-11:** Assessments use semantic pending/complete/truncated coverage and
   surface `unknown_lifecycle`.
 - **FR-12:** EA-0019's `secret` classification is reused; EA-0011 access
@@ -321,7 +334,7 @@ exposure, compliance, or risk engine.
 
 | # | Criterion | Test id |
 |---|---|---|
-| AC-1 | Nested/raw attempts to carry value/sample/content/blob/credential material are refused under normal Python and `-O` | `test_crypto_no_secret_values` |
+| AC-1 | Nested/raw attempts to carry forbidden value/sample/content/blob/credential field names are refused under normal Python and `-O`; `SecretKind="private_key"` remains valid | `test_crypto_no_secret_values` |
 | AC-2 | No scan/network/bulk-read surface; socket spy records zero attempts | `test_crypto_handed_in_only` |
 | AC-3 | Lifecycle defaults unknown; known-without-evidence and pending-with-counts are unconstructible | `test_crypto_state_invariants` |
 | AC-4 | Missing expiry/algorithm/rotation/chain/revocation never becomes valid | `test_crypto_unknown_not_safe` |
@@ -329,9 +342,9 @@ exposure, compliance, or risk engine.
 | AC-6 | Missing vs tampered vs retriable evidence remain distinct and never improve posture | `test_crypto_evidence_failure_not_safe` |
 | AC-7 | Real EA-0025 receives crypto assets with distinct `obj_`/`ast_` identities | `test_crypto_assets_to_inventory` |
 | AC-8 | Real composed EA-0023 source yields one row per asset and preserves unknown reachability | `test_crypto_exposure_owner_connectivity` |
-| AC-9 | Exposure impact context is evidence-bound and cannot lower impact when absent/unknown | `test_crypto_exposure_context` |
+| AC-9 | Exposure impact context is explicitly credential_sensitivity, evidence-bound, replay-pinned, and cannot lower impact when absent/unknown; the EA-0023 data_sensitivity default remains unchanged | `test_crypto_exposure_context` |
 | AC-10 | Compliance and finding/risk handoffs use their shipped owners | `test_crypto_owner_delegations` |
-| AC-11 | Real Workflow refuses execution of the finding-bound eligibility-none rotation run after approval | `test_crypto_rotation_gated` |
+| AC-11 | Finding tenant mismatch is refused; real Workflow refuses execution of the correctly tenant-scoped, finding-bound eligibility-none rotation run after approval | `test_crypto_rotation_gated` |
 | AC-12 | Assessment coverage is pending/complete/truncated and unknown lifecycle is counted | `test_crypto_assessment_coverage` |
 | AC-13 | D8 cursor semantics hold adversarially on memory/Postgres; filters precede limit | `test_crypto_store_contract[inmemory]` / `[postgres]` |
 | AC-14 | Work budget stops scans and sets truncated without losing accumulated results | `test_crypto_work_budget` |
@@ -366,7 +379,9 @@ exposure, and remediation events remain with their existing owners.
 
 ## 11. Failure handling
 
-- Invalid config/value-bearing input/cross-tenant reference: refuse before write.
+- Invalid config/value-bearing input/cross-tenant reference, including a loaded
+  finding whose tenant differs from the explicit request tenant: refuse before
+  write or proposal.
 - Missing or tampered evidence: refuse; do not route to owners.
 - Retriable owner outage: store valid domain records, mark dependent assessment
   pending/unknown with reason, and do not fabricate a favourable owner result.
@@ -391,6 +406,8 @@ until ECR-0034 is implemented. C-029 neither fixes nor deepens ECR-0034.
 - ECR-0043 records the archive reconciliation: metadata-only handed-in
   discovery, owner delegation, tri-state lifecycle, separate authenticity, and
   proposal-only remediation.
+- ECR-0044 adds the semantic `credential_sensitivity` impact kind while keeping
+  EA-0023's `data_sensitivity` default unchanged for existing callers.
 - Live Vault/KMS/HSM/repository collection is deferred to gated connectors.
 - PKI issuance, CA operation, and key custody remain out of scope.
 - UI is deferred; a future surface must be WCAG 2.2 AA and must never reveal a

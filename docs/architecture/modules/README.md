@@ -77,7 +77,7 @@ EA-0032 → `src/aqelyn/secrets/` + `tests/secrets/`.
 | [EA-0020 AI Decision Intelligence](EA-0020-ai-decision-intelligence.spec.md) | EA-0020 | **EA-0006**, EA-0008, EA-0013, EA-0015 | [C-017](C-017_Task_Bundle.md) | Accepted (see ECR-0007) |
 | [EA-0021 Predictive Analytics & Forecasting](EA-0021-predictive-analytics-forecasting.spec.md) | EA-0021 | **EA-0020**, **EA-0006**, EA-0019 | [C-018](C-018_Task_Bundle.md) | Accepted (see ECR-0008) |
 | [EA-0022 Executive Intelligence & Reporting](EA-0022-executive-intelligence-strategic-reporting.spec.md) | EA-0022 | EA-0007/0010/0013/0021, EA-0020, EA-0004 | [C-019](C-019_Task_Bundle.md) | Accepted |
-| [EA-0023 Threat Exposure & Attack Surface Mgmt](EA-0023-threat-exposure-attack-surface-management.spec.md) | EA-0023 | EA-0012, EA-0019, EA-0005, EA-0011, EA-0007/0006, EA-0013 | [C-020](C-020_Task_Bundle.md) | Accepted (see ECR-0011) |
+| [EA-0023 Threat Exposure & Attack Surface Mgmt](EA-0023-threat-exposure-attack-surface-management.spec.md) | EA-0023 | EA-0012, EA-0019, EA-0005, EA-0011, EA-0007/0006, EA-0013 | [C-020](C-020_Task_Bundle.md) | Accepted (see ECR-0011, ECR-0041, ECR-0044) |
 | [EA-0024 Vulnerability Intelligence & Prioritization](EA-0024-vulnerability-intelligence-prioritization.spec.md) | EA-0024 | EA-0014, EA-0023, EA-0007, EA-0012, EA-0006, EA-0020, EA-0018 | [C-021](C-021_Task_Bundle.md) | Accepted (see ECR-0012) |
 | [EA-0025 Cyber Asset Discovery & Inventory Intelligence](EA-0025-cyber-asset-discovery-inventory-intelligence.spec.md) | EA-0025 | EA-0012, EA-0002, EA-0005, EA-0006, EA-0007, EA-0004 | [C-022](C-022_Task_Bundle.md) | Accepted (see ECR-0014) |
 | IS-026 Configuration Compliance & Drift — **restates EA-0012, no new module** ([conformance](IS-026_Conformance_Analysis.md)) | (EA-0012) | — | [C-023](C-023_Task_Bundle.md) | ECR-0015: do not build |
@@ -86,7 +86,7 @@ EA-0032 → `src/aqelyn/secrets/` + `tests/secrets/`.
 | [EA-0029 SaaS Security Posture (SSPM)](EA-0029-saas-security-posture.spec.md) | EA-0029 | EA-0025, EA-0012, EA-0010, EA-0011, EA-0013, EA-0005, EA-0023, EA-0006 | [C-026](C-026_Task_Bundle.md) | Accepted (ECR-0033; ECR-0032 Proposed) |
 | [EA-0030 Software Supply Chain & SBOM](EA-0030-software-supply-chain-sbom.spec.md) | EA-0030 | EA-0005, EA-0024, EA-0025, EA-0004, EA-0010, EA-0013 | [C-027](C-027_Task_Bundle.md) | Accepted |
 | [EA-0031 Data Security Posture Management](EA-0031-data-security-posture.spec.md) | EA-0031 | EA-0019, EA-0025, EA-0023, EA-0011, EA-0010, EA-0013, EA-0006, EA-0004, EA-0008 | [C-028](C-028_Task_Bundle.md) | Accepted (ECR-0041, ECR-0042; ECR-0032 Proposed) |
-| [EA-0032 Secrets Security & Cryptographic Asset Intelligence](EA-0032-secrets-cryptographic-asset.spec.md) | EA-0032 | EA-0025, EA-0023, EA-0010, EA-0013, EA-0019, EA-0006, EA-0004, EA-0008 | [C-029](C-029_Task_Bundle.md) | Accepted (ECR-0043) |
+| [EA-0032 Secrets Security & Cryptographic Asset Intelligence](EA-0032-secrets-cryptographic-asset.spec.md) | EA-0032 | EA-0025, EA-0023, EA-0010, EA-0013, EA-0019, EA-0006, EA-0004, EA-0008 | [C-029](C-029_Task_Bundle.md) | Accepted (ECR-0043, ECR-0044) |
 
 Spec authoring: [SPEC_AUTHOR_NOTES.md](SPEC_AUTHOR_NOTES.md) carries the reviewer's standing
 rules and the current per-module handover for whoever drafts the next spec.

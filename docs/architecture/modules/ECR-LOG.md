@@ -48,6 +48,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0041 | EA-0031 + EA-0023 | Accepted | Connect DSPM to EA-0023's shipped `KnownSurfaceSource` seam, add an optional evidence-backed exposure-impact context for sensitivity-aware owner scoring, and make unknown/minimal-retention/pagination guarantees structural before C-028. |
 | ECR-0042 | EA-0031 | Accepted | Make P4's assessment-to-finding handoff durable: add tenant-scoped assessment/exposure reads to DSPMStore, refuse incomplete assessments, and re-run a complete assessment's frozen scope through the owner exposure path when it carries no material ids. |
 | ECR-0043 | EA-0032 / IS-032 | Accepted | Realize secrets/crypto as a value-free, handed-in lifecycle engine over existing inventory/exposure/compliance/risk owners; unknown is never safe, integrity is not authenticity, and remediation is finding-bound proposal only. |
+| ECR-0044 | EA-0023 + EA-0032 | Accepted | Add a semantic `credential_sensitivity` exposure-impact kind while preserving `data_sensitivity` as the default; crypto contexts must name their real meaning in the replayable derivation. |
 
 ---
 
@@ -2074,3 +2075,42 @@ New prefixes avoid the existing EA-0011 `cert` prefix; EA-0019's `secret`
 classification remains unchanged. ECR-0034 remains Proposed and unresolved:
 EA-0032 does not treat EA-0025's capped inventory report as exhaustive and does
 not claim to fix that owner defect.
+
+---
+
+## ECR-0044 - distinguish credential sensitivity from data sensitivity
+
+**Raised by:** Claude Code (EA-0032 pre-implementation review against the
+shipped EA-0023 type contract).
+**Severity:** blocking before C-029 - the Accepted draft names a real owner seam
+that cannot represent the semantic input it asks EA-0032 to supply.
+
+**Problem.** EA-0032 section 6.4 requires a credential-sensitivity
+`ExposureImpactContext`, but shipped EA-0023 declares
+`ExposureImpactKind = Literal["data_sensitivity"]`. Relabelling crypto
+criticality as `data_sensitivity` would make the handoff constructible at the
+cost of a false provenance label. EA-0023 pins the complete impact context into
+its replayable derivation, so the false label would become a durable audit fact
+and consumers could not distinguish EA-0031 data classification from EA-0032
+credential criticality.
+
+**Resolution.** EA-0023 additively accepts
+`credential_sensitivity` alongside `data_sensitivity`.
+`ExposureImpactContext.kind` keeps `data_sensitivity` as its default, preserving
+every existing DSPM and omitted-kind caller. EA-0032 MUST pass
+`kind="credential_sensitivity"` explicitly; the kind, factor, source,
+evidence, and reason are pinned and replay-validated together. C-029 W4 owns
+the type change and proves the existing default path is unchanged.
+
+The adjacent EA-0032 boundaries are made explicit at the same pre-build point:
+value rejection examines mapping field names, not legitimate enum/string
+values such as `SecretKind="private_key"`; the existing typed-id prefix `cert`
+does not prohibit EA-0023's semantic `AssetRef.kind="cert"`; and
+`propose_rotation` compares the loaded finding's tenant to its explicit tenant
+scope before proposing the finding-bound run.
+
+**Impact.** Additive Literal expansion only. `impact_context` is already stored
+as JSONB, so no DDL migration is required. EA-0023 gains compatibility and
+semantic-kind acceptance tests; EA-0032/C-029 gain an explicit producer test.
+Existing omitted-kind callers retain byte-identical scoring and derivation
+semantics.

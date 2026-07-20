@@ -3,7 +3,7 @@
 **Milestone:** C-029 (EA-0032)
 **Implementer:** Codex
 **Reviewer:** Claude Code
-**Prerequisites:** C-028 merged and green; EA-0032 Accepted; ECR-0043 logged;
+**Prerequisites:** C-028 merged and green; EA-0032 Accepted; ECR-0043/ECR-0044 logged;
 EA-0032 sections 0, 1, and 4 read before implementation.
 
 **Definition of Done:** all acceptance tests pass on in-memory and Postgres;
@@ -45,7 +45,9 @@ store belongs in this package.
 - Strict typed descriptors and domain models from section 4, including typed
   `SecretLocation`/`CryptoScope`; no free-form metadata mapping.
 - Recursive pre-construction rejection of value-bearing key names, credential
-  URL components, and malformed fingerprints via `SecretValueRejected`.
+  URL components, and malformed fingerprints via `SecretValueRejected`. Inspect
+  mapping keys, not ordinary field values; positively prove
+  `SecretKind="private_key"` remains valid.
 - `Lifecycle` invariant: known requires evidence; unknown requires reason.
 - `CryptoAssessment` invariant: pending carries no results; truncated requires a
   reason; complete forbids one.
@@ -102,14 +104,21 @@ store belongs in this package.
   `InventoryKnownSurfaceSource`, replaces the same `ast_` placeholder, carries
   the `obj_` scoring subject, preserves upstream rows, pages honestly, and fails
   instead of serving a partial source.
-- Evidence-backed `ExposureImpactContext`; absent/unknown context cannot reduce
-  EA-0023 scoring. Unknown reachability remains pending.
+- Add `credential_sensitivity` to EA-0023 `ExposureImpactKind` while retaining
+  `data_sensitivity` as the omitted-kind default. No DDL migration: the context
+  is already JSONB. Prove existing DSPM/default scoring and derivations are
+  unchanged.
+- Supply an evidence-backed
+  `ExposureImpactContext(kind="credential_sensitivity")`; absent/unknown context
+  cannot reduce EA-0023 scoring, and the exact semantic kind is replay-pinned.
+  Unknown reachability remains pending.
 - Real EA-0010 compliance delegation and evidence-backed, non-automatic
   findings for EA-0013. No new `SignalKind`.
 - Finding-driven rotation/revocation playbook proposed with
   `requires_approval=True` and `source_finding=finding`. Drive the real EA-0008
   engine through approval and prove execution is refused by eligibility `none`;
-  handler/mutation spies remain empty.
+  handler/mutation spies remain empty. Load the finding first and refuse when
+  its tenant does not match the explicit request tenant.
 - ECR-0034 is not deepened: no capped EA-0025 inventory report is presented as
   exhaustive.
 
@@ -142,8 +151,10 @@ store belongs in this package.
 Review each ticket behaviorally, hardest checks first:
 
 1. Construct nested adversarial inputs using value/sample/content/blob/token/
-   password/private-key aliases. Every attempt is refused under normal Python
-   and `python -O`; no rejected value appears in logs/errors/events.
+   password/private-key **field-name** aliases. Every attempt is refused under
+   normal Python and `python -O`; no rejected value appears in logs/errors/events.
+   Also prove that the legitimate typed value `SecretKind="private_key"` is
+   accepted.
 2. Build healthy/missing/tampered/retriable evidence controls. Losing evidence
    must never improve posture or permit an owner write.
 3. Exercise every lifecycle attribute's unknown state and every assessment
@@ -153,9 +164,10 @@ Review each ticket behaviorally, hardest checks first:
    never produce `authenticity=valid`.
 5. Drive EA-0025, EA-0023, EA-0010, EA-0013, and EA-0008 as real receiving
    owners, not only spies. A spy proves a call happened; it does not prove the
-   receiver can act on the payload.
-6. Prove `source_finding` binding against real Workflow execution after an
-   approval. Nothing rotates, revokes, or reissues.
+   receiver can act on the payload. For EA-0023, prove explicit
+   `credential_sensitivity` replay and unchanged omitted-kind DSPM behavior.
+6. Prove finding-tenant validation and `source_finding` binding against real
+   Workflow execution after an approval. Nothing rotates, revokes, or reissues.
 7. Hammer D8 pagination adversarially on both stores; use a repeated-cursor
    source and a work-budget exhaustion case.
 8. Drive all four backend/tenant-mode factory combinations. Do not treat default
