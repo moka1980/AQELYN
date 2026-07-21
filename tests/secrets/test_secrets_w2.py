@@ -28,6 +28,7 @@ from aqelyn.secrets import (
     CertificateAsset,
     CertificateDescriptor,
     CryptoAssessment,
+    CryptoAsset,
     CryptoConfig,
     CryptographicKey,
     CryptographicKeyDescriptor,
@@ -583,10 +584,10 @@ class _RepeatingCursorStore(InMemoryCryptoStore):
     async def query_assets(
         self,
         query: CryptoQuery,
-    ) -> tuple[list[SecretAsset], str | None]:
+    ) -> tuple[list[CryptoAsset], str | None]:
         rows, _ = await super().query_assets(query)
         next_cursor = query.cursor or rows[-1].id
-        return [cast(SecretAsset, item) for item in rows], next_cursor
+        return rows, next_cursor
 
 
 async def test_crypto_repeated_cursor_refused() -> None:
