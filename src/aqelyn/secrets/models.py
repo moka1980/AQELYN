@@ -386,8 +386,20 @@ class CertificateDescriptor(_ValueFreeModel):
 
 
 class AuthenticityCheck(_ValueFreeModel):
+    certificate_fingerprint: str
+    basis_evidence_id: str
     status: LifecycleStatus = "unknown"
     reason: str
+
+    @field_validator("certificate_fingerprint")
+    @classmethod
+    def _certificate_fingerprint(cls, value: str) -> str:
+        return _fingerprint(value)
+
+    @field_validator("basis_evidence_id")
+    @classmethod
+    def _basis_evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="basis_evidence_id")
 
     @field_validator("reason")
     @classmethod

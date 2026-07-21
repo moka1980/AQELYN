@@ -50,6 +50,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0043 | EA-0032 / IS-032 | Accepted | Realize secrets/crypto as a value-free, handed-in lifecycle engine over existing inventory/exposure/compliance/risk owners; unknown is never safe, integrity is not authenticity, and remediation is finding-bound proposal only. |
 | ECR-0044 | EA-0023 + EA-0032 | Accepted | Add a semantic `credential_sensitivity` exposure-impact kind while preserving `data_sensitivity` as the default; crypto contexts must name their real meaning in the replayable derivation. |
 | ECR-0045 | EA-0032 | Accepted | Make W2 reconciliation and W3 key lifecycle durable: crypto assets retain typed evidence-backed conflicts, key/certificate observation time, key rotation time, and one stable fingerprint identity lookup. |
+| ECR-0046 | EA-0032 | Accepted | Bind descriptor evidence and certificate-authenticity results to the exact crypto fingerprint and basis evidence before any known lifecycle state can be recorded. |
 
 ---
 
@@ -2149,3 +2150,37 @@ implementations. The Postgres schema is new in W2, so no migration of shipped
 crypto data is required. The value-rejection gate applies recursively to claim
 and conflict records; conflicts can retain only typed metadata, never secret or
 private-key material. W3 consumes the now-durable observation/rotation inputs.
+
+---
+
+## ECR-0046 - bind crypto evidence and authenticity results to their input
+
+**Raised by:** Codex (C-029 W3 implementation against the Accepted two-stage
+verification contract).
+**Severity:** blocking within W3 - an unrelated same-source evidence record or
+cached verifier result could otherwise be laundered into a known lifecycle
+state.
+
+**Problem.** W2 checks the cited EA-0004 record's tenant, source, and integrity,
+but does not require the record to name the descriptor fingerprint. Two
+certificates reported by the same source can therefore cite each other's
+byte-valid evidence. W3 additionally declares `AuthenticityCheck` as only
+`{status, reason}`. A buggy or cached adapter can return a valid result produced
+for another certificate, and the engine has no field with which to detect the
+mismatch. Persisting that result would turn the wrong binding into durable
+audit evidence.
+
+**Resolution.** Descriptor evidence MUST carry
+`content["fingerprint"] == descriptor.fingerprint`; ingest and lifecycle reads
+refuse missing or mismatched bindings. `AuthenticityCheck` additively carries
+`certificate_fingerprint` and `basis_evidence_id`. W3 accepts a verifier result
+only when both equal the certificate being assessed and its integrity-checked
+evidence. The separately persisted EA-0004 verification result records the same
+pair, and a known authenticity state cites that result evidence.
+
+**Impact.** C-029 W3 owns the additive strict-model fields, W2 evidence-binding
+guard, result-evidence binding, and adversarial unrelated-input tests. No schema
+migration is required: crypto assets and assessment records are JSONB, while
+`AuthenticityCheck` is an adapter result rather than a stored table row. No
+secret or private-key value is introduced; the only added material is a one-way
+fingerprint and an evidence id.

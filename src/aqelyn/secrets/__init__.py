@@ -1,6 +1,7 @@
 """Secrets Security and Cryptographic Asset Intelligence public API (EA-0032)."""
 
 from aqelyn.secrets.engine import SecretsIntelligenceEngine
+from aqelyn.secrets.lifecycle import CertificateAuthenticityVerifier
 from aqelyn.secrets.memory import InMemoryCryptoStore
 from aqelyn.secrets.models import (
     VALID_ASSESSMENT_STATUSES,
@@ -52,6 +53,7 @@ __all__ = [
     "AssessmentStatus",
     "AuthenticityCheck",
     "CertificateAsset",
+    "CertificateAuthenticityVerifier",
     "CertificateClaim",
     "CertificateDescriptor",
     "CryptoAssessment",
