@@ -114,6 +114,10 @@ async def prepare_descriptor(
                 "verification_detail": detail,
             },
         )
+    if evidence.content is None or evidence.content.get("fingerprint") != descriptor.fingerprint:
+        raise CryptoConfigInvalid(
+            "crypto evidence fingerprint does not match descriptor fingerprint"
+        )
     assessment = await trust.assess(
         f"crypto:{descriptor.fingerprint}",
         [evidence],

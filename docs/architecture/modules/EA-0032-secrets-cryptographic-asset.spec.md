@@ -5,7 +5,7 @@
 **Consumed by:** EA-0023, EA-0013, and a future secrets/crypto UI
 **Status:** Accepted
 **Build milestone:** C-029 (see `C-029_Task_Bundle.md`)
-**Change control:** ECR-0043, ECR-0044, ECR-0045
+**Change control:** ECR-0043, ECR-0044, ECR-0045, ECR-0046
 
 ---
 
@@ -177,6 +177,8 @@ CertificateDescriptor = {
   source_id: src_, observed_at: datetime, evidence_id: evd_
 }
 AuthenticityCheck = {
+  certificate_fingerprint: "hmac-sha256:<64 lowercase hex>",
+  basis_evidence_id: evd_,
   status: LifecycleStatus,
   reason: str
 }
@@ -280,6 +282,9 @@ exposure, compliance, or risk engine.
 ## 6. Reference computation
 
 1. **Ingest:** validate the descriptor and its evidence before any owner write.
+   The evidence content MUST name the descriptor's exact fingerprint; a
+   byte-valid same-source record for another crypto asset is unrelated and is
+   refused (ECR-0046).
    Missing or tampered evidence refuses the descriptor. Reconcile source claims
    through EA-0006; do not use last-writer-wins. Retain typed conflict candidates
    and the selected claim's observation inputs (ECR-0045). Create the EA-0002 object,
@@ -287,9 +292,11 @@ exposure, compliance, or risk engine.
    tenant_id=)`, and persist both resulting ids.
 2. **Certificate lifecycle:** determine expiry from `not_after`; missing/unusable
    data is `unknown`. Verify evidence integrity first. Invoke the typed
-   authenticity verifier only after integrity succeeds. Record the verifier
-   result as EA-0004 evidence. Chain, revocation, integrity, and authenticity
-   remain independent fields.
+   authenticity verifier only after integrity succeeds. The returned check
+   MUST bind to both the certificate fingerprint and the integrity-checked
+   basis evidence id. Record that bound verifier result as EA-0004 evidence.
+   Chain, revocation, integrity, and authenticity remain independent fields
+   (ECR-0046).
 3. **Key lifecycle:** known weak algorithms or policy-inadequate sizes are
    invalid; recognized adequate facts are valid; unrecognized/missing facts are
    unknown. Missing rotation history is unknown, never recent.
@@ -322,6 +329,9 @@ exposure, compliance, or risk engine.
   and unavailable revocation each remain unknown, never valid.
 - **FR-5:** Evidence integrity and certificate authenticity are independent;
   authenticity uses a typed verifier, never `EvidenceStore.verify().ok` alone.
+  Descriptor evidence and verifier output MUST bind to the exact fingerprint;
+  the verifier output MUST also bind to the checked basis evidence id
+  (ECR-0046).
 - **FR-6:** Missing/tampered evidence refuses; retriable unavailability is
   explicitly pending/unknown and cannot improve posture.
 - **FR-7:** Assets route to EA-0025 and retain distinct `obj_` and `ast_` ids.
@@ -354,7 +364,7 @@ exposure, compliance, or risk engine.
 | AC-2 | No scan/network/bulk-read surface; socket spy records zero attempts | `test_crypto_handed_in_only` |
 | AC-3 | Lifecycle defaults unknown; known-without-evidence and pending-with-counts are unconstructible | `test_crypto_state_invariants` |
 | AC-4 | Missing expiry/algorithm/rotation/chain/revocation never becomes valid | `test_crypto_unknown_not_safe` |
-| AC-5 | EA-0004 integrity cannot establish authenticity; typed verifier outcome is separately evidenced | `test_crypto_integrity_not_authenticity` |
+| AC-5 | EA-0004 integrity cannot establish authenticity; an unrelated evidence/check binding is refused; the exact typed verifier outcome is separately evidenced | `test_crypto_integrity_not_authenticity` |
 | AC-6 | Missing vs tampered vs retriable evidence remain distinct and never improve posture | `test_crypto_evidence_failure_not_safe` |
 | AC-7 | Real EA-0025 receives crypto assets with distinct `obj_`/`ast_` identities | `test_crypto_assets_to_inventory` |
 | AC-8 | Real composed EA-0023 source yields one row per asset and preserves unknown reachability | `test_crypto_exposure_owner_connectivity` |
@@ -426,6 +436,8 @@ until ECR-0034 is implemented. C-029 neither fixes nor deepens ECR-0034.
   EA-0023's `data_sensitivity` default unchanged for existing callers.
 - ECR-0045 makes evidence-backed source conflicts and the key lifecycle inputs
   durable, with one stable fingerprint identity per tenant and asset kind.
+- ECR-0046 binds descriptor evidence and authenticity results to the exact
+  fingerprint and basis evidence before a known lifecycle state can exist.
 - Live Vault/KMS/HSM/repository collection is deferred to gated connectors.
 - PKI issuance, CA operation, and key custody remain out of scope.
 - UI is deferred; a future surface must be WCAG 2.2 AA and must never reveal a

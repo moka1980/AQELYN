@@ -459,7 +459,14 @@ def test_crypto_taxonomy_and_false_friends() -> None:
         "other",
     } == VALID_KEY_USAGES
     assert {"secret", "key", "certificate"} == VALID_CRYPTO_ASSET_KINDS
-    assert AuthenticityCheck(reason="Verification has not run.").status == "unknown"
+    assert (
+        AuthenticityCheck(
+            certificate_fingerprint=FINGERPRINT,
+            basis_evidence_id=new_id("evd"),
+            reason="Verification has not run.",
+        ).status
+        == "unknown"
+    )
 
     for error in (
         CryptoConfigInvalid,

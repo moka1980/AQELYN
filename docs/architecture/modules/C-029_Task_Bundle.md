@@ -4,7 +4,7 @@
 **Implementer:** Codex
 **Reviewer:** Claude Code
 **Prerequisites:** C-028 merged and green; EA-0032 Accepted;
-ECR-0043/ECR-0044/ECR-0045 logged;
+ECR-0043/ECR-0044/ECR-0045/ECR-0046 logged;
 EA-0032 sections 0, 1, and 4 read before implementation.
 
 **Definition of Done:** all acceptance tests pass on in-memory and Postgres;
@@ -93,7 +93,9 @@ store belongs in this package.
   unavailable revocation each produce unknown, never valid.
 - EA-0004 integrity first; typed `CertificateAuthenticityVerifier` second;
   persist the verifier result as EA-0004 evidence. A valid verifier result with
-  unrelated/tampered input cannot be laundered into authenticity.
+  unrelated/tampered input cannot be laundered into authenticity. Descriptor
+  evidence, verifier output, and result evidence bind the exact fingerprint and
+  basis evidence id (ECR-0046).
 - `unknown_lifecycle` is counted in semantic assessment coverage.
 
 **Acceptance:** AC-3, AC-4, AC-5, AC-6, AC-12.
