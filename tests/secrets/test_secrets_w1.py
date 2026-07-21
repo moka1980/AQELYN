@@ -22,7 +22,7 @@ from aqelyn.conventions.errors import (
     SchemaValidationError,
     SecretValueRejected,
 )
-from aqelyn.exposure.models import VALID_ASSET_KINDS
+from aqelyn.exposure.models import VALID_ASSET_KINDS, ExposureImpactContext
 from aqelyn.secrets import (
     VALID_ASSESSMENT_STATUSES,
     VALID_CRYPTO_ASSET_KINDS,
@@ -194,6 +194,20 @@ def _assessment(**overrides: object) -> CryptoAssessment:
     return CryptoAssessment.model_validate(data)
 
 
+def _crypto_exposure(impact_context: ExposureImpactContext) -> CryptographicExposure:
+    return CryptographicExposure(
+        id="crypto-exposure:private-key:repository",
+        tenant_id=TENANT,
+        asset_id=new_id("sct"),
+        surface_ref=new_id("ast"),
+        object_id=new_id("obj"),
+        status="reachability_pending",
+        impact_context=impact_context,
+        reason="Reachability has not been established.",
+        evidence_id=impact_context.evidence_id,
+    )
+
+
 def _model_payloads() -> list[tuple[type[BaseModel], dict[str, Any]]]:
     return [
         (SecretScanDescriptor, _secret_descriptor().model_dump()),
@@ -234,6 +248,31 @@ def test_crypto_no_secret_values(forbidden_key: str) -> None:
 def test_crypto_secret_kind_values_are_metadata(kind: str) -> None:
     descriptor = _secret_descriptor(kind=kind)
     assert descriptor.kind == kind
+
+
+def test_crypto_exposure_requires_credential_sensitivity() -> None:
+    evidence_id = new_id("evd")
+    credential_context = ExposureImpactContext(
+        kind="credential_sensitivity",
+        status="known",
+        factor=1.0,
+        source_ref="secrets:crypto_asset:private_key",
+        evidence_id=evidence_id,
+        reason="The handed-in claim identifies credential material.",
+    )
+    exposure = _crypto_exposure(credential_context)
+    assert exposure.impact_context.kind == "credential_sensitivity"
+
+    omitted_kind = ExposureImpactContext(
+        status="known",
+        factor=1.0,
+        source_ref="secrets:crypto_asset:private_key",
+        evidence_id=evidence_id,
+        reason="An omitted kind must retain EA-0023's DSPM default.",
+    )
+    assert omitted_kind.kind == "data_sensitivity"
+    with pytest.raises(CryptoConfigInvalid, match="credential_sensitivity"):
+        _crypto_exposure(omitted_kind)
 
 
 @pytest.mark.parametrize(

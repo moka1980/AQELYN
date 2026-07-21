@@ -681,6 +681,10 @@ class CryptographicExposure(_ValueFreeModel):
 
     @model_validator(mode="after")
     def _state_consistency(self) -> CryptographicExposure:
+        if self.impact_context.kind != "credential_sensitivity":
+            raise CryptoConfigInvalid(
+                "cryptographic exposure requires credential_sensitivity impact context"
+            )
         if self.status == "confirmed" and self.exposure_record_id is None:
             raise CryptoConfigInvalid(
                 "confirmed cryptographic exposure requires exposure_record_id"
