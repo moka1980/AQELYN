@@ -27,6 +27,7 @@ from aqelyn.evidence import EvidenceRecord
 from aqelyn.inventory import InventoryKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime, create_runtime
 from aqelyn.kernel.service import HealthStatus
+from aqelyn.secrets import CryptoKnownSurfaceSource
 from aqelyn.sspm import SaaSIntegrationKnownSurfaceSource
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -164,8 +165,10 @@ async def test_dspm_factory_owner_connectivity(backend: str, tenant_mode: str) -
     assert isinstance(source.upstream, InventoryKnownSurfaceSource)
     assert source.store is runtime.dspm_store
     assert source.upstream.inventory is runtime.inventory_engine
-    assert isinstance(runtime.exposure_engine.source, SaaSIntegrationKnownSurfaceSource)
-    assert runtime.exposure_engine.source.upstream is source
+    crypto_source = runtime.exposure_engine.source
+    assert isinstance(crypto_source, CryptoKnownSurfaceSource)
+    assert isinstance(crypto_source.upstream, SaaSIntegrationKnownSurfaceSource)
+    assert crypto_source.upstream.upstream is source
 
     if tenant_mode == "local":
         await runtime.kernel.start()

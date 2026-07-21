@@ -23,6 +23,7 @@ from aqelyn.exposure import (
 from aqelyn.exposure.service import register_exposure_events
 from aqelyn.inventory import InventoryKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime, create_runtime
+from aqelyn.secrets import CryptoKnownSurfaceSource
 from aqelyn.sspm import SaaSIntegrationKnownSurfaceSource
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -68,14 +69,16 @@ async def test_exp_service_health(backend: str) -> None:
     assert runtime.exposure_engine_service.engine is runtime.exposure_engine
     assert runtime.exposure_engine_service.store is runtime.exposure_store
     assert runtime.exposure_engine.store is runtime.exposure_store
-    assert isinstance(runtime.exposure_engine.source, SaaSIntegrationKnownSurfaceSource)
-    assert isinstance(runtime.exposure_engine.source.upstream, DataStoreKnownSurfaceSource)
-    assert runtime.exposure_engine.source.upstream.store is runtime.dspm_store
+    crypto_source = runtime.exposure_engine.source
+    assert isinstance(crypto_source, CryptoKnownSurfaceSource)
+    assert isinstance(crypto_source.upstream, SaaSIntegrationKnownSurfaceSource)
+    assert isinstance(crypto_source.upstream.upstream, DataStoreKnownSurfaceSource)
+    assert crypto_source.upstream.upstream.store is runtime.dspm_store
     assert isinstance(
-        runtime.exposure_engine.source.upstream.upstream,
+        crypto_source.upstream.upstream.upstream,
         InventoryKnownSurfaceSource,
     )
-    assert runtime.exposure_engine.source.upstream.upstream.inventory is runtime.inventory_engine
+    assert crypto_source.upstream.upstream.upstream.inventory is runtime.inventory_engine
     assert runtime.exposure_engine.graph is runtime.knowledge_graph
     assert runtime.exposure_engine.identity_provider is runtime.iag_engine
     assert runtime.exposure_engine.trend_provider is runtime.forecast_engine

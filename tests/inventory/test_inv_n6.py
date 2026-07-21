@@ -19,6 +19,7 @@ from aqelyn.inventory import (
     InventoryVulnerabilityCoverageProvider,
 )
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime, create_runtime
+from aqelyn.secrets import CryptoKnownSurfaceSource
 from aqelyn.sspm import SaaSIntegrationKnownSurfaceSource
 from aqelyn.vuln import CarriedScore, VulnBasis, VulnerabilityRecord
 
@@ -60,13 +61,15 @@ async def test_inv_seams_wired(backend: str) -> None:
                 "TRUNCATE aq_dspm_assessment, aq_dspm_exposure, aq_dspm_asset, aq_dspm_asset_key"
             )
 
-    assert isinstance(runtime.exposure_engine.source, SaaSIntegrationKnownSurfaceSource)
-    assert isinstance(runtime.exposure_engine.source.upstream, DataStoreKnownSurfaceSource)
+    crypto_source = runtime.exposure_engine.source
+    assert isinstance(crypto_source, CryptoKnownSurfaceSource)
+    assert isinstance(crypto_source.upstream, SaaSIntegrationKnownSurfaceSource)
+    assert isinstance(crypto_source.upstream.upstream, DataStoreKnownSurfaceSource)
     assert isinstance(
-        runtime.exposure_engine.source.upstream.upstream,
+        crypto_source.upstream.upstream.upstream,
         InventoryKnownSurfaceSource,
     )
-    assert runtime.exposure_engine.source.upstream.upstream.inventory is runtime.inventory_engine
+    assert crypto_source.upstream.upstream.upstream.inventory is runtime.inventory_engine
     assert isinstance(
         runtime.vuln_engine.coverage_provider,
         InventoryVulnerabilityCoverageProvider,

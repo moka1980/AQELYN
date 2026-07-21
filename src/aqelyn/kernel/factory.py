@@ -113,6 +113,13 @@ if TYPE_CHECKING:
     from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.service import RiskIntelligenceService
     from aqelyn.risk.store import RiskSnapshotStore, RiskStore
+    from aqelyn.secrets import (
+        CryptoConfig,
+        CryptoKnownSurfaceSource,
+        CryptoStore,
+        SecretsIntelligenceEngine,
+        SecretsIntelligenceService,
+    )
     from aqelyn.soc.engine import SecurityOperationsEngine
     from aqelyn.soc.service import SecurityOperationsService
     from aqelyn.soc.store import SOCStore
@@ -227,6 +234,9 @@ class Runtime:
     supplychain_store: SBOMStore
     supplychain_engine: SupplyChainEngine
     supplychain_engine_service: SupplyChainService
+    secrets_store: CryptoStore
+    secrets_engine: SecretsIntelligenceEngine
+    secrets_engine_service: SecretsIntelligenceService
 
 
 class _RuntimeService:
@@ -378,6 +388,19 @@ def _runtime_dspm_config(config: AQELYNConfig) -> DSPMConfig:
     )
 
 
+def _runtime_crypto_config(config: AQELYNConfig) -> CryptoConfig:
+    from aqelyn.secrets import CryptoConfig
+
+    return CryptoConfig(
+        expiry_warning_days=config.secrets_expiry_warning_days,
+        weak_algorithms=config.secrets_weak_algorithms,
+        min_key_sizes=config.secrets_min_key_sizes,
+        max_key_age_days=config.secrets_max_key_age_days,
+        batch_size=config.secrets_batch_size,
+        max_work=config.secrets_max_work,
+    )
+
+
 def _register_runtime_services(
     kernel: AQKernel,
     *,
@@ -443,6 +466,9 @@ def _register_runtime_services(
     saas_posture_engine: SaaSPostureEngine,
     supplychain_store: SBOMStore,
     supplychain_engine: SupplyChainEngine,
+    secrets_store: CryptoStore,
+    secrets_engine: SecretsIntelligenceEngine,
+    secrets_known_surface_source: CryptoKnownSurfaceSource,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -474,6 +500,7 @@ def _register_runtime_services(
     close_cloud_normalization_store: Callable[[], Awaitable[None]] | None = None,
     close_saas_normalization_store: Callable[[], Awaitable[None]] | None = None,
     close_supplychain_store: Callable[[], Awaitable[None]] | None = None,
+    close_secrets_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -501,6 +528,7 @@ def _register_runtime_services(
     CloudPostureService,
     SaaSPostureService,
     SupplyChainService,
+    SecretsIntelligenceService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.cspm.service import CloudPostureService
@@ -518,6 +546,7 @@ def _register_runtime_services(
     from aqelyn.lake.service import DataLakeService
     from aqelyn.response.service import ResponseOrchestrationService
     from aqelyn.risk.service import RiskIntelligenceService
+    from aqelyn.secrets.service import SecretsIntelligenceService
     from aqelyn.soc.service import SecurityOperationsService
     from aqelyn.sspm.service import SaaSPostureService
     from aqelyn.supplychain.service import SupplyChainService
@@ -757,6 +786,20 @@ def _register_runtime_services(
         close_store=close_supplychain_store,
     )
     kernel.register(supplychain_service)
+    secrets_service = SecretsIntelligenceService(
+        secrets_engine,
+        store=secrets_store,
+        known_surface_source=secrets_known_surface_source,
+        owner_services={
+            "inventory_engine": inventory_service,
+            "exposure_engine": exposure_service,
+            "compliance_engine": compliance_service,
+            "trust_engine": trust_service,
+            "workflow_engine": workflow_service,
+        },
+        close_store=close_secrets_store,
+    )
+    kernel.register(secrets_service)
     return (
         graph_service,
         trust_service,
@@ -784,6 +827,7 @@ def _register_runtime_services(
         cloud_service,
         saas_service,
         supplychain_service,
+        secrets_service,
     )
 
 
@@ -871,6 +915,12 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.memory import InMemoryRiskSnapshotStore, InMemoryRiskStore
     from aqelyn.risk.service import register_risk_events
+    from aqelyn.secrets import (
+        CryptoKnownSurfaceSource,
+        InMemoryCryptoStore,
+        SecretsIntelligenceEngine,
+        register_crypto_events,
+    )
     from aqelyn.soc.engine import SecurityOperationsEngine
     from aqelyn.soc.memory import InMemorySOCStore
     from aqelyn.soc.service import register_soc_events
@@ -929,6 +979,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_cloud_events(registry)
     register_saas_events(registry)
     register_supplychain_events(registry)
+    register_crypto_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -1150,13 +1201,18 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         absence_router=saas_inventory_router,
         actor=saas_actor,
     )
-    exposure_store = InMemoryExposureStore(mode=cfg.tenant_mode)
-    exposure_engine = KnownDataExposureEngine(
-        exposure_store,
+    secrets_store = InMemoryCryptoStore(mode=cfg.tenant_mode)
+    secrets_known_surface_source = CryptoKnownSurfaceSource(
         SaaSIntegrationKnownSurfaceSource(
             dspm_known_surface_source,
             saas_normalization_store,
         ),
+        secrets_store,
+    )
+    exposure_store = InMemoryExposureStore(mode=cfg.tenant_mode)
+    exposure_engine = KnownDataExposureEngine(
+        exposure_store,
+        secrets_known_surface_source,
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -1177,6 +1233,18 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         compliance_owner=compliance_engine,
         finding_store=finding_store,
         workflow_engine=workflow_engine,
+    )
+    secrets_engine = SecretsIntelligenceEngine(
+        secrets_store,
+        object_store=object_store,
+        inventory=inventory_engine,
+        evidence_store=evidence_store,
+        trust=trust_engine,
+        exposure_owner=exposure_engine,
+        compliance_owner=compliance_engine,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        config=_runtime_crypto_config(cfg),
     )
     vuln_store = InMemoryVulnerabilityStore(mode=cfg.tenant_mode)
     vuln_engine = VulnerabilityIntelligenceEngine(
@@ -1256,6 +1324,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cloud_posture_service,
         saas_posture_service,
         supplychain_engine_service,
+        secrets_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1320,6 +1389,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         saas_posture_engine=saas_posture_engine,
         supplychain_store=supplychain_store,
         supplychain_engine=supplychain_engine,
+        secrets_store=secrets_store,
+        secrets_engine=secrets_engine,
+        secrets_known_surface_source=secrets_known_surface_source,
     )
     return Runtime(
         kernel=kernel,
@@ -1412,6 +1484,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         supplychain_store=supplychain_store,
         supplychain_engine=supplychain_engine,
         supplychain_engine_service=supplychain_engine_service,
+        secrets_store=secrets_store,
+        secrets_engine=secrets_engine,
+        secrets_engine_service=secrets_engine_service,
     )
 
 
@@ -1501,6 +1576,12 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     from aqelyn.risk.engine import RiskIntelligenceEngine
     from aqelyn.risk.postgres import PostgresRiskSnapshotStore, PostgresRiskStore
     from aqelyn.risk.service import register_risk_events
+    from aqelyn.secrets import (
+        CryptoKnownSurfaceSource,
+        PostgresCryptoStore,
+        SecretsIntelligenceEngine,
+        register_crypto_events,
+    )
     from aqelyn.soc.engine import SecurityOperationsEngine
     from aqelyn.soc.postgres import PostgresSOCStore
     from aqelyn.soc.service import register_soc_events
@@ -1564,6 +1645,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_cloud_events(registry)
     register_saas_events(registry)
     register_supplychain_events(registry)
+    register_crypto_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -1833,16 +1915,24 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         absence_router=saas_inventory_router,
         actor=saas_actor,
     )
+    secrets_store = await PostgresCryptoStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
+    secrets_known_surface_source = CryptoKnownSurfaceSource(
+        SaaSIntegrationKnownSurfaceSource(
+            dspm_known_surface_source,
+            saas_normalization_store,
+        ),
+        secrets_store,
+    )
     exposure_store = await PostgresExposureStore.connect(
         cfg.database_url,
         mode=cfg.tenant_mode,
     )
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
-        SaaSIntegrationKnownSurfaceSource(
-            dspm_known_surface_source,
-            saas_normalization_store,
-        ),
+        secrets_known_surface_source,
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -1863,6 +1953,18 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         compliance_owner=compliance_engine,
         finding_store=finding_store,
         workflow_engine=workflow_engine,
+    )
+    secrets_engine = SecretsIntelligenceEngine(
+        secrets_store,
+        object_store=object_store,
+        inventory=inventory_engine,
+        evidence_store=evidence_store,
+        trust=trust_engine,
+        exposure_owner=exposure_engine,
+        compliance_owner=compliance_engine,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
+        config=_runtime_crypto_config(cfg),
     )
     vuln_store = await PostgresVulnerabilityStore.connect(
         cfg.database_url,
@@ -1951,6 +2053,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cloud_posture_service,
         saas_posture_service,
         supplychain_engine_service,
+        secrets_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -2015,6 +2118,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         saas_posture_engine=saas_posture_engine,
         supplychain_store=supplychain_store,
         supplychain_engine=supplychain_engine,
+        secrets_store=secrets_store,
+        secrets_engine=secrets_engine,
+        secrets_known_surface_source=secrets_known_surface_source,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -2046,6 +2152,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_cloud_normalization_store=cloud_normalization_store.close,
         close_saas_normalization_store=saas_normalization_store.close,
         close_supplychain_store=supplychain_store.close,
+        close_secrets_store=secrets_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -2138,4 +2245,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         supplychain_store=supplychain_store,
         supplychain_engine=supplychain_engine,
         supplychain_engine_service=supplychain_engine_service,
+        secrets_store=secrets_store,
+        secrets_engine=secrets_engine,
+        secrets_engine_service=secrets_engine_service,
     )
