@@ -65,6 +65,10 @@ PREFIXES: dict[str, str] = {
     "dsa": "data_asset",
     "dxe": "data_exposure",
     "dpa": "data_posture_assessment",
+    "sct": "secret_asset",
+    "cky": "cryptographic_key",
+    "x509": "x509_certificate",
+    "cas": "crypto_assessment",
     "svc": "service",
 }
 

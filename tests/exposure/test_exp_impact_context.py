@@ -161,6 +161,22 @@ def _context(*, evidence_id: str, factor: float, sensitivity: str) -> ExposureIm
     )
 
 
+def test_exp_impact_context_kind_default_compat() -> None:
+    evidence_id = new_id("evd")
+    implicit = _context(evidence_id=evidence_id, factor=0.8, sensitivity="pii")
+    explicit = ExposureImpactContext(
+        kind="data_sensitivity",
+        status="known",
+        factor=0.8,
+        source_ref="dspm:data_asset:pii",
+        evidence_id=evidence_id,
+        reason="DSPM classified the store as pii.",
+    )
+
+    assert implicit.kind == "data_sensitivity"
+    assert implicit == explicit
+
+
 def _engine(store: ExposureStore, evidence: EvidenceRecord) -> KnownDataExposureEngine:
     return KnownDataExposureEngine(
         store,
@@ -222,6 +238,36 @@ async def test_exp_impact_context() -> None:
     assert pii.derivation.steps[1].params["impact_context"] == pii.impact_context.model_dump(
         mode="json"
     )
+
+
+@pytest.mark.parametrize("backend", ["inmemory", "postgres"])
+async def test_exp_credential_impact_context_replay(backend: str) -> None:
+    evidence_id = new_id("evd")
+    evidence = _evidence(evidence_id)
+    context = ExposureImpactContext(
+        kind="credential_sensitivity",
+        status="known",
+        factor=1.0,
+        source_ref="secrets:crypto_asset:private_key",
+        evidence_id=evidence_id,
+        reason="EA-0032 identified credential material at this surface.",
+    )
+    async with _store(backend) as store:
+        scored = await _engine(store, evidence).score_exposure(
+            _exposure(evidence_id=evidence_id),
+            impact_context=context,
+        )
+        saved = await store.put(scored)
+        loaded = await store.get(saved.id, tenant_id=TENANT)
+
+        assert loaded is not None
+        assert loaded.impact_context is not None
+        assert loaded.impact_context.kind == "credential_sensitivity"
+        assert loaded.derivation is not None
+        assert loaded.derivation.steps[1].params["impact_context"]["kind"] == (
+            "credential_sensitivity"
+        )
+        assert validate_replayable_exposure(loaded) == loaded
 
 
 async def test_exp_impact_context_unknown_or_tampered() -> None:

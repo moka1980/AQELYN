@@ -512,6 +512,23 @@ class ClassificationUnavailable(AQError):
     code = "ClassificationUnavailable"
 
 
+# --- EA-0032 ---
+class CryptoConfigInvalid(AQError):
+    code = "CryptoConfigInvalid"
+
+
+class SecretValueRejected(AQError):
+    code = "SecretValueRejected"
+
+
+class CryptoAssetNotFound(AQError):
+    code = "CryptoAssetNotFound"
+
+
+class CertificateNotFound(AQError):
+    code = "CertificateNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"
