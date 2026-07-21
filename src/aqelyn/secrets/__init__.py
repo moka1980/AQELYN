@@ -1,6 +1,7 @@
 """Secrets Security and Cryptographic Asset Intelligence public API (EA-0032)."""
 
 from aqelyn.secrets.engine import SecretsIntelligenceEngine
+from aqelyn.secrets.exposure import CryptoKnownSurfaceSource
 from aqelyn.secrets.lifecycle import CertificateAuthenticityVerifier
 from aqelyn.secrets.memory import InMemoryCryptoStore
 from aqelyn.secrets.models import (
@@ -65,6 +66,7 @@ __all__ = [
     "CryptoConfig",
     "CryptoConflictCandidate",
     "CryptoExposureStatus",
+    "CryptoKnownSurfaceSource",
     "CryptoQuery",
     "CryptoScope",
     "CryptoStore",

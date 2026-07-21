@@ -4,7 +4,7 @@
 **Implementer:** Codex
 **Reviewer:** Claude Code
 **Prerequisites:** C-028 merged and green; EA-0032 Accepted;
-ECR-0043/ECR-0044/ECR-0045/ECR-0046 logged;
+ECR-0043/ECR-0044/ECR-0045/ECR-0046/ECR-0047/ECR-0048 logged;
 EA-0032 sections 0, 1, and 4 read before implementation.
 
 **Definition of Done:** all acceptance tests pass on in-memory and Postgres;
@@ -97,6 +97,8 @@ store belongs in this package.
   evidence, verifier output, and result evidence bind the exact fingerprint and
   basis evidence id (ECR-0046).
 - `unknown_lifecycle` is counted in semantic assessment coverage.
+- Direct missing-evidence reads still refuse; batch assessment records only the
+  affected asset unknown and continues (ECR-0047/AC-19).
 
 **Acceptance:** AC-3, AC-4, AC-5, AC-6, AC-12.
 
@@ -119,7 +121,9 @@ store belongs in this package.
   cannot reduce EA-0023 scoring, and the exact semantic kind is replay-pinned.
   Unknown reachability remains pending.
 - Real EA-0010 compliance delegation and evidence-backed, non-automatic
-  findings for EA-0013. No new `SignalKind`.
+  findings for EA-0013. The exact replayable EA-0023 scored record is persisted,
+  read tenant-scoped, and used by the owner finding path (ECR-0048). No new
+  `SignalKind`.
 - Finding-driven rotation/revocation playbook proposed with
   `requires_approval=True` and `source_finding=finding`. Drive the real EA-0008
   engine through approval and prove execution is refused by eligibility `none`;
