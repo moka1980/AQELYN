@@ -51,6 +51,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0044 | EA-0023 + EA-0032 | Accepted | Add a semantic `credential_sensitivity` exposure-impact kind while preserving `data_sensitivity` as the default; crypto contexts must name their real meaning in the replayable derivation. |
 | ECR-0045 | EA-0032 | Accepted | Make W2 reconciliation and W3 key lifecycle durable: crypto assets retain typed evidence-backed conflicts, key/certificate observation time, key rotation time, and one stable fingerprint identity lookup. |
 | ECR-0046 | EA-0032 | Accepted | Bind descriptor evidence and certificate-authenticity results to the exact crypto fingerprint and basis evidence before any known lifecycle state can be recorded. |
+| ECR-0047 | EA-0032 | Accepted | Keep single-asset missing-evidence refusal, but make batch assessment continue with that asset explicitly unknown and counted instead of denying all tenant posture. |
+| ECR-0048 | EA-0023 + EA-0032 | Accepted | Add an atomic persisted analyze-and-score owner path plus tenant-scoped exposure read so crypto findings cite the real replayable EA-0023 record without a second scorer. |
 
 ---
 
@@ -2184,3 +2186,64 @@ migration is required: crypto assets and assessment records are JSONB, while
 `AuthenticityCheck` is an adapter result rather than a stored table row. No
 secret or private-key value is introduced; the only added material is a one-way
 fingerprint and an evidence id.
+
+---
+
+## ECR-0047 - represent per-asset missing evidence in batch coverage
+
+**Raised by:** Claude Code (post-C-029 W3 review against EA-0032 S7).
+**Severity:** blocking follow-up before W4 - the Accepted failure rule and
+semantic coverage invariant contradict each other during tenant assessment.
+
+**Problem.** EA-0032 section 11 says missing evidence refuses, while S7 says an
+assessment reports semantic `pending|complete|truncated` coverage. The shipped
+single-asset behavior correctly raises `EvidenceNotFound`, but `assess()` uses
+the same path and aborts the entire tenant run when one previously valid basis
+record has been legitimately purged. No assessment is emitted, so operators
+cannot distinguish "nothing was assessed" from "all but this asset was
+assessed".
+
+**Resolution.** Keep `assess_certificate()` and `assess_key()` strict: a missing
+basis record still raises. During bounded batch `assess()`, catch only
+`EvidenceNotFound` per asset, persist that asset's lifecycle as explicit
+`unknown` with the missing evidence id named in the reason, count it in
+`unknown_lifecycle`, and continue. Tamper, cross-tenant mismatch, and programming
+errors still abort. Complete/truncated continues to describe source coverage;
+unknown lifecycle describes the result quality inside that coverage.
+
+**Impact.** Additive W4 follow-up over the existing JSONB asset revisions; no
+schema migration. EA-0032 FR-6/FR-11, failure handling, and C-029 AC-19 are
+amended. The assessment evidence lists every evaluated asset and the unknown
+count, so absence is visible rather than converted to a favourable result.
+
+---
+
+## ECR-0048 - persist scored owner exposure before crypto findings cite it
+
+**Raised by:** Codex (C-029 W4 implementation against the shipped EA-0023
+store/engine contract).
+**Severity:** blocking within W4 - the Accepted handoff cannot make a replayable
+scored owner record durable without duplicating owner logic.
+
+**Problem.** EA-0032 must delegate scoring and findings to EA-0023. Shipped
+`analyze_exposure()` persists an unscored record, while `score_exposure()`
+returns a scored copy that cannot replace that immutable id. EA-0032 has no
+owner method to atomically persist the scored form and no tenant-scoped engine
+read with which to reconstruct it for a later finding. Citing the unscored id
+would lose ECR-0044's replay-pinned `credential_sensitivity`; rebuilding a
+finding from the transient result would create a second severity/scoring path.
+
+**Resolution.** EA-0023 additively exposes
+`analyze_scored_exposure(asset_ref, impact_context, tenant_id)`: derive from the
+real `KnownSurfaceSource`, leave unknown reachability unscored, otherwise score
+through the existing EA-0006/0007/0013 composition, and persist exactly that
+validated result once. Add tenant-scoped `get_exposure()` and include the pinned
+impact context in the owner finding's expert detail. EA-0032 loads that record,
+validates its crypto asset/context binding, and delegates finding creation back
+to EA-0023.
+
+**Impact.** Additive owner methods and finding detail only; existing
+`analyze_exposure()` and `score_exposure()` behavior is unchanged. No DDL change:
+EA-0023 already persists `impact_context` and derivation. C-029 W4 proves the
+record round-trips on both stores, omitted-context v1 scoring remains unchanged,
+and the finding path uses no new `SignalKind` or crypto-local scorer.

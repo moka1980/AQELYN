@@ -5,7 +5,7 @@
 **Consumed by:** EA-0023, EA-0013, and a future secrets/crypto UI
 **Status:** Accepted
 **Build milestone:** C-029 (see `C-029_Task_Bundle.md`)
-**Change control:** ECR-0043, ECR-0044, ECR-0045, ECR-0046
+**Change control:** ECR-0043, ECR-0044, ECR-0045, ECR-0046, ECR-0047, ECR-0048
 
 ---
 
@@ -268,6 +268,7 @@ class SecretsIntelligenceEngine(Protocol):
     async def assess_certificate(self, certificate_id: str, *, tenant_id: str | None) -> CertificateAsset: ...
     async def assess_key(self, key_id: str, *, tenant_id: str | None) -> CryptographicKey: ...
     async def analyze_exposure(self, *, tenant_id: str | None, scope: CryptoScope | None = None) -> list[CryptographicExposure]: ...
+    async def exposures_to_findings(self, exposures: Sequence[CryptographicExposure], *, tenant_id: str | None, by: ActorRef) -> list[str]: ...
     async def crypto_compliance(self, *, tenant_id: str | None, scope: ObjectQuery) -> ComplianceSnapshot: ...
     async def assess(self, *, tenant_id: str | None, scope: CryptoScope | None = None) -> CryptoAssessment: ...
     async def propose_rotation(self, finding_id: str, *, tenant_id: str | None, by: ActorRef, reason: str) -> Run: ...
@@ -313,7 +314,9 @@ exposure, compliance, or risk engine.
    proposes EA-0008 Workflow with that exact finding bound and never executes.
 6. **Assessment:** page the crypto store under `max_work`. Cursor exhaustion is
    complete; budget exhaustion is truncated; an unstarted/refused run remains
-   pending. Persist counts and evidence only in a state-consistent record.
+   pending. A missing basis during a single-asset assessment refuses; during a
+   batch it makes only that asset's lifecycle unknown and counted (ECR-0047).
+   Persist counts and evidence only in a state-consistent record.
 
 ## 7. Functional requirements
 
@@ -332,14 +335,18 @@ exposure, compliance, or risk engine.
   Descriptor evidence and verifier output MUST bind to the exact fingerprint;
   the verifier output MUST also bind to the checked basis evidence id
   (ECR-0046).
-- **FR-6:** Missing/tampered evidence refuses; retriable unavailability is
-  explicitly pending/unknown and cannot improve posture.
+- **FR-6:** Missing/tampered evidence refuses for direct asset operations;
+  retriable unavailability is explicitly pending/unknown and cannot improve
+  posture. Batch assessment treats a per-asset missing basis as unknown and
+  counted while tamper still refuses (ECR-0047).
 - **FR-7:** Assets route to EA-0025 and retain distinct `obj_` and `ast_` ids.
 - **FR-8:** Exposure delegates through EA-0023's real source/context seam and
   explicitly supplies `kind="credential_sensitivity"` (ECR-0044); the module
   performs no reachability or exposure scoring.
-- **FR-9:** Compliance delegates to EA-0010; risk uses evidence-backed findings
-  through EA-0013; no new `SignalKind` exists.
+- **FR-9:** Compliance delegates to EA-0010; crypto exposure scoring and finding
+  construction delegate to the persisted replayable EA-0023 owner record
+  (ECR-0048), which reaches EA-0013 through the existing finding path; no new
+  `SignalKind` exists.
 - **FR-10:** Rotation/revocation only proposes a `requires_approval=True` EA-0008
   run with `source_finding` bound. Before proposing, the loaded finding's tenant
   SHALL match the explicit request tenant. No effect executes in this module.
@@ -378,6 +385,7 @@ exposure, compliance, or risk engine.
 | AC-16 | Invalid config and cross-tenant references are refused | `test_crypto_config_and_tenant_scope` |
 | AC-17 | Exactly four owned events carry fingerprints/references only | `test_crypto_events_value_free` |
 | AC-18 | Both factory runtimes exercise local and enterprise health; import isolation holds | `test_crypto_service_health` |
+| AC-19 | One missing asset basis makes that batch asset unknown+counted while the batch continues; direct assessment and tamper still refuse | `test_crypto_batch_missing_evidence_unknown` |
 
 ## 9. Error taxonomy and ids
 
@@ -409,6 +417,9 @@ exposure, and remediation events remain with their existing owners.
   finding whose tenant differs from the explicit request tenant: refuse before
   write or proposal.
 - Missing or tampered evidence: refuse; do not route to owners.
+- During bounded batch assessment only, a missing per-asset basis becomes that
+  asset's explicit unknown lifecycle and is counted; tamper still refuses
+  (ECR-0047).
 - Retriable owner outage: store valid domain records, mark dependent assessment
   pending/unknown with reason, and do not fabricate a favourable owner result.
 - Authenticity verifier absent/unavailable: authenticity unknown and flagged;
@@ -438,6 +449,10 @@ until ECR-0034 is implemented. C-029 neither fixes nor deepens ECR-0034.
   durable, with one stable fingerprint identity per tenant and asset kind.
 - ECR-0046 binds descriptor evidence and authenticity results to the exact
   fingerprint and basis evidence before a known lifecycle state can exist.
+- ECR-0047 reconciles strict point reads with semantic batch coverage by
+  continuing only on a per-asset missing basis, recorded as unknown.
+- ECR-0048 persists the real EA-0023 scored record before crypto findings cite
+  it; EA-0032 neither scores nor reconstructs the owner conclusion.
 - Live Vault/KMS/HSM/repository collection is deferred to gated connectors.
 - PKI issuance, CA operation, and key custody remain out of scope.
 - UI is deferred; a future surface must be WCAG 2.2 AA and must never reveal a

@@ -1,13 +1,15 @@
-"""Secrets and cryptographic-asset engine (EA-0032 W2-W3)."""
+"""Secrets and cryptographic-asset engine (EA-0032 W2-W4)."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Protocol
 
 from aqelyn.conventions import (
     ActorRef,
     new_id,
+    parse_id,
     require_tenant_id,
     require_typed_id,
     utc_now,
@@ -19,14 +21,20 @@ from aqelyn.conventions.errors import (
     CrossTenantReference,
     CryptoAssetNotFound,
     CryptoConfigInvalid,
+    EvidenceNotFound,
     EvidenceTampered,
+    FindingNotFound,
     StoreUnavailable,
 )
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
+from aqelyn.exposure import AssetRef, ExposureImpactContext, ExposureRecord
+from aqelyn.findings import Finding, FindingStore
+from aqelyn.governance import ComplianceSnapshot
 from aqelyn.inventory import DiscoverySource
-from aqelyn.objects import ObjectStore
+from aqelyn.objects import ObjectQuery, ObjectStore
 from aqelyn.secrets.ingest import (
+    CRYPTO_OBJECT_TYPES,
     CryptoInventoryOwner,
     PreparedDescriptor,
     TrustAssessor,
@@ -56,6 +64,7 @@ from aqelyn.secrets.models import (
     CryptoAsset,
     CryptoAssetKind,
     CryptoConfig,
+    CryptographicExposure,
     CryptographicKey,
     CryptographicKeyDescriptor,
     CryptoQuery,
@@ -65,8 +74,53 @@ from aqelyn.secrets.models import (
     SecretScanDescriptor,
 )
 from aqelyn.secrets.store import CryptoStore
+from aqelyn.workflow import Playbook, Run, Step
 
 _SECRETS_ACTOR = ActorRef(actor_type="system", actor_id="secrets_engine")
+
+
+class CryptoExposureOwner(Protocol):
+    async def analyze_scored_exposure(
+        self,
+        *,
+        asset_ref: AssetRef,
+        impact_context: ExposureImpactContext,
+        tenant_id: str | None,
+    ) -> ExposureRecord: ...
+
+    async def get_exposure(
+        self,
+        exposure_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> ExposureRecord | None: ...
+
+    async def raise_exposure_finding(
+        self,
+        exposure: ExposureRecord,
+        *,
+        by: ActorRef | None = None,
+    ) -> Finding: ...
+
+
+class CryptoComplianceOwner(Protocol):
+    async def assess(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: ObjectQuery | None = None,
+        record_evidence: bool = True,
+    ) -> ComplianceSnapshot: ...
+
+
+class WorkflowProposer(Protocol):
+    async def propose(
+        self,
+        playbook: Playbook,
+        *,
+        by: ActorRef,
+        source_finding: Finding | None = None,
+    ) -> Run: ...
 
 
 class SecretsIntelligenceEngine:
@@ -79,6 +133,10 @@ class SecretsIntelligenceEngine:
         evidence_store: EvidenceStore,
         trust: TrustAssessor,
         authenticity_verifier: CertificateAuthenticityVerifier | None = None,
+        exposure_owner: CryptoExposureOwner | None = None,
+        compliance_owner: CryptoComplianceOwner | None = None,
+        finding_store: FindingStore | None = None,
+        workflow_engine: WorkflowProposer | None = None,
         config: CryptoConfig | None = None,
         actor: ActorRef | None = None,
         source_id: str | None = None,
@@ -89,6 +147,10 @@ class SecretsIntelligenceEngine:
         self.evidence_store = evidence_store
         self.trust = trust
         self.authenticity_verifier = authenticity_verifier
+        self.exposure_owner = exposure_owner
+        self.compliance_owner = compliance_owner
+        self.finding_store = finding_store
+        self.workflow_engine = workflow_engine
         self.config = config or CryptoConfig()
         self.actor = actor or _SECRETS_ACTOR
         self.source_id = require_typed_id(
@@ -171,12 +233,15 @@ class SecretsIntelligenceEngine:
         now = utc_now()
         assessed: list[CryptoAsset] = []
         for asset in selected:
-            if isinstance(asset, CertificateAsset):
-                assessed.append(await self._assess_certificate(asset, now=now))
-            elif isinstance(asset, CryptographicKey):
-                assessed.append(await self._assess_key(asset, now=now))
-            else:
-                assessed.append(asset.model_copy(deep=True))
+            try:
+                if isinstance(asset, CertificateAsset):
+                    assessed.append(await self._assess_certificate(asset, now=now))
+                elif isinstance(asset, CryptographicKey):
+                    assessed.append(await self._assess_key(asset, now=now))
+                else:
+                    assessed.append(asset.model_copy(deep=True))
+            except EvidenceNotFound:
+                assessed.append(await self._record_missing_basis(asset))
 
         certificates = [asset for asset in assessed if isinstance(asset, CertificateAsset)]
         keys = [asset for asset in assessed if isinstance(asset, CryptographicKey)]
@@ -220,6 +285,193 @@ class SecretsIntelligenceEngine:
         )
         return await self.store.put_assessment(assessment)
 
+    async def analyze_exposure(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: CryptoScope | None = None,
+    ) -> list[CryptographicExposure]:
+        selected_tenant = require_tenant_id(tenant_id)
+        owner = self.exposure_owner
+        if owner is None:
+            raise StoreUnavailable("EA-0023 crypto exposure owner is unavailable")
+        selected_scope = scope or CryptoScope()
+        assets, truncated = await self._bounded_assets(tenant_id=selected_tenant)
+        if truncated:
+            raise StoreUnavailable(
+                "crypto exposure analysis exceeded max_work; refusing partial results"
+            )
+        results: list[CryptographicExposure] = []
+        for asset in assets:
+            if not _in_scope(asset, selected_scope):
+                continue
+            integrity, _ = await self._basis_integrity(asset)
+            if integrity.status != "valid":
+                results.append(
+                    _pending_crypto_exposure(
+                        asset,
+                        reason="Credential sensitivity is unknown until evidence is readable.",
+                    )
+                )
+                continue
+            context = _credential_impact_context(asset)
+            owner_record = await owner.analyze_scored_exposure(
+                asset_ref=_crypto_asset_ref(asset),
+                impact_context=context,
+                tenant_id=selected_tenant,
+            )
+            _validate_owner_exposure(asset, owner_record, expected_context=context)
+            if owner_record.reachability == "unknown":
+                results.append(
+                    _pending_crypto_exposure(
+                        asset,
+                        reason=owner_record.rationale,
+                    )
+                )
+                continue
+            results.append(
+                CryptographicExposure(
+                    id=f"crypto-exposure:{asset.id}:{owner_record.id}",
+                    tenant_id=selected_tenant,
+                    asset_id=asset.id,
+                    surface_ref=asset.inventory_ref,
+                    object_id=asset.object_id,
+                    exposure_record_id=owner_record.id,
+                    status="confirmed",
+                    impact_context=context,
+                    reason=owner_record.rationale,
+                    evidence_id=asset.evidence_id,
+                )
+            )
+        return [item.model_copy(deep=True) for item in results]
+
+    async def exposures_to_findings(
+        self,
+        exposures: Sequence[CryptographicExposure],
+        *,
+        tenant_id: str | None,
+        by: ActorRef,
+    ) -> list[str]:
+        selected_tenant = require_tenant_id(tenant_id)
+        owner = self.exposure_owner
+        if owner is None:
+            raise StoreUnavailable("EA-0023 crypto finding owner is unavailable")
+        finding_ids: list[str] = []
+        for exposure in exposures:
+            if exposure.tenant_id != selected_tenant:
+                raise CrossTenantReference("crypto exposure tenant does not match request tenant")
+            if exposure.status != "confirmed":
+                continue
+            if exposure.exposure_record_id is None:
+                raise CryptoConfigInvalid("confirmed crypto exposure lacks an owner record")
+            asset = await self.store.get_asset(
+                exposure.asset_id,
+                tenant_id=selected_tenant,
+            )
+            if asset is None:
+                raise CryptoAssetNotFound(exposure.asset_id)
+            owner_record = await owner.get_exposure(
+                exposure.exposure_record_id,
+                tenant_id=selected_tenant,
+            )
+            if owner_record is None:
+                raise CryptoConfigInvalid(
+                    f"EA-0023 exposure record not found: {exposure.exposure_record_id}"
+                )
+            _validate_owner_exposure(
+                asset,
+                owner_record,
+                expected_context=exposure.impact_context,
+            )
+            finding = await owner.raise_exposure_finding(owner_record, by=by)
+            finding_ids.append(finding.id)
+        return finding_ids
+
+    async def crypto_compliance(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: ObjectQuery,
+    ) -> ComplianceSnapshot:
+        selected_tenant = require_tenant_id(tenant_id)
+        if scope.tenant_id not in (None, selected_tenant):
+            raise CrossTenantReference(
+                "crypto compliance scope tenant does not match request tenant"
+            )
+        crypto_types = set(CRYPTO_OBJECT_TYPES.values())
+        if scope.object_type not in crypto_types:
+            raise CryptoConfigInvalid("crypto compliance scope requires one crypto object_type")
+        owner = self.compliance_owner
+        if owner is None:
+            raise StoreUnavailable("EA-0010 crypto compliance owner is unavailable")
+        selected_scope = scope.model_copy(
+            update={"tenant_id": selected_tenant},
+            deep=True,
+        )
+        return await owner.assess(
+            tenant_id=selected_tenant,
+            scope=selected_scope,
+        )
+
+    async def propose_rotation(
+        self,
+        finding_id: str,
+        *,
+        tenant_id: str | None,
+        by: ActorRef,
+        reason: str,
+    ) -> Run:
+        selected_tenant = require_tenant_id(tenant_id)
+        if not reason.strip():
+            raise CryptoConfigInvalid("rotation proposal reason must not be empty")
+        if self.finding_store is None:
+            raise StoreUnavailable("crypto finding read path is unavailable")
+        if self.workflow_engine is None:
+            raise StoreUnavailable("EA-0008 crypto proposal path is unavailable")
+        finding = await self.finding_store.get(finding_id)
+        if finding is None:
+            raise FindingNotFound(finding_id)
+        if finding.tenant_id != selected_tenant:
+            raise CrossTenantReference("finding tenant does not match rotation request tenant")
+        if (
+            finding.finding_type != "attack_surface_exposure"
+            or finding.source_engine != "exposure_engine"
+        ):
+            raise CryptoConfigInvalid("rotation requires an EA-0023 exposure finding")
+        context = _finding_credential_context(finding)
+        asset = await self.store.get_asset(
+            context.source_ref,
+            tenant_id=selected_tenant,
+        )
+        if asset is None:
+            raise CryptoAssetNotFound(context.source_ref)
+        if context.evidence_id != asset.evidence_id:
+            raise CryptoConfigInvalid("finding evidence is not bound to the crypto asset")
+        if asset.object_id not in finding.affected_object_ids:
+            raise CryptoConfigInvalid("finding is not bound to the crypto asset object")
+        if finding.automation.eligibility != "none":
+            raise CryptoConfigInvalid("crypto rotation requires a non-automatic finding")
+        return await self.workflow_engine.propose(
+            _rotation_playbook(asset, finding=finding, reason=reason),
+            by=by,
+            source_finding=finding,
+        )
+
+    def explain(self, asset: CryptoAsset) -> dict[str, object]:
+        lifecycle = _asset_lifecycle(asset)
+        return {
+            "asset_id": asset.id,
+            "asset_kind": crypto_asset_kind(asset),
+            "fingerprint": asset.fingerprint,
+            "object_id": asset.object_id,
+            "inventory_ref": asset.inventory_ref,
+            "claim_confidence": asset.claim_confidence,
+            "source_id": asset.source_id,
+            "evidence_id": asset.evidence_id,
+            "lifecycle": {name: value.model_dump(mode="json") for name, value in lifecycle.items()},
+            "conflicts": [item.model_dump(mode="json") for item in asset.conflicts],
+        }
+
     async def _assess_certificate(
         self,
         asset: CertificateAsset,
@@ -258,6 +510,31 @@ class SecretsIntelligenceEngine:
             raise StoreUnavailable("CryptoStore returned a non-certificate asset")
         return stored
 
+    async def _record_missing_basis(self, asset: CryptoAsset) -> CryptoAsset:
+        reason = f"Lifecycle is unknown because cited evidence {asset.evidence_id} was not found."
+        if isinstance(asset, CertificateAsset):
+            updated: CryptoAsset = CertificateAsset.model_validate(
+                {
+                    **asset.model_dump(mode="python"),
+                    "expiry": Lifecycle(reason=reason),
+                    "chain": Lifecycle(reason=reason),
+                    "revocation": Lifecycle(reason=reason),
+                    "integrity": Lifecycle(reason=reason),
+                    "authenticity": Lifecycle(reason=reason),
+                }
+            )
+        elif isinstance(asset, CryptographicKey):
+            updated = CryptographicKey.model_validate(
+                {
+                    **asset.model_dump(mode="python"),
+                    "strength": Lifecycle(reason=reason),
+                    "rotation": Lifecycle(reason=reason),
+                }
+            )
+        else:
+            return asset.model_copy(deep=True)
+        return await self.store.put_asset(updated)
+
     async def _assess_key(
         self,
         asset: CryptographicKey,
@@ -285,7 +562,7 @@ class SecretsIntelligenceEngine:
 
     async def _basis_integrity(
         self,
-        asset: CertificateAsset | CryptographicKey,
+        asset: CryptoAsset,
     ) -> tuple[Lifecycle, EvidenceRecord | None]:
         try:
             evidence = await self.evidence_store.get(asset.evidence_id, actor=self.actor)
@@ -589,3 +866,148 @@ def _has_unknown_lifecycle(asset: CryptoAsset) -> int:
             )
         )
     )
+
+
+def _crypto_asset_ref(asset: CryptoAsset) -> AssetRef:
+    return AssetRef(
+        kind="cert" if isinstance(asset, CertificateAsset) else "asset",
+        ref_id=asset.inventory_ref,
+        object_id=asset.object_id,
+        evidence_id=asset.evidence_id,
+    )
+
+
+def _credential_impact_context(asset: CryptoAsset) -> ExposureImpactContext:
+    return ExposureImpactContext(
+        kind="credential_sensitivity",
+        status="known",
+        factor=1.0,
+        source_ref=asset.id,
+        evidence_id=asset.evidence_id,
+        reason=(
+            f"EA-0032 identified {crypto_asset_kind(asset)} metadata whose compromise "
+            "would expose credential or cryptographic capability."
+        ),
+    )
+
+
+def _pending_crypto_exposure(
+    asset: CryptoAsset,
+    *,
+    reason: str,
+) -> CryptographicExposure:
+    return CryptographicExposure(
+        id=f"crypto-exposure-pending:{asset.id}",
+        tenant_id=asset.tenant_id,
+        asset_id=asset.id,
+        surface_ref=asset.inventory_ref,
+        object_id=asset.object_id,
+        exposure_record_id=None,
+        status="reachability_pending",
+        impact_context=ExposureImpactContext(
+            kind="credential_sensitivity",
+            status="unknown",
+            factor=None,
+            source_ref=asset.id,
+            evidence_id=asset.evidence_id,
+            reason=reason,
+        ),
+        reason=reason,
+        evidence_id=asset.evidence_id,
+    )
+
+
+def _validate_owner_exposure(
+    asset: CryptoAsset,
+    exposure: ExposureRecord,
+    *,
+    expected_context: ExposureImpactContext,
+) -> None:
+    if exposure.tenant_id != asset.tenant_id:
+        raise CrossTenantReference("EA-0023 exposure belongs to another tenant")
+    expected_ref = _crypto_asset_ref(asset)
+    if exposure.asset_ref != expected_ref:
+        raise CryptoConfigInvalid("EA-0023 exposure is bound to a different crypto asset")
+    if exposure.reachability == "unknown":
+        if exposure.score is not None or exposure.derivation is not None:
+            raise CryptoConfigInvalid("unknown EA-0023 reachability cannot be scored")
+        return
+    if exposure.impact_context != expected_context:
+        raise CryptoConfigInvalid(
+            "EA-0023 exposure did not preserve credential_sensitivity context"
+        )
+    if exposure.score is None or exposure.derivation is None:
+        raise CryptoConfigInvalid("known EA-0023 exposure lacks replayable scoring")
+
+
+def _finding_credential_context(finding: Finding) -> ExposureImpactContext:
+    details = finding.expert_details
+    raw = None if details is None else details.get("impact_context")
+    if not isinstance(raw, dict):
+        raise CryptoConfigInvalid("finding does not carry a crypto exposure impact context")
+    context = ExposureImpactContext.model_validate(raw)
+    if context.kind != "credential_sensitivity" or context.status != "known":
+        raise CryptoConfigInvalid("finding is not a known credential-sensitivity exposure")
+    try:
+        prefix, _ = parse_id(context.source_ref)
+    except ValueError as exc:
+        raise CryptoConfigInvalid("impact context source_ref is not a crypto asset id") from exc
+    if prefix not in {"sct", "cky", "x509"}:
+        raise CryptoConfigInvalid("impact context source_ref is not a crypto asset id")
+    return context
+
+
+def _rotation_playbook(
+    asset: CryptoAsset,
+    *,
+    finding: Finding,
+    reason: str,
+) -> Playbook:
+    action = "crypto.revoke_certificate" if isinstance(asset, CertificateAsset) else "crypto.rotate"
+    return Playbook(
+        id=f"secrets-{action.replace('.', '-')}-{finding.id}",
+        version=1,
+        name=(
+            "Propose certificate revocation"
+            if isinstance(asset, CertificateAsset)
+            else "Propose credential rotation"
+        ),
+        description=(
+            "EA-0032 proposes only; EA-0008 re-validates capability, approval, "
+            "and finding eligibility before execution."
+        ),
+        tenant_id=asset.tenant_id,
+        steps=[
+            Step(
+                id="review-and-remediate",
+                action_type=action,
+                inputs={
+                    "crypto_asset_id": asset.id,
+                    "object_id": asset.object_id,
+                    "inventory_ref": asset.inventory_ref,
+                    "finding_id": finding.id,
+                    "evidence_id": asset.evidence_id,
+                    "reason": reason,
+                },
+                idempotency_key=f"secrets:{finding.id}:{action}",
+                requires_approval=True,
+            )
+        ],
+    )
+
+
+def _asset_lifecycle(asset: CryptoAsset) -> dict[str, Lifecycle]:
+    if isinstance(asset, SecretAsset):
+        return {"rotation": asset.rotation.model_copy(deep=True)}
+    if isinstance(asset, CryptographicKey):
+        return {
+            "strength": asset.strength.model_copy(deep=True),
+            "rotation": asset.rotation.model_copy(deep=True),
+        }
+    return {
+        "expiry": asset.expiry.model_copy(deep=True),
+        "chain": asset.chain.model_copy(deep=True),
+        "revocation": asset.revocation.model_copy(deep=True),
+        "integrity": asset.integrity.model_copy(deep=True),
+        "authenticity": asset.authenticity.model_copy(deep=True),
+    }

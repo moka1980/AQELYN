@@ -7,7 +7,8 @@
 **Build milestone:** C-020 (see `C-020_Task_Bundle.md`)
 **Change control:** ECR-0011 (no-scan boundary), ECR-0030 (object pagination),
 ECR-0041 (optional evidence-backed exposure impact context for DSPM), ECR-0044
-(semantic credential-sensitivity context with backward-compatible default)
+(semantic credential-sensitivity context with backward-compatible default),
+ECR-0048 (atomic persisted analyze-and-score plus tenant-scoped owner read)
 **Definition of Ready:** see §9
 
 ---
@@ -204,6 +205,11 @@ class ExposureEngine(Protocol):
         self, e: ExposureRecord, *,
         impact_context: ExposureImpactContext | None = None
     ) -> ExposureRecord: ...  # EA-0007×EA-0006×EA-0013; optional ECR-0041 factor
+    async def analyze_scored_exposure(
+        self, *, asset_ref: AssetRef, impact_context: ExposureImpactContext,
+        tenant_id: str | None
+    ) -> ExposureRecord: ...  # persist exact scored owner record (ECR-0048)
+    async def get_exposure(self, exposure_id: str, *, tenant_id: str | None) -> ExposureRecord | None: ...
     async def identity_exposure(self, *, asset_ref: AssetRef,
                                 tenant_id: str | None) -> ExposureRecord: ...     # CITES EA-0011 (S5)
     async def trend(self, *, category: str, window_days: int,
@@ -227,6 +233,9 @@ alone**. No socket is opened (S1). Assets whose reachability is inconclusive →
 composing EA-0007 mission criticality × EA-0006 trust × EA-0013 risk; attach the
 EA-0020 `Derivation` (replayable) (S6/D4). A composed score without a replayable
 derivation is rejected (EA-0020 precedent).
+`analyze_scored_exposure` performs that sequence before the one immutable store
+write, so consumers cite the persisted replayable record rather than a
+transient scored copy (ECR-0048).
 
 When an optional `ExposureImpactContext` is supplied (ECR-0041), a known
 factor scales the reachability impact in the EA-0023 risk seed and the exact

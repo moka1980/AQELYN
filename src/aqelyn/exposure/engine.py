@@ -29,7 +29,7 @@ from aqelyn.exposure.models import (
     ReachablePath,
 )
 from aqelyn.exposure.store import ExposureStore, validate_tenant
-from aqelyn.findings.models import Automation, Finding, Remediation
+from aqelyn.findings.models import AuditEntry, Automation, Finding, Remediation
 from aqelyn.findings.store import FindingStore
 from aqelyn.forecast.models import TrendRecord
 from aqelyn.graph.models import EdgeView, Path
@@ -192,6 +192,43 @@ class KnownDataExposureEngine:
     async def analyze_exposure(
         self, *, asset_ref: AssetRef, tenant_id: str | None
     ) -> ExposureRecord:
+        record = await self._derive_exposure_record(
+            asset_ref=asset_ref,
+            tenant_id=tenant_id,
+        )
+        return await self.store.put(record)
+
+    async def analyze_scored_exposure(
+        self,
+        *,
+        asset_ref: AssetRef,
+        impact_context: ExposureImpactContext,
+        tenant_id: str | None,
+    ) -> ExposureRecord:
+        """Derive, score when reachable, and persist one replayable owner record."""
+        record = await self._derive_exposure_record(
+            asset_ref=asset_ref,
+            tenant_id=tenant_id,
+        )
+        if record.reachability != "unknown":
+            record = await self.score_exposure(record, impact_context=impact_context)
+        return await self.store.put(record)
+
+    async def get_exposure(
+        self,
+        exposure_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> ExposureRecord | None:
+        selected_tenant = require_tenant_id(tenant_id)
+        return await self.store.get(exposure_id, tenant_id=selected_tenant)
+
+    async def _derive_exposure_record(
+        self,
+        *,
+        asset_ref: AssetRef,
+        tenant_id: str | None,
+    ) -> ExposureRecord:
         selected_tenant = require_tenant_id(tenant_id)
         try:
             rows = await self.source.list_known_surface(tenant_id=selected_tenant)
@@ -202,7 +239,7 @@ class KnownDataExposureEngine:
                 basis=_basis_from_asset(asset_ref),
                 rationale=f"Known exposure source unavailable; recorded unknown: {exc}",
             )
-            return await self.store.put(record)
+            return record
 
         match = _find_row(rows, asset_ref)
         if match is None or match.reachability is None:
@@ -228,7 +265,7 @@ class KnownDataExposureEngine:
                 validated_at=match.observed_at,
                 status="open",
             )
-        return await self.store.put(record)
+        return record
 
     async def reachable_paths(
         self, *, target_ref: str, tenant_id: str | None
@@ -352,14 +389,19 @@ class KnownDataExposureEngine:
         )
         return validate_replayable_exposure(scored)
 
-    async def raise_exposure_finding(self, exposure: ExposureRecord) -> Finding:
+    async def raise_exposure_finding(
+        self,
+        exposure: ExposureRecord,
+        *,
+        by: ActorRef | None = None,
+    ) -> Finding:
         selected = validate_replayable_exposure(exposure)
         if self.finding_store is None:
             raise ExposureConfigInvalid("finding store is unavailable")
         evidence_ids = _evidence_ids(selected)
         if not evidence_ids:
             raise ExposureConfigInvalid("material exposure finding requires evidence")
-        finding = _finding_for_exposure(selected, evidence_ids=evidence_ids)
+        finding = _finding_for_exposure(selected, evidence_ids=evidence_ids, by=by)
         return await self.finding_store.raise_finding(finding)
 
     async def _evidence_for(self, exposure: ExposureRecord) -> list[EvidenceRecord]:
@@ -560,7 +602,12 @@ def _score_reason(
     )
 
 
-def _finding_for_exposure(exposure: ExposureRecord, *, evidence_ids: list[str]) -> Finding:
+def _finding_for_exposure(
+    exposure: ExposureRecord,
+    *,
+    evidence_ids: list[str],
+    by: ActorRef | None = None,
+) -> Finding:
     score = exposure.score if exposure.score is not None else 0.0
     affected = _affected_object_ids(exposure)
     return Finding(
@@ -597,6 +644,11 @@ def _finding_for_exposure(exposure: ExposureRecord, *, evidence_ids: list[str]) 
             "exposure_id": exposure.id,
             "reachability": exposure.reachability,
             "score": score,
+            "impact_context": (
+                None
+                if exposure.impact_context is None
+                else exposure.impact_context.model_dump(mode="json")
+            ),
             "derivation": exposure.derivation.model_dump(mode="json")
             if exposure.derivation is not None
             else None,
@@ -626,6 +678,11 @@ def _finding_for_exposure(exposure: ExposureRecord, *, evidence_ids: list[str]) 
         source_engine="exposure_engine",
         first_detected_at=exposure.discovered_at,
         last_detected_at=exposure.validated_at or exposure.discovered_at,
+        audit=(
+            []
+            if by is None
+            else [AuditEntry(at=utc_now(), actor=by, action="raised from crypto exposure")]
+        ),
     )
 
 
