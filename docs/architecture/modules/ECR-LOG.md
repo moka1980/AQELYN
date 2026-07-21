@@ -49,6 +49,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0042 | EA-0031 | Accepted | Make P4's assessment-to-finding handoff durable: add tenant-scoped assessment/exposure reads to DSPMStore, refuse incomplete assessments, and re-run a complete assessment's frozen scope through the owner exposure path when it carries no material ids. |
 | ECR-0043 | EA-0032 / IS-032 | Accepted | Realize secrets/crypto as a value-free, handed-in lifecycle engine over existing inventory/exposure/compliance/risk owners; unknown is never safe, integrity is not authenticity, and remediation is finding-bound proposal only. |
 | ECR-0044 | EA-0023 + EA-0032 | Accepted | Add a semantic `credential_sensitivity` exposure-impact kind while preserving `data_sensitivity` as the default; crypto contexts must name their real meaning in the replayable derivation. |
+| ECR-0045 | EA-0032 | Accepted | Make W2 reconciliation and W3 key lifecycle durable: crypto assets retain typed evidence-backed conflicts, key/certificate observation time, key rotation time, and one stable fingerprint identity lookup. |
 
 ---
 
@@ -2114,3 +2115,37 @@ as JSONB, so no DDL migration is required. EA-0023 gains compatibility and
 semantic-kind acceptance tests; EA-0032/C-029 gain an explicit producer test.
 Existing omitted-kind callers retain byte-identical scoring and derivation
 semantics.
+
+---
+
+## ECR-0045 - make crypto reconciliation and lifecycle inputs durable
+
+**Raised by:** Codex (C-029 W2 implementation against the Accepted EA-0032
+type/store contract).
+**Severity:** blocking within W2 - the declared behavior cannot be represented
+or reconstructed from the declared records.
+
+**Problem.** EA-0032 requires W2 to reconcile disagreeing source claims through
+EA-0006 and retain the conflict, but the Accepted `SecretAsset`,
+`CryptographicKey`, and `CertificateAsset` carry only the selected source and
+have no conflict field. The store protocol also has no stable fingerprint read,
+so re-ingest cannot reliably locate the prior claim without an unbounded scan.
+Separately, `CryptographicKeyDescriptor.last_rotated_at` and the key/certificate
+observation times disappear from their domain records, leaving W3 unable to
+reproduce rotation age or source ordering after restart.
+
+**Resolution.** Add strict, value-free `SecretClaim`, `KeyClaim`, and
+`CertificateClaim` values plus evidence-backed `CryptoConflictCandidate` and
+`CryptoClaimConflict` records. Every crypto asset retains its conflict history;
+resolved conflicts name the winning source and evidence, while equal-reliability
+conflicts remain explicitly unresolved. Add `last_rotated_at` and
+`observed_at` to the relevant domain records. Add tenant-scoped
+`get_asset_by_fingerprint(kind, fingerprint, tenant_id)` to `CryptoStore`, with
+one immutable identity mapping per tenant/kind/fingerprint and append-only asset
+revisions behind that stable domain id.
+
+**Impact.** C-029 W2 owns the additive model/protocol fields and both persistence
+implementations. The Postgres schema is new in W2, so no migration of shipped
+crypto data is required. The value-rejection gate applies recursively to claim
+and conflict records; conflicts can retain only typed metadata, never secret or
+private-key material. W3 consumes the now-durable observation/rotation inputs.

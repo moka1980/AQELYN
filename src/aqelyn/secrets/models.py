@@ -40,6 +40,19 @@ SecretLocationKind = Literal[
 KeyUsage = Literal["signing", "encryption", "authentication", "key_agreement", "other"]
 CryptoAssetKind = Literal["secret", "key", "certificate"]
 CryptoExposureStatus = Literal["confirmed", "reachability_pending"]
+CryptoClaimField = Literal[
+    "kind",
+    "location",
+    "external_key_ref",
+    "algorithm",
+    "key_size",
+    "usages",
+    "last_rotated_at",
+    "serial",
+    "subject",
+    "issuer",
+    "not_after",
+]
 
 VALID_LIFECYCLE_STATUSES: Final[frozenset[str]] = frozenset(("valid", "invalid", "unknown"))
 VALID_ASSESSMENT_STATUSES: Final[frozenset[str]] = frozenset(("pending", "complete", "truncated"))
@@ -382,6 +395,155 @@ class AuthenticityCheck(_ValueFreeModel):
         return _nonempty(value, field="authenticity reason")
 
 
+class SecretClaim(_ValueFreeModel):
+    asset_kind: Literal["secret"] = "secret"
+    kind: SecretKind
+    location: SecretLocation
+
+
+class KeyClaim(_ValueFreeModel):
+    asset_kind: Literal["key"] = "key"
+    external_key_ref: str
+    algorithm: str | None = None
+    key_size: int | None = None
+    usages: list[KeyUsage] = Field(default_factory=list)
+    last_rotated_at: datetime | None = None
+
+    @field_validator("external_key_ref")
+    @classmethod
+    def _external_key_ref(cls, value: str) -> str:
+        return _resource_ref(value)
+
+    @field_validator("algorithm")
+    @classmethod
+    def _algorithm(cls, value: str | None) -> str | None:
+        return _optional_nonempty(value, field="algorithm")
+
+    @field_validator("key_size", mode="before")
+    @classmethod
+    def _key_size(cls, value: object) -> int | None:
+        if value is None:
+            return None
+        return _positive_int(value, field="key_size")
+
+    @field_validator("usages")
+    @classmethod
+    def _usages(cls, values: list[KeyUsage]) -> list[KeyUsage]:
+        if len(values) != len(set(values)):
+            raise CryptoConfigInvalid("key usages must not contain duplicates")
+        return values
+
+
+class CertificateClaim(_ValueFreeModel):
+    asset_kind: Literal["certificate"] = "certificate"
+    serial: str
+    subject: str
+    issuer: str
+    not_after: datetime | None = None
+
+    @field_validator("serial", "subject", "issuer")
+    @classmethod
+    def _certificate_text(cls, value: str) -> str:
+        return _nonempty(value, field="certificate claim field")
+
+
+CryptoClaim = SecretClaim | KeyClaim | CertificateClaim
+
+
+class CryptoConflictCandidate(_ValueFreeModel):
+    source_id: str
+    evidence_id: str
+    observed_at: datetime
+    reliability: float
+    claim: CryptoClaim
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str) -> str:
+        return require_typed_id(value, "src", field="source_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="evidence_id")
+
+    @field_validator("reliability", mode="before")
+    @classmethod
+    def _reliability(cls, value: object) -> float:
+        return _unit(value, field="conflict candidate reliability")
+
+
+class CryptoClaimConflict(_ValueFreeModel):
+    fields: list[CryptoClaimField]
+    candidates: list[CryptoConflictCandidate]
+    resolved_by: str | None = None
+    resolved_evidence_id: str | None = None
+    unresolved: bool
+    reason: str
+
+    @field_validator("fields")
+    @classmethod
+    def _fields(cls, values: list[CryptoClaimField]) -> list[CryptoClaimField]:
+        if not values:
+            raise CryptoConfigInvalid("crypto claim conflict requires fields")
+        if len(values) != len(set(values)):
+            raise CryptoConfigInvalid("crypto claim conflict fields must be unique")
+        return values
+
+    @field_validator("candidates")
+    @classmethod
+    def _candidates(cls, values: list[CryptoConflictCandidate]) -> list[CryptoConflictCandidate]:
+        if len(values) < 2:
+            raise CryptoConfigInvalid("crypto claim conflict requires at least two candidates")
+        return values
+
+    @field_validator("resolved_by")
+    @classmethod
+    def _resolved_by(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "src", field="resolved_by")
+
+    @field_validator("resolved_evidence_id")
+    @classmethod
+    def _resolved_evidence_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "evd", field="resolved_evidence_id")
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        return _nonempty(value, field="crypto claim conflict reason")
+
+    @model_validator(mode="after")
+    def _conflict_consistency(self) -> CryptoClaimConflict:
+        kinds = {candidate.claim.asset_kind for candidate in self.candidates}
+        if len(kinds) != 1:
+            raise CryptoConfigInvalid("crypto claim conflict candidates must share one asset kind")
+        allowed = {
+            "secret": {"kind", "location"},
+            "key": {"external_key_ref", "algorithm", "key_size", "usages", "last_rotated_at"},
+            "certificate": {"serial", "subject", "issuer", "not_after"},
+        }
+        asset_kind = next(iter(kinds))
+        if not set(self.fields) <= allowed[asset_kind]:
+            raise CryptoConfigInvalid("crypto claim conflict fields do not match the asset kind")
+        for field in self.fields:
+            values = {
+                repr(candidate.claim.model_dump(mode="json").get(field))
+                for candidate in self.candidates
+            }
+            if len(values) < 2:
+                raise CryptoConfigInvalid("crypto claim conflict fields must actually disagree")
+        if self.unresolved:
+            if self.resolved_by is not None or self.resolved_evidence_id is not None:
+                raise CryptoConfigInvalid("unresolved crypto conflicts cannot name a resolution")
+        elif self.resolved_by is None or self.resolved_evidence_id is None:
+            raise CryptoConfigInvalid("resolved crypto conflicts require source and evidence")
+        return self
+
+
 class SecretAsset(_ValueFreeModel):
     id: str = Field(default_factory=lambda: new_id("sct"))
     tenant_id: str | None = None
@@ -396,6 +558,7 @@ class SecretAsset(_ValueFreeModel):
     source_id: str
     detected_at: datetime
     evidence_id: str
+    conflicts: list[CryptoClaimConflict] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -437,6 +600,16 @@ class SecretAsset(_ValueFreeModel):
     def _evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
 
+    @model_validator(mode="after")
+    def _conflict_kind(self) -> SecretAsset:
+        if any(
+            candidate.claim.asset_kind != "secret"
+            for conflict in self.conflicts
+            for candidate in conflict.candidates
+        ):
+            raise CryptoConfigInvalid("secret asset conflicts must contain secret claims")
+        return self
+
 
 class CryptographicKey(_ValueFreeModel):
     id: str = Field(default_factory=lambda: new_id("cky"))
@@ -448,11 +621,14 @@ class CryptographicKey(_ValueFreeModel):
     algorithm: str | None = None
     key_size: int | None = None
     usages: list[KeyUsage] = Field(default_factory=list)
+    last_rotated_at: datetime | None = None
     strength: Lifecycle
     rotation: Lifecycle
     claim_confidence: float
     source_id: str
+    observed_at: datetime
     evidence_id: str
+    conflicts: list[CryptoClaimConflict] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -518,6 +694,16 @@ class CryptographicKey(_ValueFreeModel):
     def _evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
 
+    @model_validator(mode="after")
+    def _conflict_kind(self) -> CryptographicKey:
+        if any(
+            candidate.claim.asset_kind != "key"
+            for conflict in self.conflicts
+            for candidate in conflict.candidates
+        ):
+            raise CryptoConfigInvalid("cryptographic key conflicts must contain key claims")
+        return self
+
 
 class CertificateAsset(_ValueFreeModel):
     id: str = Field(default_factory=lambda: new_id("x509"))
@@ -536,7 +722,9 @@ class CertificateAsset(_ValueFreeModel):
     authenticity: Lifecycle
     claim_confidence: float
     source_id: str
+    observed_at: datetime
     evidence_id: str
+    conflicts: list[CryptoClaimConflict] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -582,6 +770,16 @@ class CertificateAsset(_ValueFreeModel):
     @classmethod
     def _evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
+
+    @model_validator(mode="after")
+    def _conflict_kind(self) -> CertificateAsset:
+        if any(
+            candidate.claim.asset_kind != "certificate"
+            for conflict in self.conflicts
+            for candidate in conflict.candidates
+        ):
+            raise CryptoConfigInvalid("certificate asset conflicts must contain certificate claims")
+        return self
 
 
 CryptoAsset = SecretAsset | CryptographicKey | CertificateAsset
