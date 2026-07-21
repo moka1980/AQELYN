@@ -154,6 +154,7 @@ def _key_asset(**overrides: object) -> CryptographicKey:
         "rotation": _unknown(),
         "claim_confidence": 0.9,
         "source_id": new_id("src"),
+        "observed_at": NOW,
         "evidence_id": new_id("evd"),
     }
     data.update(overrides)
@@ -177,6 +178,7 @@ def _certificate_asset(**overrides: object) -> CertificateAsset:
         "authenticity": _unknown(),
         "claim_confidence": 0.85,
         "source_id": new_id("src"),
+        "observed_at": NOW,
         "evidence_id": new_id("evd"),
     }
     data.update(overrides)

@@ -3,7 +3,8 @@
 **Milestone:** C-029 (EA-0032)
 **Implementer:** Codex
 **Reviewer:** Claude Code
-**Prerequisites:** C-028 merged and green; EA-0032 Accepted; ECR-0043/ECR-0044 logged;
+**Prerequisites:** C-028 merged and green; EA-0032 Accepted;
+ECR-0043/ECR-0044/ECR-0045 logged;
 EA-0032 sections 0, 1, and 4 read before implementation.
 
 **Definition of Done:** all acceptance tests pass on in-memory and Postgres;
@@ -67,11 +68,14 @@ store belongs in this package.
 - Validate evidence before any local or owner write. Missing and tampered
   evidence are distinct refusals; retriable unavailability is not converted to
   a safe record.
-- Reconcile source claims via EA-0006; retain conflicts rather than last-writer.
+- Reconcile source claims via EA-0006; retain typed, evidence-backed conflicts
+  rather than last-writer, and preserve W3's observation/rotation inputs
+  (ECR-0045).
 - Create EA-0002 objects and drive the real EA-0025 `ingest` adapter, retaining
   distinct `object_id` and `inventory_ref`.
-- `CryptoStore` memory/Postgres + DDL, immutable records, tenant isolation, deep
-  copy isolation, and EA-0002 D8 cursor semantics from the first schema.
+- `CryptoStore` memory/Postgres + DDL, stable tenant/kind/fingerprint identity,
+  append-only revisions, tenant isolation, deep copy isolation, and EA-0002 D8
+  cursor semantics from the first schema.
 - Engine scans page under `max_work`, reject repeated cursors, and expose
   truncation.
 

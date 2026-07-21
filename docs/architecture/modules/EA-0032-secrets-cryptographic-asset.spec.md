@@ -5,7 +5,7 @@
 **Consumed by:** EA-0023, EA-0013, and a future secrets/crypto UI
 **Status:** Accepted
 **Build milestone:** C-029 (see `C-029_Task_Bundle.md`)
-**Change control:** ECR-0043, ECR-0044
+**Change control:** ECR-0043, ECR-0044, ECR-0045
 
 ---
 
@@ -185,21 +185,34 @@ SecretAsset = {
   id: sct_, tenant_id, object_id: obj_, inventory_ref: ast_,
   kind, fingerprint, location, classification: EA-0019 "secret",
   rotation: Lifecycle, claim_confidence: float,
-  source_id: src_, detected_at: datetime, evidence_id: evd_
+  source_id: src_, detected_at: datetime, evidence_id: evd_,
+  conflicts: list[CryptoClaimConflict]
 }
 CryptographicKey = {
   id: cky_, tenant_id, object_id: obj_, inventory_ref: ast_,
-  external_key_ref, fingerprint, algorithm, key_size, usages,
+  external_key_ref, fingerprint, algorithm, key_size, usages, last_rotated_at,
   strength: Lifecycle, rotation: Lifecycle, claim_confidence: float,
-  source_id: src_, evidence_id: evd_
+  source_id: src_, observed_at: datetime, evidence_id: evd_,
+  conflicts: list[CryptoClaimConflict]
 }
 CertificateAsset = {
   id: x509_, tenant_id, object_id: obj_, inventory_ref: ast_,
   fingerprint, serial, subject, issuer, not_after,
   expiry: Lifecycle, chain: Lifecycle, revocation: Lifecycle,
   integrity: Lifecycle, authenticity: Lifecycle,
-  claim_confidence: float, source_id: src_, evidence_id: evd_
+  claim_confidence: float, source_id: src_, observed_at: datetime,
+  evidence_id: evd_, conflicts: list[CryptoClaimConflict]
 }
+
+CryptoClaimConflict = {
+  fields: list[typed claim field],
+  candidates: list[{source_id: src_, evidence_id: evd_, observed_at,
+                    reliability, claim: SecretClaim|KeyClaim|CertificateClaim}],
+  resolved_by: src_|null, resolved_evidence_id: evd_|null,
+  unresolved: bool, reason: str
+}
+# Candidates are strict value-free metadata claims of one asset kind. Resolved
+# conflicts name source+evidence; unresolved conflicts name neither (ECR-0045).
 
 CryptoAsset = SecretAsset | CryptographicKey | CertificateAsset
 CryptoScope = { kinds: list["secret"|"key"|"certificate"], asset_ids: list[str] }
@@ -239,6 +252,7 @@ from typing import Protocol, Sequence
 class CryptoStore(Protocol):
     async def put_asset(self, asset: CryptoAsset) -> CryptoAsset: ...
     async def get_asset(self, asset_id: str, *, tenant_id: str | None) -> CryptoAsset | None: ...
+    async def get_asset_by_fingerprint(self, kind: CryptoAssetKind, fingerprint: str, *, tenant_id: str | None) -> CryptoAsset | None: ...
     async def query_assets(self, query: CryptoQuery) -> tuple[list[CryptoAsset], str | None]: ...
     async def put_assessment(self, assessment: CryptoAssessment) -> CryptoAssessment: ...
     async def get_assessment(self, assessment_id: str, *, tenant_id: str | None) -> CryptoAssessment | None: ...
@@ -267,7 +281,8 @@ exposure, compliance, or risk engine.
 
 1. **Ingest:** validate the descriptor and its evidence before any owner write.
    Missing or tampered evidence refuses the descriptor. Reconcile source claims
-   through EA-0006; do not use last-writer-wins. Create the EA-0002 object,
+   through EA-0006; do not use last-writer-wins. Retain typed conflict candidates
+   and the selected claim's observation inputs (ECR-0045). Create the EA-0002 object,
    register it through EA-0025 `ingest(reports=, source=DiscoverySource,
    tenant_id=)`, and persist both resulting ids.
 2. **Certificate lifecycle:** determine expiry from `not_after`; missing/unusable
@@ -325,7 +340,8 @@ exposure, compliance, or risk engine.
 - **FR-13:** All reads/writes are tenant-scoped; health probes use a mode-aware
   tenant and are tested in both tenant modes on both backends.
 - **FR-14:** In-memory and Postgres stores share one D8 pagination/tenant/
-  immutability contract suite.
+  immutability contract suite. Fingerprint identity is stable and tenant-scoped;
+  revisions are append-only (ECR-0045).
 - **FR-15:** Work is bounded by `max_work`; partial results are marked truncated.
 - **FR-16:** `SecretsIntelligenceService` registers as `secrets_engine` and its
   health reflects config and required owner-read availability.
@@ -408,6 +424,8 @@ until ECR-0034 is implemented. C-029 neither fixes nor deepens ECR-0034.
   proposal-only remediation.
 - ECR-0044 adds the semantic `credential_sensitivity` impact kind while keeping
   EA-0023's `data_sensitivity` default unchanged for existing callers.
+- ECR-0045 makes evidence-backed source conflicts and the key lifecycle inputs
+  durable, with one stable fingerprint identity per tenant and asset kind.
 - Live Vault/KMS/HSM/repository collection is deferred to gated connectors.
 - PKI issuance, CA operation, and key custody remain out of scope.
 - UI is deferred; a future surface must be WCAG 2.2 AA and must never reveal a
