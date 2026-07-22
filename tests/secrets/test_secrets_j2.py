@@ -6,7 +6,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 import pytest
 
@@ -15,7 +15,7 @@ from aqelyn.conventions.errors import (
     CredentialGovernanceNotReplayable,
     OptimisticConcurrencyConflict,
 )
-from aqelyn.decision import replay
+from aqelyn.decision import DerivationStep, build_derivation, replay
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord
 from aqelyn.exposure import AssetRef, ExposureBasis, ExposureImpactContext, ExposureRecord
@@ -36,9 +36,11 @@ from aqelyn.secrets import (
     InMemoryCryptoStore,
     Lifecycle,
     PostgresCryptoStore,
+    StorageSafetyClassification,
     compose_credential_governance,
     governance_operation_registry,
     governance_score_result,
+    validate_replayable_governance_score,
 )
 from aqelyn.secrets import scoring as scoring_module
 from aqelyn.trust import TrustAssessment
@@ -236,12 +238,23 @@ def _composed(
     ownership_state: str = "good",
     exposure_score: float = 0.0,
     exposure_status: str = "closed",
+    storage_status: Literal["approved", "unsafe", "unknown"] = "approved",
 ) -> ComposedCredentialGovernance:
     asset = _asset()
     owner_exposure = _owner_exposure(
         asset,
         score=exposure_score,
         status=exposure_status,
+    )
+    storage_safety = StorageSafetyClassification(
+        asset_id=asset.id,
+        status=storage_status,
+        location_kind="external_key_reference",
+        location_ref=asset.external_key_ref,
+        matched_policy_prefix=("urn:aqelyn:key:" if storage_status == "approved" else None),
+        evidence_id=asset.evidence_id,
+        reason=f"Storage safety is {storage_status} for this test.",
+        flagged=storage_status != "approved",
     )
     return compose_credential_governance(
         asset,
@@ -251,13 +264,15 @@ def _composed(
         trust=_trust(),
         mission=MissionImpactResult(),
         compliance=_compliance(),
+        storage_safety=storage_safety,
         factor_weights={
-            "owner_risk": 0.20,
-            "lifecycle": 0.20,
-            "ownership": 0.15,
-            "exposure": 0.20,
-            "trust": 0.10,
-            "compliance": 0.15,
+            "owner_risk": 0.18,
+            "lifecycle": 0.18,
+            "storage_safety": 0.10,
+            "ownership": 0.135,
+            "exposure": 0.18,
+            "trust": 0.09,
+            "compliance": 0.135,
         },
         computed_at=NOW,
     )
@@ -336,6 +351,19 @@ def test_crypto_gov_unknown_three_way() -> None:
     assert unknown_factor.rating is None
 
 
+def test_crypto_location_factor_unknown_not_favourable() -> None:
+    approved = _composed(storage_status="approved")
+    unsafe = _composed(storage_status="unsafe")
+    unknown = _composed(storage_status="unknown")
+
+    assert len({approved.score, unsafe.score, unknown.score}) == 3
+    assert unknown.score < unsafe.score < approved.score
+    factor = next(item for item in unknown.factors if item.name == "storage_safety")
+    assert factor.status == "unknown"
+    assert factor.rating is None
+    assert unknown.derivation.steps[0].params["storage_safety"]["status"] == "unknown"
+
+
 def test_crypto_gov_coverage_adjustment() -> None:
     factors = [
         GovernanceFactor(
@@ -347,12 +375,13 @@ def test_crypto_gov_coverage_adjustment() -> None:
             reason="Known only for the trust control." if name == "trust" else "Not assessed.",
         )
         for name, weight in (
-            ("owner_risk", 0.20),
-            ("lifecycle", 0.20),
-            ("ownership", 0.15),
-            ("exposure", 0.20),
-            ("trust", 0.10),
-            ("compliance", 0.15),
+            ("owner_risk", 0.18),
+            ("lifecycle", 0.18),
+            ("storage_safety", 0.10),
+            ("ownership", 0.135),
+            ("exposure", 0.18),
+            ("trust", 0.09),
+            ("compliance", 0.135),
         )
     ]
 
@@ -365,9 +394,9 @@ def test_crypto_gov_coverage_adjustment() -> None:
     )
 
     assert result["known_only_score"] == 100.0
-    assert result["coverage_adjustment"] == 0.1
-    assert result["uncertainty_penalty"] == 9.0
-    assert result["score"] == 1.0
+    assert result["coverage_adjustment"] == 0.09
+    assert result["uncertainty_penalty"] == 9.1
+    assert result["score"] == 0.0
 
 
 def test_crypto_gov_exposure_not_averaged_away() -> None:
@@ -388,6 +417,54 @@ def test_crypto_gov_statement_says_governance_not_safety() -> None:
     assert "governance hygiene" in composed.statement.casefold()
     assert "not safety" in composed.statement.casefold()
     assert "compromise state" in composed.statement.casefold()
+
+
+def test_crypto_gov_v1_score_remains_replayable() -> None:
+    current = _score_record()
+    legacy_weights = {
+        "owner_risk": 0.20,
+        "lifecycle": 0.20,
+        "ownership": 0.15,
+        "exposure": 0.20,
+        "trust": 0.10,
+        "compliance": 0.15,
+    }
+    legacy_factors = [
+        factor.model_copy(update={"weight": legacy_weights[factor.name]})
+        for factor in current.factors
+        if factor.name != "storage_safety"
+    ]
+    current_step = current.derivation.steps[0]
+    params = {
+        **current_step.params,
+        "factors": [factor.model_dump(mode="json") for factor in legacy_factors],
+    }
+    output = governance_score_result([], params)
+    step = DerivationStep(
+        seq=1,
+        op=current_step.op,
+        input_refs=list(current_step.input_refs),
+        params=params,
+        output=output,
+        note="Historical C-032 J2 six-factor score.",
+    )
+    derivation = build_derivation(
+        inputs=list(current.derivation.inputs),
+        steps=[step],
+        model_version=1,
+        engine_version="crypto-governance/v1",
+        registry=governance_operation_registry(),
+    )
+    legacy = current.model_copy(
+        update={
+            "score": output["score"],
+            "factors": legacy_factors,
+            "derivation": derivation,
+        },
+        deep=True,
+    )
+
+    assert validate_replayable_governance_score(legacy) == legacy
 
 
 def test_crypto_gov_prefix_collision_free() -> None:
@@ -432,7 +509,11 @@ async def test_crypto_gov_store_contract(kind: str) -> None:
 
 
 async def test_crypto_gov_factory_owner_handoff_and_assess_wiring() -> None:
-    runtime = create_inmemory_runtime(AQELYNConfig())
+    runtime = create_inmemory_runtime(
+        AQELYNConfig(
+            secrets_approved_storage_location_prefixes=["urn:aqelyn:key:"],
+        )
+    )
     source_id = new_id("src")
     fingerprint = f"hmac-sha256:{602:064x}"
     evidence = await runtime.evidence_store.add(
@@ -480,5 +561,9 @@ async def test_crypto_gov_factory_owner_handoff_and_assess_wiring() -> None:
     assert score.derivation.steps[0].params["ownership"] is None
     assert score.derivation.steps[0].params["mission"]["owner"] == "EA-0007"
     assert score.derivation.steps[0].params["compliance"]["snapshot_id"].startswith("snap_")
+    storage_factor = next(factor for factor in score.factors if factor.name == "storage_safety")
+    assert storage_factor.status == "known"
+    assert storage_factor.rating == 1.0
+    assert score.derivation.steps[0].params["storage_safety"]["status"] == "approved"
     assert assessment.governance_scoring_status == "complete"
     assert len(assessment.governance_score_ids) == assessment.assets_evaluated == 1

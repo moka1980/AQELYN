@@ -43,6 +43,8 @@ CryptoAssetKind = Literal["secret", "key", "certificate"]
 CryptoExposureStatus = Literal["confirmed", "reachability_pending"]
 GovernanceFactorStatus = Literal["known", "unknown"]
 GovernanceScoringStatus = Literal["pending", "complete", "partial"]
+StorageSafetyStatus = Literal["approved", "unsafe", "unknown"]
+StorageLocationKind = SecretLocationKind | Literal["external_key_reference", "unreported"]
 CryptoClaimField = Literal[
     "kind",
     "location",
@@ -69,13 +71,26 @@ VALID_KEY_USAGES: Final[frozenset[str]] = frozenset(
     ("signing", "encryption", "authentication", "key_agreement", "other")
 )
 VALID_CRYPTO_ASSET_KINDS: Final[frozenset[str]] = frozenset(("secret", "key", "certificate"))
-GOVERNANCE_FACTOR_NAMES: Final[tuple[str, ...]] = (
+LEGACY_GOVERNANCE_FACTOR_NAMES: Final[tuple[str, ...]] = (
     "owner_risk",
     "lifecycle",
     "ownership",
     "exposure",
     "trust",
     "compliance",
+)
+GOVERNANCE_FACTOR_NAMES: Final[tuple[str, ...]] = (
+    "owner_risk",
+    "lifecycle",
+    "storage_safety",
+    "ownership",
+    "exposure",
+    "trust",
+    "compliance",
+)
+GOVERNANCE_FACTOR_SETS: Final[tuple[frozenset[str], ...]] = (
+    frozenset(LEGACY_GOVERNANCE_FACTOR_NAMES),
+    frozenset(GOVERNANCE_FACTOR_NAMES),
 )
 GOVERNANCE_UNKNOWN_PENALTY_POINTS: Final[float] = 10.0
 GOVERNANCE_ACTIVE_EXPOSURE_CAP: Final[float] = 69.0
@@ -273,6 +288,75 @@ class SecretLocation(_ValueFreeModel):
         if value is None:
             return None
         return _positive_int(value, field="line")
+
+
+class StorageSafetyClassification(_ValueFreeModel):
+    asset_id: str
+    status: StorageSafetyStatus = "unknown"
+    location_kind: StorageLocationKind = "unreported"
+    location_ref: str | None = None
+    matched_policy_prefix: str | None = None
+    evidence_id: str
+    reason: str
+    flagged: bool = True
+
+    @field_validator("asset_id")
+    @classmethod
+    def _asset_id(cls, value: str) -> str:
+        return _crypto_asset_id(value, field="asset_id")
+
+    @field_validator("location_ref")
+    @classmethod
+    def _location_ref(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _resource_ref(value)
+
+    @field_validator("matched_policy_prefix")
+    @classmethod
+    def _matched_policy_prefix(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        selected = _resource_ref(value)
+        if not selected.endswith(("/", ":", "#")):
+            raise CryptoConfigInvalid(
+                "matched storage policy prefixes must end with '/', ':', or '#'"
+            )
+        return selected
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="evidence_id")
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        return _nonempty(value, field="storage safety reason")
+
+    @model_validator(mode="after")
+    def _state_consistency(self) -> StorageSafetyClassification:
+        if self.status == "approved":
+            if self.location_ref is None or self.matched_policy_prefix is None:
+                raise CryptoConfigInvalid(
+                    "approved storage requires a location and matched policy prefix"
+                )
+            if not self.location_ref.startswith(self.matched_policy_prefix):
+                raise CryptoConfigInvalid("approved storage location must match its policy prefix")
+            if self.flagged:
+                raise CryptoConfigInvalid("approved storage cannot be flagged")
+        else:
+            if self.matched_policy_prefix is not None:
+                raise CryptoConfigInvalid(
+                    "unsafe or unknown storage cannot name an approved policy prefix"
+                )
+            if not self.flagged:
+                raise CryptoConfigInvalid("unsafe or unknown storage must be flagged")
+        if self.location_kind == "unreported" and self.location_ref is not None:
+            raise CryptoConfigInvalid("unreported storage cannot carry a location reference")
+        if self.status != "unknown" and self.location_ref is None:
+            raise CryptoConfigInvalid("known storage safety requires a location reference")
+        return self
 
 
 class SecretScanDescriptor(_ValueFreeModel):
@@ -1009,10 +1093,10 @@ class CredentialGovernanceScore(_ValueFreeModel):
     @classmethod
     def _factors(cls, values: list[GovernanceFactor]) -> list[GovernanceFactor]:
         names = [factor.name for factor in values]
-        if set(names) != set(GOVERNANCE_FACTOR_NAMES) or len(names) != len(GOVERNANCE_FACTOR_NAMES):
+        selected = frozenset(names)
+        if selected not in GOVERNANCE_FACTOR_SETS or len(names) != len(selected):
             raise CryptoConfigInvalid(
-                "governance factors must define owner_risk, lifecycle, ownership, "
-                "exposure, trust, and compliance exactly once"
+                "governance factors must define the v1 or v2 factor set exactly once"
             )
         return values
 
@@ -1215,14 +1299,16 @@ class CryptoConfig(_ValueFreeModel):
     max_key_age_days: int = 365
     batch_size: int = 100
     max_work: int = 50_000
+    approved_storage_location_prefixes: list[str] = Field(default_factory=list)
     governance_factor_weights: dict[str, float] = Field(
         default_factory=lambda: {
-            "owner_risk": 0.20,
-            "lifecycle": 0.20,
-            "ownership": 0.15,
-            "exposure": 0.20,
-            "trust": 0.10,
-            "compliance": 0.15,
+            "owner_risk": 0.18,
+            "lifecycle": 0.18,
+            "storage_safety": 0.10,
+            "ownership": 0.135,
+            "exposure": 0.18,
+            "trust": 0.09,
+            "compliance": 0.135,
         }
     )
 
@@ -1259,6 +1345,21 @@ class CryptoConfig(_ValueFreeModel):
             selected[key] = _positive_int(minimum, field=f"min_key_sizes[{key!r}]")
         return selected
 
+    @field_validator("approved_storage_location_prefixes")
+    @classmethod
+    def _approved_storage_location_prefixes(cls, values: list[str]) -> list[str]:
+        selected: list[str] = []
+        for value in values:
+            prefix = _resource_ref(value)
+            if not prefix.endswith(("/", ":", "#")):
+                raise CryptoConfigInvalid(
+                    "approved storage location prefixes must end with '/', ':', or '#'"
+                )
+            selected.append(prefix)
+        if len(selected) != len(set(selected)):
+            raise CryptoConfigInvalid("approved storage location prefixes must be unique")
+        return selected
+
     @field_validator("governance_factor_weights", mode="before")
     @classmethod
     def _governance_factor_weights(cls, value: object) -> dict[str, float]:
@@ -1274,8 +1375,8 @@ class CryptoConfig(_ValueFreeModel):
             )
         if set(selected) != set(GOVERNANCE_FACTOR_NAMES):
             raise CryptoConfigInvalid(
-                "governance_factor_weights must define owner_risk, lifecycle, ownership, "
-                "exposure, trust, and compliance"
+                "governance_factor_weights must define owner_risk, lifecycle, storage_safety, "
+                "ownership, exposure, trust, and compliance"
             )
         if not math.isclose(sum(selected.values()), 1.0, rel_tol=0.0, abs_tol=1e-6):
             raise CryptoConfigInvalid("governance_factor_weights must sum to 1 within 1e-6")

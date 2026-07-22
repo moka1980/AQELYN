@@ -31,6 +31,7 @@ from aqelyn.secrets.models import (
     GOVERNANCE_ACTIVE_EXPOSURE_CAP,
     GOVERNANCE_CRITICAL_EXPOSURE_THRESHOLD,
     GOVERNANCE_FACTOR_NAMES,
+    GOVERNANCE_FACTOR_SETS,
     GOVERNANCE_UNKNOWN_PENALTY_POINTS,
     CertificateAsset,
     CredentialGovernanceScore,
@@ -40,6 +41,7 @@ from aqelyn.secrets.models import (
     GovernanceFactor,
     Lifecycle,
     SecretAsset,
+    StorageSafetyClassification,
 )
 from aqelyn.trust import TrustAssessment
 
@@ -66,6 +68,7 @@ def compose_credential_governance(
     trust: TrustAssessment,
     mission: MissionImpactResult,
     compliance: ComplianceSnapshot,
+    storage_safety: StorageSafetyClassification,
     factor_weights: Mapping[str, float],
     computed_at: datetime,
     risk_config: RiskConfig | None = None,
@@ -75,6 +78,10 @@ def compose_credential_governance(
         raise StoreUnavailable("EA-0007 mission traversal was truncated")
     direct = {
         "lifecycle": _lifecycle_factor(asset, factor_weights["lifecycle"]),
+        "storage_safety": _storage_safety_factor(
+            storage_safety,
+            factor_weights["storage_safety"],
+        ),
         "ownership": _ownership_factor(ownership, factor_weights["ownership"]),
         "exposure": _exposure_factor(
             exposure,
@@ -94,6 +101,7 @@ def compose_credential_governance(
     )
     control_factors = [
         direct["lifecycle"],
+        direct["storage_safety"],
         direct["ownership"],
         direct["exposure"],
         direct["compliance"],
@@ -133,6 +141,7 @@ def compose_credential_governance(
         trust=trust,
         mission=mission,
         compliance=compliance,
+        storage_safety=storage_safety,
         ownership=ownership,
         exposure=exposure,
         owner_exposure=owner_exposure,
@@ -155,7 +164,8 @@ def governance_score_result(inputs: Sequence[JsonMapping], params: JsonMapping) 
         raise CryptoConfigInvalid("governance derivation requires factor records")
     factors = [GovernanceFactor.model_validate(item) for item in raw_factors]
     names = [factor.name for factor in factors]
-    if set(names) != set(GOVERNANCE_FACTOR_NAMES) or len(names) != len(GOVERNANCE_FACTOR_NAMES):
+    selected = frozenset(names)
+    if selected not in GOVERNANCE_FACTOR_SETS or len(names) != len(selected):
         raise CryptoConfigInvalid("governance derivation has an invalid factor set")
     total_weight = sum(factor.weight for factor in factors)
     known = [factor for factor in factors if factor.status == "known"]
@@ -316,6 +326,35 @@ def _ownership_factor(ownership: Ownership | None, weight: float) -> GovernanceF
     )
 
 
+def _storage_safety_factor(
+    classification: StorageSafetyClassification,
+    weight: float,
+) -> GovernanceFactor:
+    source_ref = {
+        "owner": "EA-0032",
+        "record": classification.model_dump(mode="json"),
+        "record_hash": _record_hash(classification),
+        "evidence_id": classification.evidence_id,
+    }
+    if classification.status == "unknown":
+        return GovernanceFactor(
+            name="storage_safety",
+            rating=None,
+            weight=weight,
+            status="unknown",
+            source_ref=source_ref,
+            reason=classification.reason,
+        )
+    return GovernanceFactor(
+        name="storage_safety",
+        rating=1.0 if classification.status == "approved" else 0.0,
+        weight=weight,
+        status="known",
+        source_ref=source_ref,
+        reason=classification.reason,
+    )
+
+
 def _exposure_factor(
     exposure: CryptographicExposure,
     owner_exposure: ExposureRecord | None,
@@ -431,7 +470,7 @@ def _owner_risk(
 ) -> Risk:
     signals: list[SignalRef] = []
     adverse: list[float] = []
-    for name in ("lifecycle", "ownership", "exposure", "compliance"):
+    for name in ("lifecycle", "storage_safety", "ownership", "exposure", "compliance"):
         factor = direct[name]
         if factor.status != "known" or factor.rating is None:
             continue
@@ -489,6 +528,7 @@ def _score_derivation(
     trust: TrustAssessment,
     mission: MissionImpactResult,
     compliance: ComplianceSnapshot,
+    storage_safety: StorageSafetyClassification,
     ownership: Ownership | None,
     exposure: CryptographicExposure,
     owner_exposure: ExposureRecord | None,
@@ -528,6 +568,8 @@ def _score_derivation(
             ],
             "evidence_id": compliance.evidence_id,
         },
+        "storage_safety": storage_safety.model_dump(mode="json"),
+        "storage_safety_record_hash": _record_hash(storage_safety),
         "trust": trust.model_dump(mode="json"),
         "mission": _mission_ref(mission),
     }
@@ -539,7 +581,7 @@ def _score_derivation(
         params=params,
         output=output,
         note=(
-            "Compose EA-0032 lifecycle, EA-0025 ownership, EA-0023 exposure, "
+            "Compose EA-0032 lifecycle and storage safety, EA-0025 ownership, EA-0023 exposure, "
             "EA-0010 compliance, EA-0006 trust, and EA-0007 mission through EA-0013."
         ),
     )
@@ -547,7 +589,7 @@ def _score_derivation(
         inputs=[risk_claim, trust_claim, mission_claim],
         steps=[step],
         model_version=1,
-        engine_version="crypto-governance/v1",
+        engine_version="crypto-governance/v2",
         registry=governance_operation_registry(),
     )
 

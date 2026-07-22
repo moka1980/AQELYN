@@ -52,12 +52,13 @@ def _default_secrets_min_key_sizes() -> dict[str, int]:
 
 def _default_secrets_governance_factor_weights() -> dict[str, float]:
     return {
-        "owner_risk": 0.20,
-        "lifecycle": 0.20,
-        "ownership": 0.15,
-        "exposure": 0.20,
-        "trust": 0.10,
-        "compliance": 0.15,
+        "owner_risk": 0.18,
+        "lifecycle": 0.18,
+        "storage_safety": 0.10,
+        "ownership": 0.135,
+        "exposure": 0.18,
+        "trust": 0.09,
+        "compliance": 0.135,
     }
 
 
@@ -102,6 +103,7 @@ class AQELYNConfig(BaseSettings):
     secrets_max_key_age_days: int = 365
     secrets_batch_size: int = 100
     secrets_max_work: int = 50_000
+    secrets_approved_storage_location_prefixes: list[str] = Field(default_factory=list)
     secrets_governance_factor_weights: dict[str, float] = Field(
         default_factory=_default_secrets_governance_factor_weights
     )
