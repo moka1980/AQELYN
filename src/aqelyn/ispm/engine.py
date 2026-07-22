@@ -6,10 +6,25 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id
-from aqelyn.conventions.errors import CrossTenantReference, ISPMConfigInvalid, StoreUnavailable
+from aqelyn.conventions.errors import (
+    CrossTenantReference,
+    IdentityNotFound,
+    ISPMConfigInvalid,
+    StoreUnavailable,
+)
 from aqelyn.evidence import EvidenceStore
 from aqelyn.evidence.models import EvidenceRecord
+from aqelyn.iag import AccessPath, AccessRiskReport, Certification
 from aqelyn.inventory import DiscoverySource
+from aqelyn.ispm.governance import (
+    IdentityGovernanceOwner,
+    complete_certification,
+    decide_certification_item,
+    governance_context,
+    identity_access_paths,
+    open_certification,
+    risks_to_findings,
+)
 from aqelyn.ispm.models import IdentityDescriptor, ISPMConfig, NormalizedIdentity
 from aqelyn.ispm.normalize import (
     HAS_ACCOUNT,
@@ -42,6 +57,7 @@ class ISPMEngine:
         inventory: IdentityInventoryOwner,
         evidence_store: EvidenceStore,
         trust: TrustAssessor,
+        governance_owner: IdentityGovernanceOwner | None = None,
         config: ISPMConfig | None = None,
         actor: ActorRef | None = None,
     ) -> None:
@@ -50,9 +66,116 @@ class ISPMEngine:
         self.inventory = inventory
         self.evidence_store = evidence_store
         self.trust = trust
+        self.governance_owner = governance_owner
         self.config = config or ISPMConfig()
         self.actor = actor or _ISPM_ACTOR
         ensure_identity_object_types(object_store)
+
+    async def governance_context(
+        self,
+        object_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> AccessRiskReport:
+        selected_tenant = require_tenant_id(tenant_id)
+        identity = await self.store.get_identity(object_id, tenant_id=selected_tenant)
+        if identity is None:
+            raise IdentityNotFound(object_id)
+        return await governance_context(
+            self._governance_owner(),
+            tenant_id=selected_tenant,
+            scope=ObjectQuery(
+                tenant_id=selected_tenant,
+                limit=self.config.page_budget,
+            ),
+        )
+
+    async def access_paths(
+        self,
+        identity_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> list[AccessPath]:
+        selected_tenant = require_tenant_id(tenant_id)
+        identity = await self.store.get_identity(identity_id, tenant_id=selected_tenant)
+        if identity is None:
+            raise IdentityNotFound(identity_id)
+        return await identity_access_paths(
+            self._governance_owner(),
+            identity_id,
+            tenant_id=selected_tenant,
+        )
+
+    async def open_certification(
+        self,
+        *,
+        tenant_id: str | None,
+        name: str,
+        scope: ObjectQuery,
+        by: ActorRef,
+        due_days: int | None = None,
+    ) -> Certification:
+        return await open_certification(
+            self._governance_owner(),
+            tenant_id=require_tenant_id(tenant_id),
+            name=name,
+            scope=scope,
+            by=by,
+            due_days=due_days,
+        )
+
+    async def decide_certification_item(
+        self,
+        cert_id: str,
+        item_id: str,
+        *,
+        decision: str,
+        by: ActorRef,
+        note: str | None,
+        expected_version: int,
+    ) -> Certification:
+        return await decide_certification_item(
+            self._governance_owner(),
+            cert_id,
+            item_id,
+            decision=decision,
+            by=by,
+            note=note,
+            expected_version=expected_version,
+        )
+
+    async def complete_certification(
+        self,
+        cert_id: str,
+        *,
+        by: ActorRef,
+        raise_findings: bool = True,
+    ) -> list[str]:
+        return await complete_certification(
+            self._governance_owner(),
+            cert_id,
+            by=by,
+            raise_findings=raise_findings,
+        )
+
+    async def risks_to_findings(
+        self,
+        report: AccessRiskReport,
+        *,
+        by: ActorRef,
+        prioritize: bool = True,
+    ) -> list[str]:
+        return await risks_to_findings(
+            self._governance_owner(),
+            report,
+            by=by,
+            prioritize=prioritize,
+        )
+
+    def _governance_owner(self) -> IdentityGovernanceOwner:
+        if self.governance_owner is None:
+            raise StoreUnavailable("EA-0011 governance owner is unavailable")
+        return self.governance_owner
 
     async def ingest_identities(
         self,

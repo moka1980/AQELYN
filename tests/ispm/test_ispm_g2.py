@@ -29,7 +29,7 @@ from aqelyn.ispm import (
     NormalizedIdentity,
     PostgresISPMStore,
 )
-from aqelyn.objects import AQObject, InMemoryObjectStore, NaturalKey, ObjectQuery, SourceRef
+from aqelyn.objects import AQObject, InMemoryObjectStore, NaturalKey, SourceRef
 from aqelyn.policy import PolicyEngine
 from aqelyn.trust import (
     InMemorySourceReliabilityRegistry,
@@ -554,6 +554,31 @@ async def test_ispm_real_iag_round_trip() -> None:
                 tenant_id=TENANT,
             )
         )[0]
+        bare_account = await harness.object_store.upsert(
+            AQObject(
+                id="",
+                object_type="account",
+                schema_version=1,
+                tenant_id=TENANT,
+                display_name="unlinked@example.test",
+                attributes={"last_used_at": (utc_now() - timedelta(days=365)).isoformat()},
+                natural_keys=[NaturalKey(namespace="ispm:entra:account", value="account:unlinked")],
+                sources=[
+                    SourceRef(
+                        source_id=source_id,
+                        evidence_id=account_evidence.id,
+                        observed_at=NOW,
+                        method="test_fixture",
+                    )
+                ],
+                first_seen_at=NOW,
+                last_seen_at=NOW,
+                created_at=NOW,
+                updated_at=NOW,
+                created_by=ACTOR,
+                updated_by=ACTOR,
+            )
+        )
         iag = IdentityAccessGovernanceEngine(
             harness.object_store,
             InMemoryKnowledgeGraph(harness.object_store),
@@ -561,11 +586,14 @@ async def test_ispm_real_iag_round_trip() -> None:
             InMemoryCertificationStore(mode="enterprise"),
             harness.evidence_store,
         )
-        report = await iag.analyze_risk(
+        harness.engine.governance_owner = iag
+        report = await harness.engine.governance_context(
+            normalized.object_id,
             tenant_id=TENANT,
-            scope=ObjectQuery(tenant_id=TENANT),
         )
         account_id = normalized.account_object_ids[0]
         account_risks = [risk for risk in report.risks if risk.subject_id == account_id]
+        bare_risks = [risk for risk in report.risks if risk.subject_id == bare_account.id]
         assert any(risk.kind == "dormant" for risk in account_risks)
         assert all(risk.kind != "orphaned" for risk in account_risks)
+        assert {risk.kind for risk in bare_risks} == {"dormant", "orphaned"}
