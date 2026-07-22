@@ -15,6 +15,7 @@ from aqelyn.events import EventTypeRegistry
 from aqelyn.inventory import DiscoverySource, InventoryKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime, create_runtime
 from aqelyn.kernel.service import HealthStatus
+from aqelyn.secrets import CryptoKnownSurfaceSource
 from aqelyn.sspm import (
     SAAS_EVENTS,
     AssetConfigSaaSBaselineRouter,
@@ -144,6 +145,7 @@ async def test_sspm_surface_source_wired(backend: str) -> None:
         inventory_store = cast(Any, runtime.inventory_store)
         saas_store = cast(Any, runtime.saas_normalization_store)
         dspm_store = cast(Any, runtime.dspm_store)
+        crypto_store = cast(Any, runtime.secrets_store)
         async with inventory_store._pool.acquire() as connection:
             await connection.execute("TRUNCATE aq_inventory_asset_history, aq_inventory_asset")
         async with saas_store._pool.acquire() as connection:
@@ -152,7 +154,14 @@ async def test_sspm_surface_source_wired(backend: str) -> None:
             await connection.execute(
                 "TRUNCATE aq_dspm_assessment, aq_dspm_exposure, aq_dspm_asset, aq_dspm_asset_key"
             )
-    source = runtime.exposure_engine.source
+        async with crypto_store._pool.acquire() as connection:
+            await connection.execute(
+                "TRUNCATE aq_crypto_assessment, aq_crypto_asset_revision, "
+                "aq_crypto_asset_identity RESTART IDENTITY CASCADE"
+            )
+    crypto_source = runtime.exposure_engine.source
+    assert isinstance(crypto_source, CryptoKnownSurfaceSource)
+    source = crypto_source.upstream
     assert isinstance(source, SaaSIntegrationKnownSurfaceSource)
     assert isinstance(source.upstream, DataStoreKnownSurfaceSource)
     assert isinstance(source.upstream.upstream, InventoryKnownSurfaceSource)

@@ -46,6 +46,10 @@ def _default_dspm_sensitivity_factors() -> dict[str, float]:
     }
 
 
+def _default_secrets_min_key_sizes() -> dict[str, int]:
+    return {"rsa": 2048, "ec": 256}
+
+
 class AQELYNConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AQELYN_", extra="ignore")
 
@@ -79,6 +83,14 @@ class AQELYNConfig(BaseSettings):
     dspm_max_work: int = 5_000
     dspm_max_fields_per_store: int = 1_000
     dspm_max_signals_per_field: int = 100
+    secrets_expiry_warning_days: int = 30
+    secrets_weak_algorithms: list[str] = Field(
+        default_factory=lambda: ["md5", "sha1", "des", "3des"]
+    )
+    secrets_min_key_sizes: dict[str, int] = Field(default_factory=_default_secrets_min_key_sizes)
+    secrets_max_key_age_days: int = 365
+    secrets_batch_size: int = 100
+    secrets_max_work: int = 50_000
     supplychain_license_policy_id: str | None = None
     supplychain_sensitive_scopes: list[str] = Field(default_factory=list)
     supplychain_max_depth: int = 6

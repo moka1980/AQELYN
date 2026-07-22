@@ -42,9 +42,15 @@ from aqelyn.secrets.models import (
     SecretScanDescriptor,
 )
 from aqelyn.secrets.postgres import PostgresCryptoStore
+from aqelyn.secrets.service import (
+    CRYPTO_EVENTS,
+    SecretsIntelligenceService,
+    register_crypto_events,
+)
 from aqelyn.secrets.store import CryptoStore
 
 __all__ = [
+    "CRYPTO_EVENTS",
     "VALID_ASSESSMENT_STATUSES",
     "VALID_CRYPTO_ASSET_KINDS",
     "VALID_KEY_USAGES",
@@ -86,4 +92,6 @@ __all__ = [
     "SecretLocationKind",
     "SecretScanDescriptor",
     "SecretsIntelligenceEngine",
+    "SecretsIntelligenceService",
+    "register_crypto_events",
 ]
