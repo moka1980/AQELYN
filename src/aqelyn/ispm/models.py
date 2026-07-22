@@ -36,6 +36,7 @@ ControlState = Literal["present", "absent", "unknown"]
 FactorStatus = Literal["known", "unknown"]
 DriftStatus = Literal["pass", "fail", "unknown"]
 AssessmentStatus = Literal["computed", "truncated", "pending"]
+OwnershipStatus = Literal["known", "unknown"]
 AccessRelationType = Literal["has_role", "grants_entitlement", "member_of"]
 
 VALID_IDENTITY_KINDS: Final[frozenset[str]] = frozenset(
@@ -210,6 +211,86 @@ class IdentityAccessEdgeDescriptor(BaseModel):
         return require_typed_id(value, "evd", field="access edge evidence_id")
 
 
+class IdentityOwnershipClaim(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    business_owner: str | None = None
+    technical_owner: str | None = None
+    custodian: str | None = None
+    rationale: str
+    source_id: str
+    observed_at: datetime
+    evidence_id: str
+
+    @field_validator("business_owner", "technical_owner", "custodian")
+    @classmethod
+    def _owner_ref(cls, value: str | None) -> str | None:
+        return _optional_nonempty(value, field="ownership reference")
+
+    @field_validator("rationale")
+    @classmethod
+    def _rationale(cls, value: str) -> str:
+        return _nonempty(value, field="ownership rationale")
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str) -> str:
+        return _nonempty(value, field="ownership source_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="ownership evidence_id")
+
+    @model_validator(mode="after")
+    def _at_least_one_owner(self) -> IdentityOwnershipClaim:
+        if not any((self.business_owner, self.technical_owner, self.custodian)):
+            raise ISPMConfigInvalid("ownership claim requires at least one owner reference")
+        return self
+
+
+class IdentityOwnershipState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inventory_ref: str
+    status: OwnershipStatus = "unknown"
+    source_id: str | None = None
+    evidence_id: str | None = None
+    observed_at: datetime | None = None
+    reason: str
+
+    @field_validator("inventory_ref")
+    @classmethod
+    def _inventory_ref(cls, value: str) -> str:
+        return require_typed_id(value, "ast", field="ownership inventory_ref")
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str | None) -> str | None:
+        return _optional_nonempty(value, field="ownership source_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "evd", field="ownership evidence_id")
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        return _nonempty(value, field="ownership reason")
+
+    @model_validator(mode="after")
+    def _status_consistency(self) -> IdentityOwnershipState:
+        provenance = (self.source_id, self.evidence_id, self.observed_at)
+        if self.status == "known" and any(value is None for value in provenance):
+            raise ISPMConfigInvalid("known ownership requires source, evidence, and observation")
+        if self.status == "unknown" and any(value is not None for value in provenance):
+            raise ISPMConfigInvalid("unknown ownership cannot carry asserted provenance")
+        return self
+
+
 class IdentityDescriptor(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -221,6 +302,7 @@ class IdentityDescriptor(BaseModel):
     controls: dict[str, Any] = Field(default_factory=dict)
     accounts: list[IdentityAccountDescriptor] = Field(default_factory=list)
     access_edges: list[IdentityAccessEdgeDescriptor] = Field(default_factory=list)
+    ownership: IdentityOwnershipClaim | None = None
     observed_at: datetime
     evidence_id: str | None = None
 
@@ -275,6 +357,7 @@ class NormalizedIdentity(BaseModel):
     account_object_ids: list[str] = Field(default_factory=list)
     relationship_ids: list[str] = Field(default_factory=list)
     controls: IdentityControls = Field(default_factory=IdentityControls)
+    ownership: IdentityOwnershipState | None = None
     field_provenance: dict[str, str]
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
     flagged: bool = False

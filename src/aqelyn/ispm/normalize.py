@@ -15,13 +15,15 @@ from aqelyn.conventions.errors import (
     StoreUnavailable,
 )
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
-from aqelyn.inventory import AssetRecord, DiscoverySource, InventoryReport
+from aqelyn.inventory import AssetRecord, DiscoverySource, InventoryReport, Ownership
 from aqelyn.ispm.models import (
     ControlFact,
     IdentityAccessEdgeDescriptor,
     IdentityAccountDescriptor,
     IdentityControls,
     IdentityDescriptor,
+    IdentityOwnershipClaim,
+    IdentityOwnershipState,
     NormalizedIdentity,
 )
 from aqelyn.objects import AQObject, AQRelationship, NaturalKey, ObjectQuery, SourceRef
@@ -59,6 +61,10 @@ class IdentityInventoryOwner(Protocol):
 
     async def inventory(self, *, tenant_id: str | None) -> InventoryReport: ...
 
+    async def reconcile(self, asset_id: str, *, tenant_id: str | None) -> AssetRecord: ...
+
+    async def ownership(self, asset_id: str, *, tenant_id: str | None) -> Ownership | None: ...
+
 
 class IdentityObjectStore(Protocol):
     async def get(self, object_id: str, *, resolve_merged: bool = True) -> AQObject | None: ...
@@ -84,6 +90,8 @@ class PreparedIdentity:
     descriptor: IdentityDescriptor
     evidence: EvidenceRecord
     confidence: float
+    ownership_evidence: EvidenceRecord | None
+    ownership_confidence: float | None
     account_evidence: dict[str, EvidenceRecord]
     account_confidence: dict[str, float]
     edge_evidence: dict[tuple[str, str, str], EvidenceRecord]
@@ -129,6 +137,19 @@ async def prepare_identity(
         actor=actor,
         tenant_id=tenant_id,
     )
+    ownership_evidence: EvidenceRecord | None = None
+    ownership_confidence: float | None = None
+    if descriptor.ownership is not None:
+        ownership_evidence, ownership_confidence = await _verified_evidence(
+            descriptor.ownership.evidence_id,
+            source_id=descriptor.ownership.source_id,
+            subject_ref=f"identity-ownership:{descriptor.provider}:{descriptor.external_id}",
+            observed_at=descriptor.ownership.observed_at,
+            evidence_store=evidence_store,
+            trust=trust,
+            actor=actor,
+            tenant_id=tenant_id,
+        )
     account_evidence: dict[str, EvidenceRecord] = {}
     account_confidence: dict[str, float] = {}
     for account in descriptor.accounts:
@@ -164,6 +185,8 @@ async def prepare_identity(
         descriptor=descriptor,
         evidence=evidence,
         confidence=confidence,
+        ownership_evidence=ownership_evidence,
+        ownership_confidence=ownership_confidence,
         account_evidence=account_evidence,
         account_confidence=account_confidence,
         edge_evidence=edge_evidence,
@@ -193,6 +216,10 @@ def new_normalized_identity(
         provider=descriptor.provider,
         identity_kind=kind,
         controls=controls,
+        ownership=IdentityOwnershipState(
+            inventory_ref=inventory_ref(object_id),
+            reason="EA-0025 ownership has not yet been reconciled.",
+        ),
         field_provenance=provenance,
         conflicts=[],
         flagged=kind == "unknown",
@@ -397,14 +424,59 @@ def inventory_report(
     obj: AQObject,
     *,
     evidence_id: str,
+    owner: Ownership | None = None,
 ) -> dict[str, object]:
-    return {
+    report: dict[str, object] = {
         "id": inventory_ref(obj.id),
         "asset_type": obj.object_type,
         "lifecycle_state": "active",
         "evidence_id": evidence_id,
         "ref": f"ispm:{obj.object_type}:{obj.id}",
     }
+    if owner is not None:
+        report["owner"] = owner.model_dump(mode="json")
+    return report
+
+
+def inventory_ownership(claim: IdentityOwnershipClaim) -> Ownership:
+    return Ownership(
+        business_owner=claim.business_owner,
+        technical_owner=claim.technical_owner,
+        custodian=claim.custodian,
+        rationale=claim.rationale,
+        source_id=claim.source_id,
+        evidence_id=claim.evidence_id,
+        observed_at=claim.observed_at,
+    )
+
+
+def ownership_state(asset: AssetRecord) -> IdentityOwnershipState:
+    owner = asset.owner
+    if owner is None:
+        unresolved = any(
+            conflict.field == "owner" and conflict.unresolved for conflict in asset.conflicts
+        )
+        return IdentityOwnershipState(
+            inventory_ref=asset.id,
+            reason=(
+                "EA-0025 ownership claims have equal reliability and remain unresolved."
+                if unresolved
+                else "No evidence-backed ownership claim is available from EA-0025."
+            ),
+        )
+    if owner.evidence_id is None or owner.observed_at is None:
+        return IdentityOwnershipState(
+            inventory_ref=asset.id,
+            reason="EA-0025 ownership lacks evidence provenance and remains unknown.",
+        )
+    return IdentityOwnershipState(
+        inventory_ref=asset.id,
+        status="known",
+        source_id=owner.source_id,
+        evidence_id=owner.evidence_id,
+        observed_at=owner.observed_at,
+        reason=owner.rationale,
+    )
 
 
 def inventory_ref(object_id: str) -> str:

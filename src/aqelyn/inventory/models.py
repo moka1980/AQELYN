@@ -194,6 +194,8 @@ class Ownership(BaseModel):
     custodian: str | None = None
     rationale: str
     source_id: str
+    evidence_id: str | None = None
+    observed_at: datetime | None = None
 
     @field_validator("business_owner", "technical_owner", "custodian")
     @classmethod
@@ -206,6 +208,21 @@ class Ownership(BaseModel):
     @classmethod
     def _required_text(cls, value: str) -> str:
         return _nonempty(value, field="ownership field")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "evd", field="ownership evidence_id")
+
+    @model_validator(mode="after")
+    def _provenance_consistency(self) -> Ownership:
+        if (self.evidence_id is None) != (self.observed_at is None):
+            raise InventoryConfigInvalid(
+                "ownership evidence_id and observed_at must be supplied together"
+            )
+        return self
 
 
 class AssetRecord(BaseModel):

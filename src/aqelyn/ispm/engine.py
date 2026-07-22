@@ -58,8 +58,10 @@ from aqelyn.ispm.normalize import (
     account_object,
     ensure_identity_object_types,
     identity_object,
+    inventory_ownership,
     inventory_report,
     new_normalized_identity,
+    ownership_state,
     prepare_identity,
     reconcile_identity,
     relationship,
@@ -825,8 +827,33 @@ class ISPMEngine:
         relationship_ids = set(reconciled.identity.relationship_ids)
         conflicts = list(reconciled.identity.conflicts)
         local_objects: dict[str, AQObject] = {descriptor.external_id: saved_identity}
-        inventory_rows: list[dict[str, object]] = [
-            inventory_report(saved_identity, evidence_id=prepared.evidence.id)
+        ownership_claim = descriptor.ownership
+        if ownership_claim is None:
+            identity_owner = None
+            identity_inventory_evidence = prepared.evidence
+            identity_inventory_confidence = prepared.confidence
+            identity_inventory_observed_at = descriptor.observed_at
+        else:
+            if prepared.ownership_evidence is None or prepared.ownership_confidence is None:
+                raise StoreUnavailable("prepared ownership claim is missing verified provenance")
+            identity_owner = inventory_ownership(ownership_claim)
+            identity_inventory_evidence = prepared.ownership_evidence
+            identity_inventory_confidence = prepared.ownership_confidence
+            identity_inventory_observed_at = ownership_claim.observed_at
+        inventory_requests: list[tuple[dict[str, object], DiscoverySource]] = [
+            (
+                inventory_report(
+                    saved_identity,
+                    evidence_id=identity_inventory_evidence.id,
+                    owner=identity_owner,
+                ),
+                DiscoverySource(
+                    source_id=identity_inventory_evidence.source_id,
+                    reliability=identity_inventory_confidence,
+                    health="ok",
+                    as_of=identity_inventory_observed_at,
+                ),
+            )
         ]
         for account in descriptor.accounts:
             evidence = prepared.account_evidence[account.external_id]
@@ -864,7 +891,17 @@ class ISPMEngine:
                 observed_at=account.observed_at,
             )
             relationship_ids.add(rel.id)
-            inventory_rows.append(inventory_report(saved_account, evidence_id=evidence.id))
+            inventory_requests.append(
+                (
+                    inventory_report(saved_account, evidence_id=evidence.id),
+                    DiscoverySource(
+                        source_id=evidence.source_id,
+                        reliability=confidence,
+                        health="ok",
+                        as_of=account.observed_at,
+                    ),
+                )
+            )
 
         for edge in descriptor.access_edges:
             source_object = local_objects[edge.from_external_id]
@@ -886,29 +923,48 @@ class ISPMEngine:
             )
             relationship_ids.add(rel.id)
 
+        inventory_assets = []
+        for report, source in inventory_requests:
+            inventory_assets.extend(
+                await self.inventory.ingest(
+                    reports=[report],
+                    source=source,
+                    tenant_id=tenant_id,
+                )
+            )
+        expected_inventory_ids = {str(report["id"]) for report, _ in inventory_requests}
+        if {asset.id for asset in inventory_assets} != expected_inventory_ids:
+            raise StoreUnavailable("EA-0025 inventory did not accept every ISPM object")
+        identity_inventory_ref = str(inventory_requests[0][0]["id"])
+        identity_asset = await self.inventory.reconcile(
+            identity_inventory_ref,
+            tenant_id=tenant_id,
+        )
+        selected_owner = await self.inventory.ownership(
+            identity_inventory_ref,
+            tenant_id=tenant_id,
+        )
+        if selected_owner != identity_asset.owner:
+            raise StoreUnavailable("EA-0025 ownership read disagrees with reconciled asset")
+        selected_ownership = ownership_state(identity_asset)
+        provenance = dict(reconciled.identity.field_provenance)
+        provenance["ownership"] = (
+            selected_ownership.evidence_id
+            if selected_ownership.evidence_id is not None
+            else f"unknown:{selected_ownership.reason}"
+        )
         final = reconciled.identity.model_copy(
             update={
                 "account_object_ids": sorted(account_ids),
                 "relationship_ids": sorted(relationship_ids),
+                "ownership": selected_ownership,
+                "field_provenance": provenance,
                 "conflicts": conflicts,
                 "flagged": reconciled.identity.identity_kind == "unknown"
                 or any(bool(conflict.get("unresolved")) for conflict in conflicts),
             },
             deep=True,
         )
-        inventory_assets = await self.inventory.ingest(
-            reports=inventory_rows,
-            source=DiscoverySource(
-                source_id=prepared.evidence.source_id,
-                reliability=prepared.confidence,
-                health="ok",
-                as_of=descriptor.observed_at,
-            ),
-            tenant_id=tenant_id,
-        )
-        expected_inventory_ids = {str(row["id"]) for row in inventory_rows}
-        if {asset.id for asset in inventory_assets} != expected_inventory_ids:
-            raise StoreUnavailable("EA-0025 inventory did not accept every ISPM object")
         return await self.store.upsert_identity(final)
 
     async def _validate_edge_targets(

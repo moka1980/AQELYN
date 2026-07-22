@@ -125,7 +125,8 @@ AssetRecord = { id, tenant_id, asset_type: str, discovery_source: str,   # sourc
                 first_seen_at: datetime, last_reported_at: datetime,
                 unreported_since: datetime | null }                      # S3
 Ownership   = { business_owner: str | null, technical_owner: str | null,
-                custodian: str | null, rationale: str, source_id: str }
+                custodian: str | null, rationale: str, source_id: str,
+                evidence_id: str | null, observed_at: datetime | null }
 AssetRelationship = { id, tenant_id, source_asset: str, target_asset: str,
                       relationship_type: str, confidence: float,
                       inferred_from: str, evidence_id: str | null }      # EA-0002 storage (D5)
@@ -197,7 +198,7 @@ storage; traversal is EA-0005 `paths()` (bounded by `max_relationship_work`).
 
 - **FR-1** An `AssetRecord` SHALL name a `discovery_source` and carry a non-empty `basis`; one without SHALL be rejected (S1/D1).
 - **FR-2** Reconciliation SHALL record **every** field conflict with each candidate's value + `source_id` + reliability; a tie SHALL be `unresolved=True` and surfaced — never silently picked, never last-writer/order (S2/D2).
-- **FR-3** Precedence SHALL resolve via EA-0006 source reliability; no second reliability model (S2).
+- **FR-3** Precedence SHALL resolve via EA-0006 source reliability; no second reliability model (S2). A report that omits ownership is missing data, not a competing no-owner claim. Evidence-backed ownership SHALL retain its evidence id and observation time through reconciliation (C-031 H2).
 - **FR-4** An asset absent from a source SHALL become `unreported` (with `unreported_since`), SHALL NOT become `decommissioned` (S3/D3).
 - **FR-5** `sweep_unreported` SHALL refuse (`SourceHealthUnknown`) when the source's health is `unknown` (S3).
 - **FR-6** `decommission` SHALL require positive evidence or an attributed EA-0008 decision; the engine SHALL NOT infer decommission from absence (S3/S5).
@@ -237,6 +238,7 @@ storage; traversal is EA-0005 `paths()` (bounded by `max_relationship_work`).
 | AC-15 | Store passes one suite each backend | `test_inv_store_contract[...]` |
 | AC-16 | Registers as AQService with health | `test_inv_service_health` |
 | AC-17 | inventory() supplies EA-0023 asset set + EA-0024 coverage denominator | `test_inv_seams_wired` |
+| AC-18 | Missing ownership does not erase a claim; selected ownership retains evidence provenance | `test_nhi_ownership_conflict_uses_trust` |
 
 ## 10. Error taxonomy (contributions)
 
@@ -280,3 +282,5 @@ storage; traversal is EA-0005 `paths()` (bounded by `max_relationship_work`).
 - **`inventory()` closes the EA-0023/EA-0024 seams** (N6) — what those modules were
   missing was never network access; it was an authoritative "which assets exist".
 - **Not the connector turn** — discovery is handed in; no ADR-0001 refresh.
+- **C-031 H2 ownership handoff** — evidence-backed EA-0033 ownership claims use
+  this owner and reconciliation path; no machine-identity ownership store exists.

@@ -419,6 +419,10 @@ def _latest_records_by_source(history: Sequence[dict[str, Any]]) -> list[AssetRe
 
 
 def _resolve_field(records: Sequence[AssetRecord], field: str) -> _Resolution:
+    if field == "owner":
+        records = [record for record in records if record.owner is not None]
+        if not records:
+            return _Resolution(field=field, conflict=None, value=None, resolved=True)
     candidates = [
         ConflictCandidate(
             value=_field_value(record, field),
