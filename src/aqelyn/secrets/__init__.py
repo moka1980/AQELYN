@@ -16,6 +16,7 @@ from aqelyn.secrets.models import (
     CertificateAsset,
     CertificateClaim,
     CertificateDescriptor,
+    CredentialGovernanceScore,
     CryptoAssessment,
     CryptoAsset,
     CryptoAssetKind,
@@ -30,6 +31,9 @@ from aqelyn.secrets.models import (
     CryptographicKeyDescriptor,
     CryptoQuery,
     CryptoScope,
+    GovernanceFactor,
+    GovernanceFactorStatus,
+    GovernanceScoringStatus,
     KeyClaim,
     KeyUsage,
     Lifecycle,
@@ -42,6 +46,13 @@ from aqelyn.secrets.models import (
     SecretScanDescriptor,
 )
 from aqelyn.secrets.postgres import PostgresCryptoStore
+from aqelyn.secrets.scoring import (
+    ComposedCredentialGovernance,
+    compose_credential_governance,
+    governance_operation_registry,
+    governance_score_result,
+    validate_replayable_governance_score,
+)
 from aqelyn.secrets.service import (
     CRYPTO_EVENTS,
     SecretsIntelligenceService,
@@ -63,6 +74,8 @@ __all__ = [
     "CertificateAuthenticityVerifier",
     "CertificateClaim",
     "CertificateDescriptor",
+    "ComposedCredentialGovernance",
+    "CredentialGovernanceScore",
     "CryptoAssessment",
     "CryptoAsset",
     "CryptoAssetKind",
@@ -79,6 +92,9 @@ __all__ = [
     "CryptographicExposure",
     "CryptographicKey",
     "CryptographicKeyDescriptor",
+    "GovernanceFactor",
+    "GovernanceFactorStatus",
+    "GovernanceScoringStatus",
     "InMemoryCryptoStore",
     "KeyClaim",
     "KeyUsage",
@@ -93,5 +109,9 @@ __all__ = [
     "SecretScanDescriptor",
     "SecretsIntelligenceEngine",
     "SecretsIntelligenceService",
+    "compose_credential_governance",
+    "governance_operation_registry",
+    "governance_score_result",
     "register_crypto_events",
+    "validate_replayable_governance_score",
 ]

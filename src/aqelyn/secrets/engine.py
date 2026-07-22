@@ -31,8 +31,10 @@ from aqelyn.evidence import EvidenceRecord, EvidenceStore
 from aqelyn.exposure import AssetRef, ExposureImpactContext, ExposureRecord
 from aqelyn.findings import Finding, FindingStore
 from aqelyn.governance import ComplianceSnapshot
-from aqelyn.inventory import DiscoverySource
-from aqelyn.objects import ObjectQuery, ObjectStore
+from aqelyn.inventory import DiscoverySource, Ownership
+from aqelyn.mission.models import MissionImpactResult
+from aqelyn.objects import NaturalKey, ObjectQuery, ObjectStore
+from aqelyn.risk.models import RiskConfig
 from aqelyn.secrets.ingest import (
     CRYPTO_OBJECT_TYPES,
     CryptoInventoryOwner,
@@ -60,6 +62,7 @@ from aqelyn.secrets.models import (
     AuthenticityCheck,
     CertificateAsset,
     CertificateDescriptor,
+    CredentialGovernanceScore,
     CryptoAssessment,
     CryptoAsset,
     CryptoAssetKind,
@@ -73,6 +76,7 @@ from aqelyn.secrets.models import (
     SecretAsset,
     SecretScanDescriptor,
 )
+from aqelyn.secrets.scoring import compose_credential_governance
 from aqelyn.secrets.store import CryptoStore
 from aqelyn.workflow import Playbook, Run, Step
 
@@ -113,6 +117,19 @@ class CryptoComplianceOwner(Protocol):
     ) -> ComplianceSnapshot: ...
 
 
+class CryptoOwnershipOwner(Protocol):
+    async def ownership(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> Ownership | None: ...
+
+
+class CryptoMissionOwner(Protocol):
+    async def mission_impact(self, object_id: str) -> MissionImpactResult: ...
+
+
 class WorkflowProposer(Protocol):
     async def propose(
         self,
@@ -132,12 +149,15 @@ class SecretsIntelligenceEngine:
         inventory: CryptoInventoryOwner,
         evidence_store: EvidenceStore,
         trust: TrustAssessor,
+        ownership_owner: CryptoOwnershipOwner | None = None,
+        mission_owner: CryptoMissionOwner | None = None,
         authenticity_verifier: CertificateAuthenticityVerifier | None = None,
         exposure_owner: CryptoExposureOwner | None = None,
         compliance_owner: CryptoComplianceOwner | None = None,
         finding_store: FindingStore | None = None,
         workflow_engine: WorkflowProposer | None = None,
         config: CryptoConfig | None = None,
+        risk_config: RiskConfig | None = None,
         actor: ActorRef | None = None,
         source_id: str | None = None,
     ) -> None:
@@ -146,12 +166,15 @@ class SecretsIntelligenceEngine:
         self.inventory = inventory
         self.evidence_store = evidence_store
         self.trust = trust
+        self.ownership_owner = ownership_owner
+        self.mission_owner = mission_owner
         self.authenticity_verifier = authenticity_verifier
         self.exposure_owner = exposure_owner
         self.compliance_owner = compliance_owner
         self.finding_store = finding_store
         self.workflow_engine = workflow_engine
         self.config = config or CryptoConfig()
+        self.risk_config = risk_config or RiskConfig()
         self.actor = actor or _SECRETS_ACTOR
         self.source_id = require_typed_id(
             source_id or new_id("src"),
@@ -252,6 +275,29 @@ class SecretsIntelligenceEngine:
             if asset.expiry.status != "invalid"
         )
         unknown = sum(_has_unknown_lifecycle(asset) for asset in assessed)
+        governance_score_ids: list[str] = []
+        governance_failures: list[str] = []
+        if self._governance_scoring_ready():
+            for asset in assessed:
+                try:
+                    score = await self._score_asset(asset, tenant_id=selected_tenant)
+                except EvidenceNotFound as exc:
+                    governance_failures.append(f"{asset.id}:{exc.code}")
+                except AQError as exc:
+                    if not exc.retriable:
+                        raise
+                    governance_failures.append(f"{asset.id}:{exc.code}")
+                else:
+                    governance_score_ids.append(score.id)
+            governance_status = "partial" if governance_failures else "complete"
+            governance_reason = (
+                "Governance scoring was incomplete: " + ", ".join(governance_failures)
+                if governance_failures
+                else None
+            )
+        else:
+            governance_status = "pending"
+            governance_reason = "Governance scoring owners are not configured."
         status: AssessmentStatus = "truncated" if truncated else "complete"
         incomplete_reason = (
             f"CryptoStore scan stopped at max_work={self.config.max_work}." if truncated else None
@@ -266,6 +312,9 @@ class SecretsIntelligenceEngine:
             certificates=len(certificates),
             expiring=expiring,
             unknown=unknown,
+            governance_status=governance_status,
+            governance_score_ids=governance_score_ids,
+            governance_reason=governance_reason,
             incomplete_reason=incomplete_reason,
             now=now,
         )
@@ -280,10 +329,31 @@ class SecretsIntelligenceEngine:
             certificates=len(certificates),
             expiring_soon=expiring,
             unknown_lifecycle=unknown,
+            governance_scoring_status=governance_status,
+            governance_score_ids=governance_score_ids,
+            governance_incomplete_reason=governance_reason,
             incomplete_reason=incomplete_reason,
             evidence_id=evidence.id,
         )
         return await self.store.put_assessment(assessment)
+
+    async def score_credential(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> CredentialGovernanceScore:
+        selected_tenant = require_tenant_id(tenant_id)
+        asset = await self.store.get_asset(asset_id, tenant_id=selected_tenant)
+        if asset is None:
+            raise CryptoAssetNotFound(asset_id)
+        if isinstance(asset, CertificateAsset):
+            selected: CryptoAsset = await self._assess_certificate(asset, now=utc_now())
+        elif isinstance(asset, CryptographicKey):
+            selected = await self._assess_key(asset, now=utc_now())
+        else:
+            selected = asset.model_copy(deep=True)
+        return await self._score_asset(selected, tenant_id=selected_tenant)
 
     async def analyze_exposure(
         self,
@@ -694,6 +764,9 @@ class SecretsIntelligenceEngine:
         certificates: int,
         expiring: int,
         unknown: int,
+        governance_status: str,
+        governance_score_ids: Sequence[str],
+        governance_reason: str | None,
         incomplete_reason: str | None,
         now: datetime,
     ) -> EvidenceRecord:
@@ -719,6 +792,9 @@ class SecretsIntelligenceEngine:
                     "certificate_count": certificates,
                     "expiring_soon": expiring,
                     "unknown_lifecycle": unknown,
+                    "governance_scoring_status": governance_status,
+                    "governance_score_ids": list(governance_score_ids),
+                    "governance_incomplete_reason": governance_reason,
                     "incomplete_reason": incomplete_reason,
                 },
                 content_hash="",
@@ -736,6 +812,150 @@ class SecretsIntelligenceEngine:
                 f"crypto assessment evidence failed integrity verification: {detail}"
             )
         return recorded
+
+    async def _score_asset(
+        self,
+        asset: CryptoAsset,
+        *,
+        tenant_id: str | None,
+    ) -> CredentialGovernanceScore:
+        ownership_owner = self.ownership_owner
+        if ownership_owner is None:
+            raise StoreUnavailable("EA-0025 credential ownership owner is unavailable")
+        mission_owner = self.mission_owner
+        if mission_owner is None:
+            raise StoreUnavailable("EA-0007 credential mission owner is unavailable")
+        if self.exposure_owner is None:
+            raise StoreUnavailable("EA-0023 credential exposure owner is unavailable")
+        if self.compliance_owner is None:
+            raise StoreUnavailable("EA-0010 credential compliance owner is unavailable")
+
+        _, basis_evidence = await self._basis_integrity(asset)
+        trust = await self.trust.assess(
+            f"crypto-governance:{asset.id}",
+            [] if basis_evidence is None else [basis_evidence],
+            now=asset_observed_at(asset),
+        )
+        ownership = await ownership_owner.ownership(
+            asset.inventory_ref,
+            tenant_id=tenant_id,
+        )
+        mission = await mission_owner.mission_impact(asset.object_id)
+        [exposure] = await self.analyze_exposure(
+            tenant_id=tenant_id,
+            scope=CryptoScope(asset_ids=[asset.id]),
+        )
+        owner_exposure: ExposureRecord | None = None
+        if exposure.exposure_record_id is not None:
+            owner_exposure = await self.exposure_owner.get_exposure(
+                exposure.exposure_record_id,
+                tenant_id=tenant_id,
+            )
+            if owner_exposure is None:
+                raise CryptoConfigInvalid(
+                    f"EA-0023 exposure record not found: {exposure.exposure_record_id}"
+                )
+            _validate_owner_exposure(
+                asset,
+                owner_exposure,
+                expected_context=exposure.impact_context,
+            )
+        kind = crypto_asset_kind(asset)
+        compliance = await self.crypto_compliance(
+            tenant_id=tenant_id,
+            scope=ObjectQuery(
+                tenant_id=tenant_id,
+                object_type=CRYPTO_OBJECT_TYPES[kind],
+                natural_key=NaturalKey(
+                    namespace=f"crypto:{kind}:fingerprint",
+                    value=asset.fingerprint,
+                ),
+                limit=1,
+            ),
+        )
+        computed_at = utc_now()
+        composed = compose_credential_governance(
+            asset,
+            ownership=ownership,
+            exposure=exposure,
+            owner_exposure=owner_exposure,
+            trust=trust,
+            mission=mission,
+            compliance=compliance,
+            factor_weights=self.config.governance_factor_weights,
+            computed_at=computed_at,
+            risk_config=self.risk_config,
+        )
+        score_id = new_id("cgs")
+        result_evidence = await self.evidence_store.add(
+            EvidenceRecord(
+                id="",
+                tenant_id=tenant_id,
+                evidence_type="crypto.governance_score",
+                schema_version=1,
+                subject=Subject(object_ids=[asset.object_id]),
+                collected_at=computed_at,
+                recorded_at=computed_at,
+                collector=self.actor,
+                source_id=self.source_id,
+                method="secrets.score_credential/v1",
+                content={
+                    "score_id": score_id,
+                    "asset_id": asset.id,
+                    "object_id": asset.object_id,
+                    "score": composed.score,
+                    "factors": [
+                        {
+                            "name": factor.name,
+                            "status": factor.status,
+                            "rating": factor.rating,
+                            "weight": factor.weight,
+                        }
+                        for factor in composed.factors
+                    ],
+                    "active_critical_exposure_ids": list(composed.active_critical_exposure_ids),
+                    "metadata_only": True,
+                },
+                content_hash="",
+                confidence=composed.confidence,
+                labels={"module": "EA-0032", "kind": "credential_governance_score"},
+                seq=0,
+                prev_hash=None,
+                record_hash="",
+            )
+        )
+        verification = await self.evidence_store.verify(result_evidence.id)
+        if not verification.ok:
+            detail = verification.detail or "integrity verification failed"
+            raise EvidenceTampered(
+                f"credential governance evidence failed integrity verification: {detail}"
+            )
+        score = CredentialGovernanceScore(
+            id=score_id,
+            tenant_id=tenant_id,
+            asset_id=asset.id,
+            object_id=asset.object_id,
+            score=composed.score,
+            factors=composed.factors,
+            active_critical_exposure_ids=composed.active_critical_exposure_ids,
+            derivation=composed.derivation,
+            confidence=composed.confidence,
+            statement=composed.statement,
+            computed_at=computed_at,
+            evidence_id=result_evidence.id,
+        )
+        return await self.store.put_score(score)
+
+    def _governance_scoring_ready(self) -> bool:
+        return all(
+            owner is not None
+            for owner in (
+                self.ownership_owner,
+                self.mission_owner,
+                self.exposure_owner,
+                self.compliance_owner,
+            )
+        )
 
     async def _prepare_all(
         self,

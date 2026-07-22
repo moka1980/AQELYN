@@ -69,6 +69,7 @@ PREFIXES: dict[str, str] = {
     "cky": "cryptographic_key",
     "x509": "x509_certificate",
     "cas": "crypto_assessment",
+    "cgs": "credential_governance_score",
     "ips": "ispm_posture_score",
     "ibl": "ispm_identity_baseline",
     "idr": "ispm_identity_drift",

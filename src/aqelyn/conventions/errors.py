@@ -529,6 +529,10 @@ class CertificateNotFound(AQError):
     code = "CertificateNotFound"
 
 
+class CredentialGovernanceNotReplayable(AQError):
+    code = "CredentialGovernanceNotReplayable"
+
+
 # --- EA-0033 ---
 class ISPMConfigInvalid(AQError):
     code = "ISPMConfigInvalid"

@@ -10,6 +10,7 @@ from aqelyn.conventions.errors import CryptoConfigInvalid, TenantScopeRequired
 from aqelyn.secrets.models import (
     VALID_CRYPTO_ASSET_KINDS,
     CertificateAsset,
+    CredentialGovernanceScore,
     CryptoAssessment,
     CryptoAsset,
     CryptoAssetKind,
@@ -53,6 +54,18 @@ class CryptoStore(Protocol):
         tenant_id: str | None,
     ) -> CryptoAssessment | None: ...
 
+    async def put_score(
+        self,
+        score: CredentialGovernanceScore,
+    ) -> CredentialGovernanceScore: ...
+
+    async def get_score(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> CredentialGovernanceScore | None: ...
+
 
 def asset_kind(asset: CryptoAsset) -> CryptoAssetKind:
     if isinstance(asset, SecretAsset):
@@ -80,6 +93,12 @@ def validate_assessment(assessment: CryptoAssessment) -> CryptoAssessment:
     return CryptoAssessment.model_validate(assessment.model_dump(mode="json"))
 
 
+def validate_score(score: CredentialGovernanceScore) -> CredentialGovernanceScore:
+    from aqelyn.secrets.scoring import validate_replayable_governance_score
+
+    return validate_replayable_governance_score(score)
+
+
 def validate_asset_id(value: str, *, field: str = "asset_id") -> str:
     try:
         prefix, _ = parse_id(value)
@@ -92,6 +111,10 @@ def validate_asset_id(value: str, *, field: str = "asset_id") -> str:
 
 def validate_assessment_id(value: str) -> str:
     return require_typed_id(value, "cas", field="assessment_id")
+
+
+def validate_score_id(value: str) -> str:
+    return require_typed_id(value, "cgs", field="score_id")
 
 
 def validate_kind(value: str) -> CryptoAssetKind:

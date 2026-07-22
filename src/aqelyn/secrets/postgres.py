@@ -14,7 +14,13 @@ from aqelyn.conventions.errors import (
     StoreUnavailable,
 )
 from aqelyn.secrets.ddl import DDL
-from aqelyn.secrets.models import CryptoAssessment, CryptoAsset, CryptoAssetKind, CryptoQuery
+from aqelyn.secrets.models import (
+    CredentialGovernanceScore,
+    CryptoAssessment,
+    CryptoAsset,
+    CryptoAssetKind,
+    CryptoQuery,
+)
 from aqelyn.secrets.store import (
     asset_kind,
     validate_assessment,
@@ -24,6 +30,8 @@ from aqelyn.secrets.store import (
     validate_fingerprint,
     validate_kind,
     validate_query,
+    validate_score,
+    validate_score_id,
     validate_tenant_scope,
     validate_write_tenant,
 )
@@ -229,6 +237,65 @@ class PostgresCryptoStore:
                 *args,
             )
         return None if row is None else CryptoAssessment.model_validate(_json_value(row["record"]))
+
+    async def put_score(
+        self,
+        score: CredentialGovernanceScore,
+    ) -> CredentialGovernanceScore:
+        stored = validate_score(score)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        payload = stored.model_dump(mode="json")
+        async with self._pool.acquire() as conn:
+            current = await conn.fetchrow(
+                "SELECT tenant_id, record FROM aq_crypto_governance_score WHERE id=$1",
+                stored.id,
+            )
+            if current is not None:
+                if current["tenant_id"] != stored.tenant_id:
+                    raise CrossTenantReference(
+                        "credential governance score tenant_id cannot change"
+                    )
+                existing = CredentialGovernanceScore.model_validate(_json_value(current["record"]))
+                if existing.model_dump(mode="json") != payload:
+                    raise OptimisticConcurrencyConflict(
+                        "credential governance scores are append-only"
+                    )
+                return validate_score(existing)
+            try:
+                await conn.execute(
+                    "INSERT INTO aq_crypto_governance_score "
+                    "(id, tenant_id, asset_id, object_id, record) VALUES ($1,$2,$3,$4,$5::jsonb)",
+                    stored.id,
+                    stored.tenant_id,
+                    stored.asset_id,
+                    stored.object_id,
+                    json.dumps(payload),
+                )
+            except asyncpg.UniqueViolationError as exc:
+                raise OptimisticConcurrencyConflict(
+                    "credential governance scores are append-only"
+                ) from exc
+        return stored.model_copy(deep=True)
+
+    async def get_score(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> CredentialGovernanceScore | None:
+        selected_id = validate_score_id(score_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        args: list[Any] = [selected_id]
+        clauses = ["id=$1"]
+        _add_tenant_clause(clauses, args, mode=self.mode, tenant_id=selected_tenant)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT record FROM aq_crypto_governance_score WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        if row is None:
+            return None
+        return validate_score(CredentialGovernanceScore.model_validate(_json_value(row["record"])))
 
 
 def _add_tenant_clause(

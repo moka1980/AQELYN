@@ -75,6 +75,7 @@ relies on. Other specs reference this rather than restating it.
 | `cky` | Cryptographic key | EA-0032 |
 | `x509` | X.509 certificate | EA-0032 |
 | `cas` | Crypto assessment | EA-0032 |
+| `cgs` | Credential governance score | EA-0032 |
 | `ips` | ISPM posture score | EA-0033 |
 | `ibl` | ISPM identity baseline | EA-0033 |
 | `idr` | ISPM identity drift | EA-0033 |
@@ -285,6 +286,7 @@ Every created/changed record and every event carries the responsible actor.
 | `SecretValueRejected` | EA-0032 | no |
 | `CryptoAssetNotFound` | EA-0032 | no |
 | `CertificateNotFound` | EA-0032 | no |
+| `CredentialGovernanceNotReplayable` | EA-0032 | no |
 | `ISPMConfigInvalid` | EA-0033 | no |
 | `PostureScoreNotReplayable` | EA-0033 | no |
 | `IdentityBaselineNotFound` | EA-0033 | no |

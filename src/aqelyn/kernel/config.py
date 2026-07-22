@@ -50,6 +50,17 @@ def _default_secrets_min_key_sizes() -> dict[str, int]:
     return {"rsa": 2048, "ec": 256}
 
 
+def _default_secrets_governance_factor_weights() -> dict[str, float]:
+    return {
+        "owner_risk": 0.20,
+        "lifecycle": 0.20,
+        "ownership": 0.15,
+        "exposure": 0.20,
+        "trust": 0.10,
+        "compliance": 0.15,
+    }
+
+
 class AQELYNConfig(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="AQELYN_", extra="ignore")
 
@@ -91,6 +102,9 @@ class AQELYNConfig(BaseSettings):
     secrets_max_key_age_days: int = 365
     secrets_batch_size: int = 100
     secrets_max_work: int = 50_000
+    secrets_governance_factor_weights: dict[str, float] = Field(
+        default_factory=_default_secrets_governance_factor_weights
+    )
     supplychain_license_policy_id: str | None = None
     supplychain_sensitive_scopes: list[str] = Field(default_factory=list)
     supplychain_max_depth: int = 6
