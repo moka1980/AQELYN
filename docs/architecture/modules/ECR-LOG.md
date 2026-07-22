@@ -55,6 +55,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0048 | EA-0023 + EA-0032 | Accepted | Add an atomic persisted analyze-and-score owner path plus tenant-scoped exposure read so crypto findings cite the real replayable EA-0023 record without a second scorer. |
 | ECR-0049 | EA-0023 + EA-0033 | Proposed | Add semantic `identity_sensitivity` exposure impact while preserving the existing `data_sensitivity` default; land it with C-030 G5's first identity context. |
 | ECR-0050 | EA-0033 + EA-0027 | Accepted | Reuse EA-0027's existing platform `IdentityNotFound` error in ISPM instead of registering a duplicate code owner; EA-0033 contributes only its three net-new errors. |
+| ECR-0051 | EA-0033 | Accepted | Make unknown identity classification visibly fail-safe in every representation: `NormalizedIdentity.identity_kind="unknown"` requires `flagged=true`, rather than relying on an EA-0002 label that disappears from normalized-store reads. |
 
 ---
 
@@ -2306,3 +2307,29 @@ new contributions through `ALL_ERROR_CODES` and CONVENTIONS §9.
 **Impact.** Taxonomy-only correction; no shipped behavior or error code changes.
 The existing EA-0027 owner remains authoritative, and ISPM callers receive the
 same stable missing-identity code used elsewhere in the platform.
+
+---
+
+## ECR-0051 - persist the unknown-identity warning on the normalized record
+
+**Raised by:** Codex during C-030 G2 construction against the Accepted D1 model.
+**Status:** Accepted - implemented with the first normalized-identity persistence.
+**Severity:** blocking within G2 - the required fail-safe state was not representable
+through the ISPM store contract.
+
+**Problem.** EA-0033 requires an unmatched identity kind to become `unknown` and
+be flagged. The Accepted `NormalizedIdentity` type carried the kind but no flag.
+Writing only an EA-0002 object label would make the warning disappear whenever a
+caller read the same identity through `ISPMStore`, allowing one persisted view to
+say `unknown` without carrying the required warning.
+
+**Resolution.** Add `NormalizedIdentity.flagged: bool = false` and make
+`identity_kind="unknown"` with `flagged=false` unconstructible. Unresolved
+reconciliation conflicts likewise require the flag. G2 writes the same state to
+the EA-0002 label and the normalized record, and both stores validate the model on
+write and read.
+
+**Impact.** Additive JSONB record field only; the ISPM revision table has no
+column or check constraint for the flag, so no DDL migration is required. Known
+G1 records retain the false default. G2 acceptance constructs the forbidden state
+and verifies unknown classification stays flagged on both backends.

@@ -90,7 +90,8 @@ no credential, no poll, no connector method**) producing `NormalizedIdentity` in
 evidence-backed descriptor claims. Use `ObjectStore.relate`; do not invent a
 parallel graph or relation vocabulary. `NormalizedIdentity` carries the account
 object and relationship ids. `identity_kind` classification (unmatched →
-`"unknown"`, flagged); conflicts resolved by **EA-0006** and
+`"unknown"`, with `flagged=true` required on the normalized record per
+**ECR-0051**); conflicts resolved by **EA-0006** and
 **recorded**; registration via **EA-0025
 `InventoryIntelligenceEngine.ingest(reports=, source=DiscoverySource, tenant_id=)`**;
 `ISPMStore` (in-memory + Postgres + DDL) with **EA-0002 D8 pagination** under

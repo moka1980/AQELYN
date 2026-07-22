@@ -277,6 +277,7 @@ class NormalizedIdentity(BaseModel):
     controls: IdentityControls = Field(default_factory=IdentityControls)
     field_provenance: dict[str, str]
     conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    flagged: bool = False
     evidence_id: str
 
     @field_validator("object_id")
@@ -333,6 +334,13 @@ class NormalizedIdentity(BaseModel):
             raise ISPMConfigInvalid("identity object_id cannot also be an account object id")
         if len(self.relationship_ids) < len(self.account_object_ids):
             raise ISPMConfigInvalid("every normalized account requires a has_account relationship")
+        if self.identity_kind == "unknown" and not self.flagged:
+            raise ISPMConfigInvalid("unknown identity_kind must be flagged")
+        if (
+            any(bool(conflict.get("unresolved")) for conflict in self.conflicts)
+            and not self.flagged
+        ):
+            raise ISPMConfigInvalid("unresolved identity conflicts must be flagged")
         return self
 
 
