@@ -531,7 +531,11 @@ async def test_ispm_pagination(kind: str) -> None:
         assert next_cursor is None
 
 
-async def test_ispm_real_iag_round_trip() -> None:
+@pytest.mark.parametrize(
+    "identity_kind",
+    ["service", "machine", "application", "federated", "temporary"],
+)
+async def test_ispm_real_iag_round_trip(identity_kind: str) -> None:
     async with _harness() as harness:
         source_id = new_id("src")
         identity_evidence = await _evidence(
@@ -553,6 +557,7 @@ async def test_ispm_real_iag_round_trip() -> None:
                         account_evidence_id=account_evidence.id,
                         external_id="identity:dormant",
                         account_external_id="account:dormant",
+                        identity_kind=identity_kind,
                         account_attributes={
                             "last_used_at": (utc_now() - timedelta(days=365)).isoformat()
                         },
@@ -600,6 +605,7 @@ async def test_ispm_real_iag_round_trip() -> None:
             tenant_id=TENANT,
         )
         account_id = normalized.account_object_ids[0]
+        assert normalized.identity_kind == identity_kind
         account_risks = [risk for risk in report.risks if risk.subject_id == account_id]
         bare_risks = [risk for risk in report.risks if risk.subject_id == bare_account.id]
         assert any(risk.kind == "dormant" for risk in account_risks)
