@@ -92,6 +92,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | [EA-0032 Secrets Security & Cryptographic Asset Intelligence](EA-0032-secrets-cryptographic-asset.spec.md) | EA-0032 | EA-0025, EA-0023, EA-0010, EA-0013, EA-0019, EA-0006, EA-0004, EA-0008 | [C-029](C-029_Task_Bundle.md) | Accepted (ECR-0043 through ECR-0048) |
 | [EA-0033 Identity Security Posture Management](EA-0033-identity-security-posture.spec.md) | EA-0033 | **EA-0011**, EA-0013, EA-0007, EA-0006, EA-0020, EA-0012, EA-0025, EA-0023 | [C-030](C-030_Task_Bundle.md) | Accepted (ECR-0049–0052) |
 | IS-034 Machine Identity & NHI Governance — **distributed conformance, no new module** ([conformance](IS-034_Conformance_Analysis.md)) | EA-0033 + EA-0011 + EA-0025 + EA-0032 | EA-0002, EA-0005, EA-0006, EA-0008, EA-0009 | [C-031](C-031_Task_Bundle.md) | ECR-0053 Proposed: do not build a second authority |
+| [IS-035 — conformant via EA-0032](IS-035_Conformance_Analysis.md) | EA-0035 | *(no new module — see ECR-0054)* | [C-032](C-032_Task_Bundle.md) | Analysis |
 
 Spec authoring: [SPEC_AUTHOR_NOTES.md](SPEC_AUTHOR_NOTES.md) carries the reviewer's standing
 rules and the current per-module handover for whoever drafts the next spec.
@@ -102,7 +103,7 @@ amendments to module specifications.
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-IS-035 onward: each gets a shipped-code reconciliation before Codex builds it;
+IS-036 onward: each gets a shipped-code reconciliation before Codex builds it;
 the deliverable is either a code-ready spec for a genuinely new capability or a
 conformance decision plus owner-scoped enhancements for a restatement. With the
 Policy Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides,

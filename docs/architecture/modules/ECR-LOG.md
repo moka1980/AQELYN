@@ -58,6 +58,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0051 | EA-0033 | Accepted | Make unknown identity classification visibly fail-safe in every representation: `NormalizedIdentity.identity_kind="unknown"` requires `flagged=true`, rather than relying on an EA-0002 label that disappears from normalized-store reads. |
 | ECR-0052 | EA-0033 + EA-0011 | Accepted | Make assessment-to-finding routing durable and tenant-correct: assessments pin exact posture-score ids, both stores persist them append-only, and EA-0011's finding path accepts an optional tenant scope while preserving local callers. |
 | ECR-0053 | IS-034 / EA-0033 + EA-0011 + EA-0025 + EA-0032 | Proposed | IS-034 is a distributed restatement, not a new machine-identity module. Verify conformance, then close only ownership, typed credential/workload binding, and lifecycle-mapping gaps in their existing owners (C-031). |
+| ECR-0054 | IS-035 / EA-0032 | Proposed | IS-035 renames EA-0032; conformance + additive governance score, **no second secrets engine**. |
 
 ---
 
@@ -2431,3 +2432,72 @@ mapping and **C-031 H1-H4** owns the proof and genuine remainder. Any failed
 conformance row becomes an owner repair ticket, never permission to create a
 second authority. ECR-0032 remains Proposed and IS-034 must not become a fifth
 posture-normalization implementation while that decision is open.
+
+---
+
+## ECR-0054 - IS-035 renames EA-0032; no second secrets engine
+
+**Raised by:** planning (IS-035 spec pass), on the reviewer's verified handover.
+**Status:** Proposed - owner decision.
+**Severity:** architectural - literal construction duplicates a shipped engine wholesale.
+
+**Finding.** IS-035 ("Secrets, Keys & Certificate Lifecycle Governance Engine") is
+**EA-0032 renamed**. The ECR-0015 check against shipped `src/` returns EA-0032 as
+the owner of every capability the archive requests:
+
+```
+secret_asset / cryptographic_key / x509_certificate : 5 each   (EA-0032)
+rotation 28 · revocation 19 · expiry 17 · propose_rotation 3   (EA-0032 lifecycle)
+sct / cky / x509 prefixes : 8 each · cas                       (EA-0032 PREFIXES)
+secrets_engine 16 · aqelyn.crypto.* 4 events                   (EA-0032 service/events)
+renewal 0 · kms 0 · certificate.*lifecycle 0                   <- net-new VOCABULARY only
+```
+
+`renewal` and `kms` are words EA-0032 does not use - not capabilities it lacks.
+The master's headline requirement, **no plaintext secret ever stored**, is not a
+gap: it is already structural in EA-0032 (`_ValueFreeModel`, `extra="forbid"`),
+proven under `python -O`. Re-implementing it would weaken it.
+
+**Third distributed-conformance case** (IS-026 -> EA-0012; IS-034 -> several
+owners; IS-035 -> EA-0032), and the most concentrated of the three.
+
+**Why building it is harmful.** A second secrets store, a second crypto object
+model, duplicate lifecycle logic, duplicate `sct`/`cky`/`x509` prefixes, a second
+`secrets_engine`, and a renamed `aqelyn.crypto.*` namespace - doubling credential
+findings and inflating EA-0013/EA-0022 counts. Sharper than the identity case:
+**two engines disagreeing about whether a certificate is expired or a key revoked
+is an outage or a breach**, and the value-free guarantee would exist in two places
+with only one of them proven.
+
+**Resolution proposed.**
+1. Mark **IS-035 conformant via EA-0032**, evidenced by
+   `IS-035_Conformance_Analysis.md` and verified against shipped code with
+   **real-engine** exercises (C-032 J1), not spies or grep.
+2. Realize the **one genuine gap** - a deterministic per-credential **governance
+   score** (EA-0032 has none today; `CryptoAssessment` carries counts) - as an
+   **additive enhancement inside `src/aqelyn/secrets/`**, following the EA-0033
+   ISPM score rules exactly: no second scorer, `known_only x coverage_adjustment`
+   so unknown never becomes present, replay-or-reject against the real scorer.
+3. Treat **storage-safety classification** and **credential ownership handoff to
+   EA-0025** as owner-gated options.
+4. **Forbid** a second secrets engine, store, crypto model, duplicate prefix,
+   service, or event namespace. A governance-score record needs a new
+   collision-free prefix; its event is additive within `aqelyn.crypto.*` and
+   re-emits nothing.
+5. **Do not build the archive's 13-state lifecycle machines.** EA-0032's tri-state
+   lifecycle fields are the shipped reality and are sufficient; a state machine
+   plus transition-event store would add a second lifecycle authority for crypto
+   assets - the failure ECR-0053 rejected for identities.
+
+**Two hazards added at spec stage** (not in the archive, and specific to scoring a
+credential):
+- **A score must not average away a known exposure.** Active critical exposure is
+  an unsuppressable flag on the score record, named in the statement - EA-0022 S5's
+  *no green aggregate over an unreported fire*, one layer down.
+- **"Well-governed" is not "safe".** The score measures governance hygiene, not
+  compromise state; a perfectly rotated, owned, compliant credential that has
+  leaked is still compromised, and the statement must say what the number means.
+
+**Impact.** No new package or service; EA-0032 extended additively only. IS-035's
+intent is met at IS-035's turn without forking the platform's credential
+authority.
