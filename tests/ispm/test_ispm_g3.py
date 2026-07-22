@@ -47,7 +47,7 @@ class _GovernanceOwnerSpy:
         self.open_calls: list[tuple[str | None, str, ObjectQuery, ActorRef, int | None]] = []
         self.decision_calls: list[tuple[str, str, str, ActorRef, str | None, int]] = []
         self.complete_calls: list[tuple[str, ActorRef, bool]] = []
-        self.finding_calls: list[tuple[AccessRiskReport, ActorRef, bool]] = []
+        self.finding_calls: list[tuple[AccessRiskReport, ActorRef, bool, str | None]] = []
 
     async def access_paths(
         self,
@@ -108,8 +108,9 @@ class _GovernanceOwnerSpy:
         *,
         by: ActorRef,
         prioritize: bool = True,
+        tenant_id: str | None = None,
     ) -> list[str]:
-        self.finding_calls.append((report, by, prioritize))
+        self.finding_calls.append((report, by, prioritize, tenant_id))
         return ["fnd-owner"]
 
 
@@ -206,7 +207,7 @@ async def test_ispm_certification_delegates() -> None:
 async def test_ispm_findings_path() -> None:
     engine, owner, _ = await _engine()
 
-    finding_ids = await engine.risks_to_findings(owner.report, by=ACTOR)
+    finding_ids = await engine.risks_to_findings(owner.report, by=ACTOR, tenant_id=TENANT)
 
     assert finding_ids == ["fnd-owner"]
-    assert owner.finding_calls == [(owner.report, ACTOR, True)]
+    assert owner.finding_calls == [(owner.report, ACTOR, True, TENANT)]
