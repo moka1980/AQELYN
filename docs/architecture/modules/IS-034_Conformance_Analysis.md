@@ -52,6 +52,54 @@ EA-0033's persisted identity model, not a reason to add another identity model.
 Its "Machine Identity Repository" would be a second answer to the same object,
 posture, governance, credential, and lifecycle questions.
 
+## C-031 H1 shipped-code verification
+
+**Verified against:** merged `main @1a62a72` (ECR-0053 and C-031 canonical).
+**Result:** every conforming row above holds. The three partial rows remain the
+explicit H2-H4 enhancement tickets; none requires a new runtime module.
+
+- **Non-human identity scopes and real governance:** the parameterized
+  `test_ispm_real_iag_round_trip` constructs each shipped non-human
+  `IdentityKind` (`service`, `machine`, `application`, `federated`,
+  `temporary`), ingests it through the real EA-0033 engine, and proves the real
+  EA-0011 analyzer sees its dormant account without falsely calling it
+  orphaned. Removing the `has_account` relationship in the negative control
+  changes the owner verdict to orphaned. The resulting EA-0033 score pins the
+  exact `AccessRisk` records.
+- **Inventory ownership and lifecycle:** `test_inv_n2.py` proves EA-0025 owner
+  reconciliation by reliability, conflict retention, and unresolved ties on
+  both stores. `test_inv_n3.py` proves silence becomes `unreported`, unknown
+  source health refuses the sweep, decommission requires evidence/decision,
+  freshness is declared, and lifecycle history is append-only.
+- **Credential and certificate lifecycle:** `test_secrets_w2.py` proves real
+  EA-0002/EA-0025 object handoff; `test_secrets_w3.py` proves tri-state key and
+  certificate lifecycle plus integrity/authenticity separation; W4/W5 prove
+  finding-bound proposals, owner composition, and service/event ownership.
+- **Relationships and traversal:** EA-0033 writes evidence-backed EA-0002
+  `has_account` and access relationships; the real EA-0011/EA-0005 round trip
+  consumes them. The graph acceptance suite separately proves bounded
+  traversal and path behavior; no local NHI graph implementation exists.
+- **Events:** EA-0033 registers four `aqelyn.ispm.*` events, EA-0025 five
+  `aqelyn.inventory.*` events, and EA-0032 four `aqelyn.crypto.*` events. Their
+  owner tests prove those registries; no `aqelyn.nhi.*` event is registered.
+- **Structural boundary:** `src/aqelyn/machine_identity/`, `nhi_engine`, a
+  second identity/lifecycle store, and a second posture score are absent. H1
+  adds no `src/` package or runtime behavior.
+
+Verification commands:
+
+```bash
+ruff check src tests
+ruff format --check src tests
+mypy --strict src tests
+pytest tests/ispm tests/iag tests/inventory tests/secrets tests/graph -q
+pytest -q
+```
+
+Observed on live Postgres 16 + Redis 7: all five owner suites passed; the full
+suite collected 1,244 tests and completed with **1,243 passed / 1 skipped**.
+Ruff, format, and `mypy --strict src tests` were green across 477 files.
+
 ## The genuine remainder
 
 ### H2 - connect identity ownership to EA-0025
