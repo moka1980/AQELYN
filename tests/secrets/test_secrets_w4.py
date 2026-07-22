@@ -40,6 +40,8 @@ from aqelyn.objects import InMemoryObjectStore, ObjectQuery
 from aqelyn.policy import ComplianceResult
 from aqelyn.risk import InMemoryRiskSnapshotStore, InMemoryRiskStore, RiskIntelligenceEngine
 from aqelyn.secrets import (
+    CertificateAsset,
+    CertificateDescriptor,
     CryptographicKey,
     CryptographicKeyDescriptor,
     CryptoKnownSurfaceSource,
@@ -112,10 +114,10 @@ class _CompliancePolicy:
 
 
 class _ExecutionCountingHandler:
-    def __init__(self) -> None:
+    def __init__(self, action_type: str = "crypto.rotate") -> None:
         self.spec = ActionSpec(
-            action_type="crypto.rotate",
-            capability="capability:crypto.rotate",
+            action_type=action_type,
+            capability=f"capability:{action_type}",
             effect="reversible",
             reversible=True,
             description="Exercise the crypto remediation eligibility gate.",
@@ -470,6 +472,99 @@ async def test_crypto_rotation_gated() -> None:
         assert not hasattr(harness.engine, "execute")
         assert not hasattr(harness.engine, "rotate")
         assert not hasattr(harness.engine, "revoke")
+
+
+@pytest.mark.parametrize("backend", ["inmemory", "postgres"])
+async def test_crypto_conformance_exposure_and_proposal(backend: str) -> None:
+    async with _harness(backend) as harness:
+        source_id = new_id("src")
+        fingerprint = f"hmac-sha256:{402:064x}"
+        basis = await _evidence(
+            harness.evidence,
+            source_id=source_id,
+            fingerprint=fingerprint,
+        )
+        [certificate] = await harness.engine.ingest_crypto_assets(
+            [],
+            [
+                CertificateDescriptor(
+                    tenant_id=TENANT,
+                    fingerprint=fingerprint,
+                    serial="40:02",
+                    subject="CN=conformance.internal",
+                    issuer="CN=AQELYN Test CA",
+                    not_after=NOW,
+                    source_id=source_id,
+                    observed_at=NOW,
+                    evidence_id=basis.id,
+                )
+            ],
+            tenant_id=TENANT,
+        )
+        assert isinstance(certificate, CertificateAsset)
+
+        exposures = await harness.engine.analyze_exposure(tenant_id=TENANT)
+        assert {item.asset_id for item in exposures} == {
+            harness.asset.id,
+            certificate.id,
+        }
+        assert all(item.status == "confirmed" for item in exposures)
+        assert all(item.impact_context.kind == "credential_sensitivity" for item in exposures)
+        assert all(item.exposure_record_id is not None for item in exposures)
+
+        handlers = {
+            "crypto.rotate": _ExecutionCountingHandler(),
+            "crypto.revoke_certificate": _ExecutionCountingHandler("crypto.revoke_certificate"),
+        }
+        registry = InMemoryActionRegistry()
+        for handler in handlers.values():
+            registry.register(handler)
+        workflow = WorkflowEngine(
+            store=InMemoryRunStore(mode="enterprise"),
+            registry=registry,
+            evidence_store=harness.evidence,
+            granted_capabilities={handler.spec.capability for handler in handlers.values()},
+        )
+        harness.engine.workflow_engine = workflow
+        actions_by_asset = {
+            harness.asset.id: "crypto.rotate",
+            certificate.id: "crypto.revoke_certificate",
+        }
+        for exposure in exposures:
+            [finding_id] = await harness.engine.exposures_to_findings(
+                [exposure],
+                tenant_id=TENANT,
+                by=ACTOR,
+            )
+            finding = await harness.findings.get(finding_id)
+            assert finding is not None
+            assert finding.automation.eligibility == "none"
+
+            action = actions_by_asset[exposure.asset_id]
+            run = await harness.engine.propose_rotation(
+                finding_id,
+                tenant_id=TENANT,
+                by=ACTOR,
+                reason="Exercise the shipped credential-governance proposal path.",
+            )
+            assert run.source_finding_id == finding_id
+            assert run.playbook_id.startswith(f"secrets-{action.replace('.', '-')}")
+            assert run.status == "proposed"
+
+            approved = await workflow.approve(
+                run.id,
+                Approval(
+                    step_ids=["review-and-remediate"],
+                    approver=ACTOR,
+                    reason="Human reviewed the conformance proposal.",
+                    at=NOW,
+                ),
+            )
+            assert approved.status == "approved"
+            with pytest.raises(UnauthorizedAction, match="eligibility 'none'"):
+                await workflow.execute(run.id, by=ACTOR)
+
+        assert all(handler.executed == 0 for handler in handlers.values())
 
 
 async def test_crypto_batch_missing_evidence_unknown() -> None:

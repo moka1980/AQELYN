@@ -142,3 +142,46 @@ value-free guarantee would exist in two places, only one of which was proven.
 **Verification note.** Every row in §2 must be confirmed against **shipped code**
 before conformance is accepted — spies prove delegation, only the real engine
 proves the capability is actually there (the IS-034 discipline).
+
+## C-032 J1 shipped-code verification
+
+**Verified against:** merged `main @307f01b` (ECR-0054 and C-032 canonical).
+**Result:** every conforming row in §2 holds. The governance score remains the
+explicit J2 enhancement; storage-safety classification and ownership handoff
+remain owner-gated J3/J4 options. None requires a new runtime module.
+
+| Ownership row | Shipped implementation | Executable proof |
+|---|---|---|
+| value-free secret ingestion | `SecretsIntelligenceEngine.ingest_secrets`; `_ValueFreeModel` | `test_crypto_conformance_lifecycle`; `test_crypto_conformance_value_free_dash_o` |
+| key and certificate ingestion | `SecretsIntelligenceEngine.ingest_crypto_assets` | `test_crypto_conformance_lifecycle`; `test_crypto_assets_to_inventory` |
+| tri-state lifecycle | `assess_key`, `assess_certificate`, `assess` | `test_crypto_conformance_lifecycle`; `test_crypto_unknown_not_safe`; `test_crypto_assessment_coverage` |
+| certificate verification | EA-0004 integrity plus typed `CertificateAuthenticityVerifier` | `test_crypto_integrity_not_authenticity`; `test_crypto_unrelated_authenticity_input_is_refused` |
+| exposure | `analyze_exposure` through the real EA-0023 owner | `test_crypto_conformance_exposure_and_proposal`; `test_crypto_exposure_owner_connectivity` |
+| findings, rotation, and revocation proposal | `exposures_to_findings`; `propose_rotation` through the real EA-0008 owner | `test_crypto_conformance_exposure_and_proposal`; `test_crypto_rotation_gated` |
+| object types and prefixes | strict EA-0032 models; `sct`/`cky`/`x509`/`cas` registrations | `test_crypto_taxonomy_and_false_friends` |
+| service and owned events | `SecretsIntelligenceService`; four `aqelyn.crypto.*` registrations | `test_crypto_service_health_and_owner_connectivity`; `test_crypto_events_value_free` |
+
+The conformance lifecycle test ingests a secret, key, and certificate through
+the real engine on both persistence backends, then calls the real key and
+certificate assessment methods. It preserves unknown chain, revocation,
+authenticity, and secret-rotation facts instead of inventing favourable values.
+The exposure/proposal test drives the real EA-0023 exposure record, finding, and
+EA-0008 workflow; after human approval the finding-bound `eligibility="none"`
+run still refuses execution and the action handler remains untouched. The
+optimized-Python test proves the recursive value gate remains active under
+`python -O` while `SecretKind="private_key"` remains valid.
+
+Verification commands:
+
+```bash
+ruff check src tests
+ruff format --check src tests
+mypy --strict src tests
+PYTHONPATH=$PWD/src pytest tests/secrets -q
+PYTHONPATH=$PWD/src pytest -q
+```
+
+Local verification collected 1,267 tests and completed with **952 passed / 315
+skipped**; this checkout had no Postgres or Redis endpoint, so live-backend cases
+remained environment-gated. Ruff, format, and `mypy --strict src tests` were
+green across 479 Python files. CI is the live-backend authority for J1.

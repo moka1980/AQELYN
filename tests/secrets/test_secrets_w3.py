@@ -232,6 +232,69 @@ class _MissingEvidence(_UnavailableEvidence):
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_crypto_conformance_lifecycle(kind: str) -> None:
+    async with _harness(kind) as harness:
+        source_id = new_id("src")
+        evidences = [
+            await _evidence(
+                harness.evidence,
+                source_id=source_id,
+                fingerprint=_fingerprint(index),
+            )
+            for index in range(100, 103)
+        ]
+        [secret] = await harness.engine.ingest_secrets(
+            [
+                _secret(
+                    source_id=source_id,
+                    evidence_id=evidences[0].id,
+                    fingerprint=_fingerprint(100),
+                )
+            ],
+            tenant_id=TENANT,
+        )
+        assets = await harness.engine.ingest_crypto_assets(
+            [
+                _key(
+                    source_id=source_id,
+                    evidence_id=evidences[1].id,
+                    fingerprint=_fingerprint(101),
+                    algorithm="rsa",
+                    key_size=3072,
+                    last_rotated_at=NOW - timedelta(days=20),
+                )
+            ],
+            [
+                _certificate(
+                    source_id=source_id,
+                    evidence_id=evidences[2].id,
+                    fingerprint=_fingerprint(102),
+                    not_after=NOW + timedelta(days=90),
+                )
+            ],
+            tenant_id=TENANT,
+        )
+        key = next(asset for asset in assets if isinstance(asset, CryptographicKey))
+        certificate = next(asset for asset in assets if isinstance(asset, CertificateAsset))
+
+        checked_key = await harness.engine.assess_key(key.id, tenant_id=TENANT)
+        checked_certificate = await harness.engine.assess_certificate(
+            certificate.id,
+            tenant_id=TENANT,
+        )
+
+        assert secret.kind == "api_key"
+        assert secret.rotation.status == "unknown"
+        assert checked_key.strength.status == "valid"
+        assert checked_key.rotation.status == "valid"
+        assert checked_certificate.expiry.status == "valid"
+        assert checked_certificate.integrity.status == "valid"
+        assert checked_certificate.chain.status == "unknown"
+        assert checked_certificate.revocation.status == "unknown"
+        assert checked_certificate.authenticity.status == "unknown"
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
 async def test_crypto_unknown_not_safe(kind: str) -> None:
     async with _harness(kind) as harness:
         source_id = new_id("src")
