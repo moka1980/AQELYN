@@ -5,7 +5,7 @@
 **Consumed by:** EA-0011 (`analyze_risk` reads the identities this engine normalizes), EA-0023 (identity exposure), EA-0013 (findings path), the ISPM UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
 **Build milestone:** C-030 (see `C-030_Task_Bundle.md`)
-**Change control:** ECR-0049 (Proposed; G5), ECR-0050
+**Change control:** ECR-0049 (Proposed; G5), ECR-0050, ECR-0051
 **Definition of Ready:** see §12
 
 ---
@@ -197,6 +197,7 @@ NormalizedIdentity = { object_id: str, tenant_id: str, external_id: str,
                        controls: { mfa: ControlFact, lifecycle: ControlFact,
                                    last_activity: ControlFact },
                        field_provenance: dict, conflicts: list[dict],
+                       flagged: bool,
                        evidence_id: str }                 # EA-0011 graph intake, not a second identity shape (S3)
 
 PostureFactor = { name: str, value: float | None, weight: float,
@@ -293,7 +294,7 @@ identity → account `has_account` relationship through `ObjectStore.relate`.
 Additional EA-0011 access relationships are created only from explicit
 evidence-backed `IdentityAccessEdgeDescriptor`s, with tenant/type validation;
 absence of an edge claim never invents one. Classify `identity_kind` (unmatched
-→ `"unknown"`, flagged); control facts to **tri-state** (`unknown` by default,
+→ `"unknown"`, with `flagged=true` required structurally per ECR-0051); control facts to **tri-state** (`unknown` by default,
 with reason); conflicts across sources resolved by **EA-0006** reliability and
 **recorded** (EA-0025 pattern); register via **EA-0025** `ingest(...)`;
 evidence-recorded.
@@ -325,7 +326,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 ### Functional (testable)
 
 - **FR-1** `ingest_identities` SHALL accept handed-in descriptors only; the module SHALL open no socket, hold no credential, poll nothing, and expose no connector/enumerate method (§0.2, rule 13).
-- **FR-2** Identities SHALL be normalized into **EA-0011's shipped EA-0002 graph intake** and registered via **EA-0025 `ingest(reports=, source=, tenant_id=)`**: identity and account `AQObject`s, an evidence-backed `has_account` relation for every supplied account, and only explicitly claimed/evidence-backed access edges. The module SHALL NOT define a new identity shape, relationship vocabulary, graph engine, or inventory (§2.3/D1).
+- **FR-2** Identities SHALL be normalized into **EA-0011's shipped EA-0002 graph intake** and registered via **EA-0025 `ingest(reports=, source=, tenant_id=)`**: identity and account `AQObject`s, an evidence-backed `has_account` relation for every supplied account, and only explicitly claimed/evidence-backed access edges. An unmatched `identity_kind="unknown"` SHALL require `flagged=true` on the normalized record itself (ECR-0051), not only on an owner-store label. The module SHALL NOT define a new identity shape, relationship vocabulary, graph engine, or inventory (§2.3/D1).
 - **FR-3** Orphaned, dormant, over-privileged, SoD, and privileged-unreviewed risks SHALL be read from **EA-0011 `analyze_risk`** and pinned as the actual `AccessRisk` records (the shipped type has no id); the module SHALL NOT re-derive any of them (§0.1). A real normalization → `IdentityAccessGovernanceEngine.analyze_risk` → posture-score round trip SHALL prove that a normalized identity/account graph produces the expected non-empty risk and that the score cites that exact owner record; a spy or call assertion alone is insufficient.
 - **FR-4** Access paths SHALL come from **EA-0011 `access_paths`**; certification SHALL be **EA-0011 `open_certification`/`decide_item`/`complete_certification`**; the module SHALL NOT create a parallel certification model or `cert` prefix (§0.1, false friends).
 - **FR-5** Control facts (`mfa`, `lifecycle`, `last_activity`) SHALL be tri-state `present|absent|unknown` defaulting to `unknown`, each carrying the evidence or the reason it is unknown (D2).
@@ -360,7 +361,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 | # | Criterion | Test (pytest id) |
 |---|---|---|
 | AC-1 | Handed-in only; no connector/socket | `test_ispm_no_collection` |
-| AC-2 | Identity/account objects + evidence-backed EA-0011 relationships; EA-0025 registration | `test_ispm_normalize_to_iag_shape` |
+| AC-2 | Identity/account objects + evidence-backed EA-0011 relationships; EA-0025 registration; unknown identity kind structurally flagged | `test_ispm_normalize_to_iag_shape` |
 | AC-3 | Real normalized graph → real EA-0011 risk → score citing the same `AccessRisk` | `test_ispm_real_iag_round_trip` + `test_ispm_score_cites_real_iag_risk` |
 | AC-4 | Orphaned/dormant/over-priv/SoD read from EA-0011, not re-derived | `test_ispm_iag_not_reimplemented` |
 | AC-5 | Access paths + certification delegate to EA-0011 | `test_ispm_certification_delegates` |
