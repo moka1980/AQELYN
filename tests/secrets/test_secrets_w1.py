@@ -291,7 +291,7 @@ def test_crypto_resource_ref_rejects_credentials(resource_ref: str) -> None:
         _location(resource_ref=resource_ref)
 
 
-def test_crypto_value_gate_survives_optimized_python() -> None:
+def test_crypto_conformance_value_free_dash_o() -> None:
     script = f"""
 from datetime import datetime, timezone
 from aqelyn.conventions import new_id
