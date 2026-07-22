@@ -57,6 +57,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0050 | EA-0033 + EA-0027 | Accepted | Reuse EA-0027's existing platform `IdentityNotFound` error in ISPM instead of registering a duplicate code owner; EA-0033 contributes only its three net-new errors. |
 | ECR-0051 | EA-0033 | Accepted | Make unknown identity classification visibly fail-safe in every representation: `NormalizedIdentity.identity_kind="unknown"` requires `flagged=true`, rather than relying on an EA-0002 label that disappears from normalized-store reads. |
 | ECR-0052 | EA-0033 + EA-0011 | Accepted | Make assessment-to-finding routing durable and tenant-correct: assessments pin exact posture-score ids, both stores persist them append-only, and EA-0011's finding path accepts an optional tenant scope while preserving local callers. |
+| ECR-0053 | IS-034 / EA-0033 + EA-0011 + EA-0025 + EA-0032 | Proposed | IS-034 is a distributed restatement, not a new machine-identity module. Verify conformance, then close only ownership, typed credential/workload binding, and lifecycle-mapping gaps in their existing owners (C-031). |
 
 ---
 
@@ -2367,3 +2368,66 @@ parameters and a JSONB model field. No existing posture-score, IAG finding, or
 local call shape changes. C-030's final owner-approved five-ticket plan combines
 the former bundle G5/G6 sequencing into one G5 because the exposure context,
 durable assessment, finding binding, and service wiring ship atomically.
+
+---
+
+## ECR-0053 - realize IS-034 as distributed conformance, not a second identity module
+
+**Raised by:** EA-0034 pre-implementation verification against the IS-034
+archive, shipped owner contracts, and ECR-0015.
+**Status:** Proposed - required before C-031 implementation.
+**Severity:** architectural - building the archive's named engine would fork
+multiple existing capability owners while appearing net-new under a literal
+event/type check.
+
+**Problem.** IS-034 names a Machine Identity and Non-Human Identity Governance
+Engine. Its 17 declared PascalCase events and machine/NHI labels have zero exact
+matches in `src/aqelyn`, but its capabilities do not: EA-0033 already normalizes
+and scores service/machine/application/federated/temporary identities; EA-0011
+owns access risk and certification; EA-0025 owns inventory ownership and asset
+lifecycle; EA-0032 owns secrets, keys, certificates, and rotation; EA-0002 and
+EA-0005 own relationships and traversal; trust, policy, recommendation,
+workflow, and reporting likewise have established owners.
+
+This differs from IS-026 only in distribution. IS-026 restated one owner under
+the same event name. IS-034 renames a set of existing capabilities for a new
+subject scope, so the duplication appears only after the components are mapped
+together. Building the archive literally would create two identity repositories,
+two posture scores, duplicate lifecycle and crypto governance, another graph
+vocabulary, and renamed duplicate events.
+
+**Resolution.** Do not build an EA-0034 runtime module. There SHALL be no
+`src/aqelyn/machine_identity/`, `nhi_engine`, NHI store, NHI posture score, or
+`aqelyn.nhi.*` namespace. C-031 first verifies conformance against shipped code,
+then makes only three additive owner-scoped enhancements:
+
+1. EA-0033 carries a strict evidence-backed ownership claim into EA-0025's
+   existing `Ownership`/reconciliation path and pins the exact handoff refs.
+2. EA-0033 accepts narrow value-free identity-to-credential/workload bindings,
+   persists them through EA-0002, and delegates traversal to EA-0005. EA-0004
+   integrity does not establish binding authenticity; confidence remains
+   EA-0006's, and missing/tampered evidence writes nothing favourable.
+3. Lifecycle handling begins with an explicit state-to-owner map. EA-0025 keeps
+   asset lifecycle, EA-0032 keeps credential rotation, and only irreducibly
+   identity-specific states may gain narrow append-only EA-0033 history. Source
+   silence is `unreported`, never suspended, revoked, archived, deleted, or safe.
+
+Existing semantic events remain with their owners. A genuinely new lifecycle
+event, if the conformance proof requires one, uses the owning `aqelyn.ispm.*`,
+`aqelyn.inventory.*`, or `aqelyn.crypto.*` namespace and is never re-emitted as
+NHI. Connector orchestration, scheduling, provider credentials, and direct
+provisioning/revocation remain out of scope; actions use a finding-bound EA-0008
+proposal. C-031 also inherits ECR-0034 and may not claim a capped inventory is
+the complete machine-identity estate.
+
+**Generalization of ECR-0015.** Compare capabilities and semantic events, not
+only literal names. Zero literal collisions are necessary but insufficient
+evidence that a module is net-new when an archive renames an existing capability
+for a cloud, SaaS, data, or machine-identity scope.
+
+**Impact.** Documentation plus additive changes inside existing owner packages;
+no new runtime module or service. `IS-034_Conformance_Analysis.md` records the
+mapping and **C-031 H1-H4** owns the proof and genuine remainder. Any failed
+conformance row becomes an owner repair ticket, never permission to create a
+second authority. ECR-0032 remains Proposed and IS-034 must not become a fifth
+posture-normalization implementation while that decision is open.
