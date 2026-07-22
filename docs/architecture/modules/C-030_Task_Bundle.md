@@ -15,7 +15,8 @@ net-new pieces:
 
 1. a **deterministic, replayable 0–100 posture score** (composing EA-0013/0007/0006);
 2. **identity posture drift** on the **EA-0012** baseline/snapshot shape;
-3. **wider-scope identity normalization** into **EA-0011's existing identity object shape**.
+3. **wider-scope identity normalization** into **EA-0011's shipped EA-0002
+   identity/account objects and relationship vocabulary**.
 
 **Everything else routes to `IdentityAccessGovernanceEngine`.** If you are about to compute orphaned,
 dormant, over-privileged, SoD, privileged-unreviewed, an access path, or a
@@ -29,8 +30,11 @@ EA-0027's person-score and EA-0032's secret value, the judgement is
 
 **Verification standard (ECR-0007):** structural (no person-score type; no local
 re-derivation; unreplayable score unrepresentable) + behavioural (delegation
-spies against the **real** `IdentityAccessGovernanceEngine`; scoring driven through the **real**
-scoring function, not a spy — the ECR-0040 method; socket spy). Not textual checks.
+spies prove dispatch, while a full normalization → **real**
+`IdentityAccessGovernanceEngine` → score round trip proves the seam is actionable;
+scoring driven through the **real** scoring function, not a spy — the ECR-0040
+method; socket spy). Not textual checks. **A spy proves that a call was made; it
+does not prove that EA-0011 can act on what ISPM wrote.**
 **Run gates under `python -O` too** (the #147 habit).
 
 ## Target source layout
@@ -38,10 +42,10 @@ scoring function, not a spy — the ECR-0040 method; socket spy). Not textual ch
 ```
 src/aqelyn/ispm/
 ├── __init__.py       # exports engine, service, types, register_ispm_events
-├── models.py         # ControlFact, IdentityDescriptor, NormalizedIdentity,
+├── models.py         # ControlFact, identity/account/access-edge descriptors, NormalizedIdentity,
 │                     #   PostureFactor, IdentityPostureScore, IdentityBaseline*,
 │                     #   IdentityDrift*, ISPMAssessment, ISPMConfig (G1)
-├── normalize.py      # descriptor -> EA-0011 identity shape; register via EA-0025 (G2)
+├── normalize.py      # descriptor -> EA-0011 EA-0002 graph intake; EA-0025 registration (G2)
 ├── governance.py     # thin delegation to EA-0011 analyze_risk/access_paths/certification (G3)
 ├── scoring.py        # PostureFactor -> EA-0020 Derivation -> 0-100 (G4)
 ├── drift.py          # EA-0012 baseline/comparator shape, append-only snapshots (G4)
@@ -64,8 +68,8 @@ three. If they appear, the milestone has gone wrong.
 **Deliverables:** the models; `ControlFact` tri-state (`present|absent|unknown`,
 **default `unknown`**, carrying the reason); `ISPMAssessment.status` as **semantic
 tokens** `computed|truncated|pending` (not truthy strings — ECR-0033); config
-validation (`ISPMConfigInvalid`); **new id prefixes registered in BOTH
-`conventions/ids.py::PREFIXES` and CONVENTIONS §1**, errors in `errors.py` +
+validation (`ISPMConfigInvalid`); **`ips`/`ibl`/`idr`/`ipa` prefixes registered
+in BOTH `conventions/ids.py::PREFIXES` and CONVENTIONS §1**, errors in `errors.py` +
 CONVENTIONS §9. **Do not reuse the `cert` prefix** (`iag_certification`).
 **Rule 15 check:** no type defined here may require a widening scheduled later —
 identity `ExposureImpactContext` is **deferred to G5**, not defined now.
@@ -77,8 +81,14 @@ identity `ExposureImpactContext` is **deferred to G5**, not defined now.
 **Spec:** §2.3, §6, FR-1/2/16/20, D1, NFR-4.
 **Deliverables:** `ingest_identities` (**handed-in descriptors only — no socket,
 no credential, no poll, no connector method**) producing `NormalizedIdentity` in
-**EA-0011's existing identity object shape**; `identity_kind` classification
-(unmatched → `"unknown"`, flagged); conflicts resolved by **EA-0006** and
+**EA-0011's shipped EA-0002 graph intake**: `object_type="identity"` and
+`object_type="account"` objects, an evidence-backed identity → account
+`has_account` relationship for every supplied account, and optional
+`has_role`/`grants_entitlement`/`member_of` relationships only from explicit
+evidence-backed descriptor claims. Use `ObjectStore.relate`; do not invent a
+parallel graph or relation vocabulary. `NormalizedIdentity` carries the account
+object and relationship ids. `identity_kind` classification (unmatched →
+`"unknown"`, flagged); conflicts resolved by **EA-0006** and
 **recorded**; registration via **EA-0025
 `InventoryIntelligenceEngine.ingest(reports=, source=DiscoverySource, tenant_id=)`**;
 `ISPMStore` (in-memory + Postgres + DDL) with **EA-0002 D8 pagination** under
@@ -102,9 +112,15 @@ certification routed to **`open_certification`/`decide_item`/
 `ReviewItem`/`Certification`; redefine none.
 **This ticket exists before G4 deliberately:** the score depends on these risks,
 and rule 3 says the seam must be proven present with its exact signature before
-FR text leans on it.
+FR text leans on it. Add `test_ispm_real_iag_round_trip`: ingest
+a descriptor with a linked account whose `last_used_at` is older than the real
+EA-0011 dormant threshold, then call the real analyzer. Assert the expected
+`dormant` risk is present and that the account is **not** falsely `orphaned` —
+proving both the account object and `has_account` relation are actionable. A spy
+or `analyze_risk` call assertion is not this proof.
 **Depends on:** G2.
-**Acceptance:** `test_ispm_iag_not_reimplemented`, `test_ispm_certification_delegates`,
+**Acceptance:** `test_ispm_real_iag_round_trip`,
+`test_ispm_iag_not_reimplemented`, `test_ispm_certification_delegates`,
 `test_ispm_findings_path`.
 
 ## G4 — Posture score (replayable) + drift (EA-0012 shape)
@@ -118,8 +134,13 @@ store **rejects an unreplayable score**; `statement` in **control language**;
 **no person-level rollup type exists**. `detect_drift` on the **EA-0012**
 baseline/comparator shape with **append-only** snapshots; unestablishable fact ⇒
 `status="unknown"`, **never `pass`**.
+Add `test_ispm_score_cites_real_iag_risk`: the resulting posture score must
+pin the exact real-owner `AccessRisk` returned in G3 (the shipped `AccessRisk`
+type has no id) and the derivation must cite that pinned owner input. Do not mint
+a local "risk id" or replace the owner record with a locally re-derived summary.
 **Depends on:** G3.
-**Acceptance:** `test_ispm_unknown_not_favourable`, `test_ispm_score_replay`,
+**Acceptance:** `test_ispm_score_cites_real_iag_risk`,
+`test_ispm_unknown_not_favourable`, `test_ispm_score_replay`,
 `test_ispm_score_composed`, `test_ispm_no_person_score`, `test_ispm_drift_shape`.
 
 ## G5 — Exposure seam **+ the ECR-0049 widening (same ticket — rule 15)**
@@ -158,7 +179,13 @@ be built with a forbidden kind (the C-029 W1 failure, exactly).
 
 Per ticket, confirm the normal DoD **and**:
 
-1. **EA-0011 is not restated.** Every access-path, orphaned/dormant/
+1. **EA-0011 is connected and not restated.** Drive a handed-in descriptor
+   through ISPM into the real EA-0002 store, then the real
+   `IdentityAccessGovernanceEngine.analyze_risk`, then the posture score. Assert
+   an expected non-empty owner risk, no false orphaning when `has_account` was
+   supplied, and that the score pins the exact `AccessRisk`. A delegation spy
+   proves intent only; it cannot discharge this connectivity check. Every
+   access-path, orphaned/dormant/
    over-privileged/SoD/privileged-unreviewed, and certification concern must
    **route to the shipped `IdentityAccessGovernanceEngine`**. Delegation spies
    against the real engine;
@@ -187,7 +214,8 @@ Per ticket, confirm the normal DoD **and**:
    bounded inventory as exhaustive (§12a).
 10. **Both tenant modes.** `(backend, tenant_mode)` parametrized; **enterprise
     startup asserted**, not just `local` (rule 11).
-11. Prefixes/errors registered at **both** sites; no `cert` prefix; no
+11. `ips`/`ibl`/`idr`/`ipa` prefixes and errors registered at **both** sites;
+    EA-0002/EA-0025 records retain `obj`/`rel`/`ast`; no `cert` prefix; no
     `aqelyn.iag.*` emission. `ruff` + `mypy --strict` clean.
 
 Merge only on green review; then **report back to the owner** before the next

@@ -128,9 +128,13 @@ Drift of an identity's posture from an **approved baseline**, reusing the
 
 Normalize identities from sources EA-0011 does not already govern —
 `human | service | machine | application | federated | temporary` — into **EA-0002
-objects using EA-0011's existing identity object shape**, so `analyze_risk` can
-then read them. The DSPM parallel exactly: **same governance vocabulary, wider
-discovery scope.** A new identity shape SHALL NOT be invented.
+identity/account objects and relationships using EA-0011's shipped graph
+vocabulary**, so `analyze_risk` can actually read them. A lone identity object is
+not a connected governance seam: account-backed descriptors also produce the
+account object and evidence-backed `has_account` relationship; any additional
+access edge is created only from an explicit evidence-backed descriptor claim.
+The DSPM parallel exactly: **same governance vocabulary, wider discovery
+scope.** A new identity shape or relationship vocabulary SHALL NOT be invented.
 
 ### 2.4 Cross-cutting
 
@@ -140,9 +144,13 @@ discovery scope.** A new identity shape SHALL NOT be invented.
 
 ## 3. Design decisions
 
-- **D1 — `IdentityDescriptor` in → EA-0002 identity object out**, registered via
-  **EA-0025** `InventoryIntelligenceEngine.ingest(reports=, source=DiscoverySource, tenant_id=)`;
-  provenance preserved (§0.2/§2.3).
+- **D1 — `IdentityDescriptor` in → EA-0002 identity/account objects plus shipped
+  EA-0011 relationships out**, registered via **EA-0025**
+  `InventoryIntelligenceEngine.ingest(reports=, source=DiscoverySource, tenant_id=)`;
+  provenance preserved (§0.2/§2.3). Every supplied account gets an
+  evidence-backed identity → account `has_account` relation. Optional
+  `has_role`/`grants_entitlement`/`member_of` edges are emitted only when the
+  handed-in descriptor explicitly claims them with verifiable evidence.
 - **D2 — Control facts are tri-state** (`present | absent | unknown`), default
   `unknown`, each carrying the evidence that established it (S1b).
 - **D3 — Score = EA-0020 `Derivation` over named factors**, each with a source
@@ -168,41 +176,55 @@ ControlState = "present" | "absent" | "unknown"          # tri-state, default un
 ControlFact = { state: ControlState, established_by: str | null,
                 evidence_id: str | null, reason: str }   # unknown carries WHY (D2/S1b)
 
+IdentityAccountDescriptor = { external_id: str, display_name: str,
+                              attributes: dict, observed_at: datetime,
+                              evidence_id: str }          # handed-in account claim (D1)
+IdentityAccessEdgeDescriptor = { from_external_id: str, to_object_id: str,
+                                 relation_type: "has_role" | "grants_entitlement" | "member_of",
+                                 observed_at: datetime, evidence_id: str }
+                                 # explicit claim; target is an existing EA-0002 role/entitlement
 IdentityDescriptor = { source_id: str, provider: str, external_id: str,
                        identity_kind: IdentityKind | null,
                        attributes: dict, controls: dict,          # mfa/lifecycle/last_activity raw
+                       accounts: list[IdentityAccountDescriptor],
+                       access_edges: list[IdentityAccessEdgeDescriptor],
                        observed_at: datetime, evidence_id: str | null }   # handed in (§0.2)
 
 NormalizedIdentity = { object_id: str, tenant_id: str, external_id: str,
                        provider: str, identity_kind: IdentityKind | "unknown",
+                       account_object_ids: list[str], relationship_ids: list[str],
                        controls: { mfa: ControlFact, lifecycle: ControlFact,
                                    last_activity: ControlFact },
                        field_provenance: dict, conflicts: list[dict],
-                       evidence_id: str }                 # EA-0011's identity object shape (S3)
+                       evidence_id: str }                 # EA-0011 graph intake, not a second identity shape (S3)
 
 PostureFactor = { name: str, value: float | None, weight: float,
                   status: "known" | "unknown",            # unknown -> excluded from denominator (S1b)
                   source_ref: dict, reason: str }
-IdentityPostureScore = { subject_ref: str,                # the ACCOUNT object id (§0.3)
+IdentityPostureScore = { id: str,                         # ips_ (§7 FR-18)
+                         subject_ref: str,                # the ACCOUNT object id (§0.3)
                          score: float,                    # 0-100
                          factors: list[PostureFactor],
-                         iag_risk_refs: list[str],        # EA-0011 AccessRisk ids, cited (§0.1)
+                         iag_risks: list["AccessRisk"],  # pinned owner records; AccessRisk has no id
                          derivation: "Derivation",        # EA-0020, MANDATORY (S1c)
                          confidence: float,               # EA-0006
                          statement: str,                  # control language (§0.3)
                          computed_at: datetime, evidence_id: str }
 
 IdentityBaselineEntry = { key: str, expected: object, comparator: str, severity: str }
-IdentityBaseline = { id, tenant_id: str | null, name: str, version: int,
+IdentityBaseline = { id,                                 # ibl_ (§7 FR-18)
+                     tenant_id: str | null, name: str, version: int,
                      identity_kind: IdentityKind, entries: list[IdentityBaselineEntry],
                      approved_by: ActorRef | null, approved_at: datetime | null }   # EA-0012 shape (S2)
 IdentityDriftItem = { identity_id, key: str, expected: object, observed: object,
                       status: "pass" | "fail" | "unknown", reason: str }
-IdentityDriftSnapshot = { id, tenant_id, run_at: datetime, baseline_id: str,
+IdentityDriftSnapshot = { id,                            # idr_ (§7 FR-18)
+                          tenant_id, run_at: datetime, baseline_id: str,
                           evaluated: int, passed: int, failed: int, unknown: int,
                           items: list[IdentityDriftItem], evidence_id: str }   # append-only (S2)
 
-ISPMAssessment = { id, tenant_id, run_at, scope: dict,
+ISPMAssessment = { id,                                   # ipa_ (§7 FR-18)
+                   tenant_id, run_at, scope: dict,
                    identities_evaluated: int, scored: int,
                    unknown_controls: int,                 # surfaced, never hidden (S1b)
                    drift_snapshot_id: str | null,
@@ -235,7 +257,7 @@ class ISPMStore(Protocol):
 class ISPMEngine(Protocol):
     async def ingest_identities(self, descriptors: Sequence[IdentityDescriptor], *,
                                 tenant_id: str | None) -> list[NormalizedIdentity]: ...  # handed-in (§0.2)
-    async def score_identity(self, object_id: str, *,
+    async def score_identity(self, account_object_id: str, *,
                              tenant_id: str | None) -> IdentityPostureScore: ...         # §2.1
     async def detect_drift(self, *, baseline_id: str, tenant_id: str | None,
                            scope: dict | None = None) -> IdentityDriftSnapshot: ...      # §2.2
@@ -264,14 +286,20 @@ person-level score (§0.3); any second risk scorer or drift engine (§0).
 ## 6. Computation (the reference model)
 
 **Normalize.** Handed-in `IdentityDescriptor`s → `NormalizedIdentity` using
-**EA-0011's identity object shape**; classify `identity_kind` (unmatched →
-`"unknown"`, flagged); control facts to **tri-state** (`unknown` by default, with
-reason); conflicts across sources resolved by **EA-0006** reliability and
+**EA-0011's shipped EA-0002 graph intake**: an `object_type="identity"` object,
+an `object_type="account"` object for every supplied account, and an
+identity → account `has_account` relationship through `ObjectStore.relate`.
+Additional EA-0011 access relationships are created only from explicit
+evidence-backed `IdentityAccessEdgeDescriptor`s, with tenant/type validation;
+absence of an edge claim never invents one. Classify `identity_kind` (unmatched
+→ `"unknown"`, flagged); control facts to **tri-state** (`unknown` by default,
+with reason); conflicts across sources resolved by **EA-0006** reliability and
 **recorded** (EA-0025 pattern); register via **EA-0025** `ingest(...)`;
 evidence-recorded.
 
-**Score.** Gather: EA-0011 `analyze_risk` risks for the identity (**cited, not
-re-derived**), control facts, EA-0007 mission weight of what it reaches, EA-0006
+**Score.** Gather: EA-0011 `analyze_risk` risks for the linked identity/account
+(**pinned as the actual `AccessRisk` owner records, not re-derived or assigned
+invented ids**), control facts, EA-0007 mission weight of what it reaches, EA-0006
 confidence. Build `PostureFactor`s — a factor whose fact is `unknown` gets
 `status="unknown"` and is **excluded from the denominator**, never scored
 favourably (S1b). Combine under `factor_weights` into 0–100; build the **EA-0020
@@ -296,8 +324,8 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 ### Functional (testable)
 
 - **FR-1** `ingest_identities` SHALL accept handed-in descriptors only; the module SHALL open no socket, hold no credential, poll nothing, and expose no connector/enumerate method (§0.2, rule 13).
-- **FR-2** Identities SHALL be normalized into **EA-0011's existing identity object shape** (EA-0002) and registered via **EA-0025 `ingest(reports=, source=, tenant_id=)`**; the module SHALL NOT define a new identity shape or its own inventory (§2.3/D1).
-- **FR-3** Orphaned, dormant, over-privileged, SoD, and privileged-unreviewed risks SHALL be read from **EA-0011 `analyze_risk`** and cited; the module SHALL NOT re-derive any of them (§0.1).
+- **FR-2** Identities SHALL be normalized into **EA-0011's shipped EA-0002 graph intake** and registered via **EA-0025 `ingest(reports=, source=, tenant_id=)`**: identity and account `AQObject`s, an evidence-backed `has_account` relation for every supplied account, and only explicitly claimed/evidence-backed access edges. The module SHALL NOT define a new identity shape, relationship vocabulary, graph engine, or inventory (§2.3/D1).
+- **FR-3** Orphaned, dormant, over-privileged, SoD, and privileged-unreviewed risks SHALL be read from **EA-0011 `analyze_risk`** and pinned as the actual `AccessRisk` records (the shipped type has no id); the module SHALL NOT re-derive any of them (§0.1). A real normalization → `IdentityAccessGovernanceEngine.analyze_risk` → posture-score round trip SHALL prove that a normalized identity/account graph produces the expected non-empty risk and that the score cites that exact owner record; a spy or call assertion alone is insufficient.
 - **FR-4** Access paths SHALL come from **EA-0011 `access_paths`**; certification SHALL be **EA-0011 `open_certification`/`decide_item`/`complete_certification`**; the module SHALL NOT create a parallel certification model or `cert` prefix (§0.1, false friends).
 - **FR-5** Control facts (`mfa`, `lifecycle`, `last_activity`) SHALL be tri-state `present|absent|unknown` defaulting to `unknown`, each carrying the evidence or the reason it is unknown (D2).
 - **FR-6** A factor whose control fact is `unknown` SHALL be recorded `status="unknown"` and **excluded from the score denominator**; it SHALL NEVER contribute a favourable value (S1b, rules 4/5, ECR-0040 shape).
@@ -312,7 +340,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 - **FR-15** `ISPMAssessment.status` SHALL be `computed|truncated|pending` (semantic tokens, not truthy strings) and `unknown_controls` SHALL be surfaced (rule 4).
 - **FR-16** `query_identities` SHALL implement EA-0002 D8 pagination (stable id order, exclusive cursor, `next_cursor` non-null exactly when another matching row exists, filters before `LIMIT`) under `page_budget`, reporting `truncated` rather than silently capping (rule 10).
 - **FR-17** The assessment SHALL carry `inventory_complete` honestly from EA-0025 and SHALL NOT present a bounded inventory as exhaustive (§12a, ECR-0034).
-- **FR-18** New id prefixes and error codes SHALL be registered in **both** `conventions/ids.py::PREFIXES` and CONVENTIONS §1 (errors in `errors.py` + CONVENTIONS §9); the module SHALL NOT reuse the `cert` prefix (`iag_certification`) and SHALL NOT emit `aqelyn.iag.*` events (false friends).
+- **FR-18** The collision-checked record prefixes **`ips`** (`ispm_posture_score`), **`ibl`** (`ispm_identity_baseline`), **`idr`** (`ispm_identity_drift`), and **`ipa`** (`ispm_assessment`) plus the error codes SHALL be registered in **both** `conventions/ids.py::PREFIXES` and CONVENTIONS §1 (errors in `errors.py` + CONVENTIONS §9). EA-0002 identities/accounts and relationships continue to use owner prefixes `obj`/`rel`, and inventory uses `ast`; the module SHALL NOT reuse the `cert` prefix (`iag_certification`) and SHALL NOT emit `aqelyn.iag.*` events (false friends).
 - **FR-19** All operations SHALL be tenant-scoped; invalid config (weights not summing to 1 ± 1e-6, `stale_activity_days ≤ 0`, `batch_size ≤ 0`, `page_budget ≤ 0`, unknown baseline id) SHALL raise `ISPMConfigInvalid`.
 - **FR-20** `ISPMStore` in-memory and Postgres implementations SHALL pass one contract suite; any new persisted field SHALL be checked against the target table's shape before being called additive (rule 9).
 - **FR-21** `ISPMService` SHALL register as an `AQService` with a **tenant-scoped** health probe, exercised in **both `local` and `enterprise`** tenant modes (rule 11).
@@ -331,26 +359,27 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 | # | Criterion | Test (pytest id) |
 |---|---|---|
 | AC-1 | Handed-in only; no connector/socket | `test_ispm_no_collection` |
-| AC-2 | Identities use EA-0011 shape; registered via EA-0025 | `test_ispm_normalize_to_iag_shape` |
-| AC-3 | Orphaned/dormant/over-priv/SoD read from EA-0011, not re-derived | `test_ispm_iag_not_reimplemented` |
-| AC-4 | Access paths + certification delegate to EA-0011 | `test_ispm_certification_delegates` |
-| AC-5 | Control facts tri-state, default unknown, with reason | `test_ispm_controls_tristate` |
-| AC-6 | Unknown factor excluded from denominator, never favourable | `test_ispm_unknown_not_favourable` |
-| AC-7 | Score deterministic; derivation replays; unreplayable rejected | `test_ispm_score_replay` |
-| AC-8 | Score composes EA-0013/0007/0006 (no second scorer) | `test_ispm_score_composed` |
-| AC-9 | Subject is an account; control language; **no person rollup type** | `test_ispm_no_person_score` |
-| AC-10 | Drift reuses EA-0012 shape; append-only; unknown ≠ pass | `test_ispm_drift_shape` |
-| AC-11 | Findings via EA-0011/EA-0013; no new SignalKind | `test_ispm_findings_path` |
-| AC-12 | Remediation proposed, `source_finding` bound, nothing modified | `test_ispm_propose_binds_finding` |
-| AC-13 | Exposure via KnownSurfaceSource + AssetRef.kind="identity" | `test_ispm_exposure_seam` |
-| AC-14 | identity_sensitivity widening additive; default preserved | `test_ispm_identity_sensitivity_kind` |
-| AC-15 | Assessment status semantic tri-state; unknown_controls surfaced | `test_ispm_assessment_status` |
-| AC-16 | D8 pagination under budget; truncated reported | `test_ispm_pagination` |
-| AC-17 | inventory_complete honest (ECR-0034 not weakened) | `test_ispm_inventory_not_exhaustive` |
-| AC-18 | Prefixes/errors registered both sites; no `cert`, no `aqelyn.iag.*` | `test_ispm_prefixes_and_events` |
-| AC-19 | Invalid config rejected | `test_ispm_config_invalid` |
-| AC-20 | Store passes one suite on both backends | `test_ispm_store_contract[inmemory]` / `[postgres]` |
-| AC-21 | Health tenant-scoped, both tenant modes | `test_ispm_service_health[local]` / `[enterprise]` |
+| AC-2 | Identity/account objects + evidence-backed EA-0011 relationships; EA-0025 registration | `test_ispm_normalize_to_iag_shape` |
+| AC-3 | Real normalized graph → real EA-0011 risk → score citing the same `AccessRisk` | `test_ispm_real_iag_round_trip` + `test_ispm_score_cites_real_iag_risk` |
+| AC-4 | Orphaned/dormant/over-priv/SoD read from EA-0011, not re-derived | `test_ispm_iag_not_reimplemented` |
+| AC-5 | Access paths + certification delegate to EA-0011 | `test_ispm_certification_delegates` |
+| AC-6 | Control facts tri-state, default unknown, with reason | `test_ispm_controls_tristate` |
+| AC-7 | Unknown factor excluded from denominator, never favourable | `test_ispm_unknown_not_favourable` |
+| AC-8 | Score deterministic; derivation replays; unreplayable rejected | `test_ispm_score_replay` |
+| AC-9 | Score composes EA-0013/0007/0006 (no second scorer) | `test_ispm_score_composed` |
+| AC-10 | Subject is an account; control language; **no person rollup type** | `test_ispm_no_person_score` |
+| AC-11 | Drift reuses EA-0012 shape; append-only; unknown ≠ pass | `test_ispm_drift_shape` |
+| AC-12 | Findings via EA-0011/EA-0013; no new SignalKind | `test_ispm_findings_path` |
+| AC-13 | Remediation proposed, `source_finding` bound, nothing modified | `test_ispm_propose_binds_finding` |
+| AC-14 | Exposure via KnownSurfaceSource + AssetRef.kind="identity" | `test_ispm_exposure_seam` |
+| AC-15 | identity_sensitivity widening additive; default preserved | `test_ispm_identity_sensitivity_kind` |
+| AC-16 | Assessment status semantic tri-state; unknown_controls surfaced | `test_ispm_assessment_status` |
+| AC-17 | D8 pagination under budget; truncated reported | `test_ispm_pagination` |
+| AC-18 | inventory_complete honest (ECR-0034 not weakened) | `test_ispm_inventory_not_exhaustive` |
+| AC-19 | Prefixes/errors registered both sites; no `cert`, no `aqelyn.iag.*` | `test_ispm_prefixes_and_events` |
+| AC-20 | Invalid config rejected | `test_ispm_config_invalid` |
+| AC-21 | Store passes one suite on both backends | `test_ispm_store_contract[inmemory]` / `[postgres]` |
+| AC-22 | Health tenant-scoped, both tenant modes | `test_ispm_service_health[local]` / `[enterprise]` |
 
 ## 9. Error taxonomy (contributions)
 
@@ -426,8 +455,8 @@ EA-0033 does not fix ECR-0034; **it must not deepen it.**
   **additive widening + replay-pin** treatment, with the `data_sensitivity`
   default preserved. Anticipated here rather than discovered mid-build; **per rule
   15 it lands in the same ticket that first constructs an identity
-  `ExposureImpactContext` (G5), never earlier.** *(Number per the reviewer's
-  handover — the log ended at ECR-0048; re-read `ECR-LOG.md` before use, rule 1.)*
+  `ExposureImpactContext` (G5), never earlier.** Recorded as Proposed in the
+  canonical ECR log.
 - **ECR-0032 — fourth posture instance.** CSPM, SSPM, DSPM, now ISPM all share
   `normalize → (classify/score) → route`. The revisit condition is well past met.
   Recommendation unchanged: **decide after C-030 is green**, as a
