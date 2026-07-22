@@ -1,6 +1,7 @@
 """Identity Security Posture Management public types (EA-0033 G1)."""
 
 from aqelyn.ispm.engine import ISPMEngine
+from aqelyn.ispm.governance import IdentityGovernanceOwner
 from aqelyn.ispm.memory import InMemoryISPMStore
 from aqelyn.ispm.models import (
     ISPM_EVENTS,
@@ -57,6 +58,7 @@ __all__ = [
     "IdentityDescriptor",
     "IdentityDriftItem",
     "IdentityDriftSnapshot",
+    "IdentityGovernanceOwner",
     "IdentityKind",
     "IdentityPostureScore",
     "InMemoryISPMStore",
