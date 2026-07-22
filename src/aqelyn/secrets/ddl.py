@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS aq_crypto_assessment (
 CREATE INDEX IF NOT EXISTS ix_crypto_assessment_tenant_id
     ON aq_crypto_assessment (tenant_id, id);
 
+CREATE TABLE IF NOT EXISTS aq_crypto_governance_score (
+    id           text PRIMARY KEY,
+    tenant_id    text NULL,
+    asset_id     text NOT NULL,
+    object_id    text NOT NULL,
+    record       jsonb NOT NULL CHECK (jsonb_typeof(record) = 'object'),
+    recorded_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_crypto_governance_score_tenant_asset
+    ON aq_crypto_governance_score (tenant_id, asset_id, id);
+
 CREATE OR REPLACE FUNCTION aq_crypto_reject_mutation() RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION 'crypto records are append-only';
@@ -56,5 +67,11 @@ FOR EACH ROW EXECUTE FUNCTION aq_crypto_reject_mutation();
 DROP TRIGGER IF EXISTS trg_crypto_assessment_immutable ON aq_crypto_assessment;
 CREATE TRIGGER trg_crypto_assessment_immutable
 BEFORE UPDATE OR DELETE ON aq_crypto_assessment
+FOR EACH ROW EXECUTE FUNCTION aq_crypto_reject_mutation();
+
+DROP TRIGGER IF EXISTS trg_crypto_governance_score_immutable
+    ON aq_crypto_governance_score;
+CREATE TRIGGER trg_crypto_governance_score_immutable
+BEFORE UPDATE OR DELETE ON aq_crypto_governance_score
 FOR EACH ROW EXECUTE FUNCTION aq_crypto_reject_mutation();
 """

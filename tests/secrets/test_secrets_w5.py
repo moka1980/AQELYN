@@ -40,6 +40,7 @@ CRYPTO_EVENT_TYPES = {
     "aqelyn.crypto.certificate_expiring",
     "aqelyn.crypto.weak_key_detected",
     "aqelyn.crypto.lifecycle_unknown",
+    "aqelyn.crypto.governance_scored",
 }
 
 
@@ -117,6 +118,8 @@ async def test_crypto_service_health_and_owner_connectivity(
     assert runtime.secrets_engine.inventory is runtime.inventory_engine
     assert runtime.secrets_engine.evidence_store is runtime.evidence_store
     assert runtime.secrets_engine.trust is runtime.trust_engine
+    assert runtime.secrets_engine.ownership_owner is runtime.inventory_engine
+    assert runtime.secrets_engine.mission_owner is runtime.mission_engine
     assert runtime.secrets_engine.exposure_owner is runtime.exposure_engine
     assert runtime.secrets_engine.compliance_owner is runtime.compliance_engine
     assert runtime.secrets_engine.finding_store is runtime.finding_store
@@ -140,6 +143,8 @@ async def test_crypto_service_health_and_owner_connectivity(
         "inventory_engine",
         "exposure_engine",
         "compliance_engine",
+        "mission_engine",
+        "risk_engine",
         "trust_engine",
         "workflow_engine",
     }
@@ -148,6 +153,8 @@ async def test_crypto_service_health_and_owner_connectivity(
         "inventory_engine",
         "exposure_engine",
         "compliance_engine",
+        "mission_engine",
+        "risk_engine",
         "trust_engine",
         "workflow_engine",
     )
@@ -218,7 +225,7 @@ def test_crypto_events_value_free() -> None:
     register_crypto_events(registry)
 
     assert set(CRYPTO_EVENTS) == CRYPTO_EVENT_TYPES
-    assert len(CRYPTO_EVENTS) == 4
+    assert len(CRYPTO_EVENTS) == 5
     assert all(registry.is_registered(event_type) for event_type in CRYPTO_EVENT_TYPES)
     for event_type in CRYPTO_EVENT_TYPES:
         registry.validate(

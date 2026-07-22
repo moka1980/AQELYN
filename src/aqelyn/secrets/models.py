@@ -6,7 +6,7 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Final, Literal
+from typing import Any, Final, Literal
 from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -17,6 +17,7 @@ from aqelyn.conventions.errors import (
     SchemaValidationError,
     SecretValueRejected,
 )
+from aqelyn.decision import Derivation
 from aqelyn.exposure.models import ExposureImpactContext
 
 LifecycleStatus = Literal["valid", "invalid", "unknown"]
@@ -40,6 +41,8 @@ SecretLocationKind = Literal[
 KeyUsage = Literal["signing", "encryption", "authentication", "key_agreement", "other"]
 CryptoAssetKind = Literal["secret", "key", "certificate"]
 CryptoExposureStatus = Literal["confirmed", "reachability_pending"]
+GovernanceFactorStatus = Literal["known", "unknown"]
+GovernanceScoringStatus = Literal["pending", "complete", "partial"]
 CryptoClaimField = Literal[
     "kind",
     "location",
@@ -66,6 +69,17 @@ VALID_KEY_USAGES: Final[frozenset[str]] = frozenset(
     ("signing", "encryption", "authentication", "key_agreement", "other")
 )
 VALID_CRYPTO_ASSET_KINDS: Final[frozenset[str]] = frozenset(("secret", "key", "certificate"))
+GOVERNANCE_FACTOR_NAMES: Final[tuple[str, ...]] = (
+    "owner_risk",
+    "lifecycle",
+    "ownership",
+    "exposure",
+    "trust",
+    "compliance",
+)
+GOVERNANCE_UNKNOWN_PENALTY_POINTS: Final[float] = 10.0
+GOVERNANCE_ACTIVE_EXPOSURE_CAP: Final[float] = 69.0
+GOVERNANCE_CRITICAL_EXPOSURE_THRESHOLD: Final[float] = 70.0
 
 _FINGERPRINT_RE: Final[re.Pattern[str]] = re.compile(r"^hmac-sha256:[0-9a-f]{64}$")
 _FORBIDDEN_VALUE_KEY_TOKENS: Final[frozenset[str]] = frozenset(
@@ -906,6 +920,165 @@ class CryptographicExposure(_ValueFreeModel):
         return self
 
 
+class GovernanceFactor(_ValueFreeModel):
+    name: str
+    rating: float | None = None
+    weight: float
+    status: GovernanceFactorStatus
+    source_ref: dict[str, Any]
+    reason: str
+
+    @field_validator("name", "reason")
+    @classmethod
+    def _text(cls, value: str) -> str:
+        return _nonempty(value, field="governance factor field")
+
+    @field_validator("rating", mode="before")
+    @classmethod
+    def _rating(cls, value: object) -> float | None:
+        if value is None:
+            return None
+        return _unit(value, field="governance factor rating")
+
+    @field_validator("weight", mode="before")
+    @classmethod
+    def _weight(cls, value: object) -> float:
+        return _unit(value, field="governance factor weight")
+
+    @field_validator("source_ref")
+    @classmethod
+    def _source_ref(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if not value:
+            raise CryptoConfigInvalid("governance factor source_ref must not be empty")
+        return dict(value)
+
+    @model_validator(mode="after")
+    def _status_consistency(self) -> GovernanceFactor:
+        if self.status == "known" and self.rating is None:
+            raise CryptoConfigInvalid("known governance factor requires a rating")
+        if self.status == "unknown" and self.rating is not None:
+            raise CryptoConfigInvalid("unknown governance factor cannot carry a rating")
+        return self
+
+
+class CredentialGovernanceScore(_ValueFreeModel):
+    id: str = Field(default_factory=lambda: new_id("cgs"))
+    tenant_id: str | None = None
+    asset_id: str
+    object_id: str
+    score: float
+    factors: list[GovernanceFactor]
+    active_critical_exposure_ids: list[str] = Field(default_factory=list)
+    derivation: Derivation
+    confidence: float
+    statement: str
+    computed_at: datetime
+    evidence_id: str
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        return require_typed_id(value, "cgs", field="id")
+
+    @field_validator("tenant_id")
+    @classmethod
+    def _tenant_id(cls, value: str | None) -> str | None:
+        return require_tenant_id(value)
+
+    @field_validator("asset_id")
+    @classmethod
+    def _asset_id(cls, value: str) -> str:
+        return _crypto_asset_id(value, field="asset_id")
+
+    @field_validator("object_id")
+    @classmethod
+    def _object_id(cls, value: str) -> str:
+        return require_typed_id(value, "obj", field="object_id")
+
+    @field_validator("score", mode="before")
+    @classmethod
+    def _score(cls, value: object) -> float:
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise CryptoConfigInvalid("governance score must be in [0,100]")
+        selected = float(value)
+        if not math.isfinite(selected) or selected < 0.0 or selected > 100.0:
+            raise CryptoConfigInvalid("governance score must be in [0,100]")
+        return selected
+
+    @field_validator("factors")
+    @classmethod
+    def _factors(cls, values: list[GovernanceFactor]) -> list[GovernanceFactor]:
+        names = [factor.name for factor in values]
+        if set(names) != set(GOVERNANCE_FACTOR_NAMES) or len(names) != len(GOVERNANCE_FACTOR_NAMES):
+            raise CryptoConfigInvalid(
+                "governance factors must define owner_risk, lifecycle, ownership, "
+                "exposure, trust, and compliance exactly once"
+            )
+        return values
+
+    @field_validator("active_critical_exposure_ids")
+    @classmethod
+    def _active_exposure_ids(cls, values: list[str]) -> list[str]:
+        selected = [
+            require_typed_id(value, "exp", field="active_critical_exposure_ids") for value in values
+        ]
+        if len(selected) != len(set(selected)):
+            raise CryptoConfigInvalid("active critical exposure ids must be unique")
+        return selected
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _confidence(cls, value: object) -> float:
+        return _unit(value, field="governance confidence")
+
+    @field_validator("statement")
+    @classmethod
+    def _statement(cls, value: str) -> str:
+        selected = _nonempty(value, field="governance statement")
+        lowered = selected.casefold()
+        if "governance hygiene" not in lowered or "not safety" not in lowered:
+            raise CryptoConfigInvalid(
+                "governance statement must say the score measures governance hygiene, not safety"
+            )
+        return selected
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="evidence_id")
+
+    @model_validator(mode="after")
+    def _score_consistency(self) -> CredentialGovernanceScore:
+        total_weight = sum(factor.weight for factor in self.factors)
+        if not math.isclose(total_weight, 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise CryptoConfigInvalid("governance factor weights must sum to 1 within 1e-6")
+        known = [factor for factor in self.factors if factor.status == "known"]
+        if not known:
+            raise CryptoConfigInvalid("governance score requires at least one known factor")
+        known_weight = sum(factor.weight for factor in known)
+        weighted = sum(
+            factor.weight * (factor.rating if factor.rating is not None else 0.0)
+            for factor in known
+        )
+        known_only = weighted / known_weight
+        coverage_adjustment = known_weight / total_weight
+        unknown_weight = total_weight - known_weight
+        expected = max(
+            0.0,
+            known_only * coverage_adjustment * 100.0
+            - unknown_weight * GOVERNANCE_UNKNOWN_PENALTY_POINTS,
+        )
+        if self.active_critical_exposure_ids:
+            expected = min(expected, GOVERNANCE_ACTIVE_EXPOSURE_CAP)
+            if "active critical exposure" not in self.statement.casefold():
+                raise CryptoConfigInvalid(
+                    "active critical exposures must be named in the governance statement"
+                )
+        if not math.isclose(self.score, round(expected, 6), rel_tol=0.0, abs_tol=1e-6):
+            raise CryptoConfigInvalid("governance score does not match its factors")
+        return self
+
+
 class CryptoAssessment(_ValueFreeModel):
     id: str = Field(default_factory=lambda: new_id("cas"))
     tenant_id: str | None = None
@@ -919,6 +1092,9 @@ class CryptoAssessment(_ValueFreeModel):
     expiring_soon: int = 0
     unknown_lifecycle: int = 0
     exposure_ids: list[str] = Field(default_factory=list)
+    governance_scoring_status: GovernanceScoringStatus = "pending"
+    governance_score_ids: list[str] = Field(default_factory=list)
+    governance_incomplete_reason: str | None = "Governance scoring has not run."
     incomplete_reason: str | None = None
     evidence_id: str | None = None
 
@@ -954,6 +1130,21 @@ class CryptoAssessment(_ValueFreeModel):
             raise CryptoConfigInvalid("exposure_ids must not contain duplicates")
         return values
 
+    @field_validator("governance_score_ids")
+    @classmethod
+    def _governance_score_ids(cls, values: list[str]) -> list[str]:
+        selected = [
+            require_typed_id(value, "cgs", field="governance_score_ids") for value in values
+        ]
+        if len(selected) != len(set(selected)):
+            raise CryptoConfigInvalid("governance_score_ids must not contain duplicates")
+        return selected
+
+    @field_validator("governance_incomplete_reason")
+    @classmethod
+    def _governance_incomplete_reason(cls, value: str | None) -> str | None:
+        return _optional_nonempty(value, field="governance_incomplete_reason")
+
     @field_validator("incomplete_reason")
     @classmethod
     def _incomplete_reason(cls, value: str | None) -> str | None:
@@ -976,6 +1167,7 @@ class CryptoAssessment(_ValueFreeModel):
             self.expiring_soon,
             self.unknown_lifecycle,
             len(self.exposure_ids),
+            len(self.governance_score_ids),
         )
         if self.status == "pending":
             if any(result_counts) or self.evidence_id is not None:
@@ -995,6 +1187,24 @@ class CryptoAssessment(_ValueFreeModel):
             raise CryptoConfigInvalid("unknown_lifecycle cannot exceed assets_evaluated")
         if len(self.exposure_ids) > self.assets_evaluated:
             raise CryptoConfigInvalid("exposure_ids cannot exceed assets_evaluated")
+        if len(self.governance_score_ids) > self.assets_evaluated:
+            raise CryptoConfigInvalid("governance_score_ids cannot exceed assets_evaluated")
+        if self.governance_scoring_status == "complete":
+            if len(self.governance_score_ids) != self.assets_evaluated:
+                raise CryptoConfigInvalid(
+                    "complete governance scoring requires one score per evaluated asset"
+                )
+            if self.governance_incomplete_reason is not None:
+                raise CryptoConfigInvalid(
+                    "complete governance scoring cannot carry an incomplete reason"
+                )
+        elif self.governance_scoring_status == "pending":
+            if self.governance_score_ids:
+                raise CryptoConfigInvalid("pending governance scoring cannot carry score ids")
+            if self.governance_incomplete_reason is None:
+                raise CryptoConfigInvalid("pending governance scoring requires a reason")
+        elif self.governance_incomplete_reason is None:
+            raise CryptoConfigInvalid("partial governance scoring requires a reason")
         return self
 
 
@@ -1005,6 +1215,16 @@ class CryptoConfig(_ValueFreeModel):
     max_key_age_days: int = 365
     batch_size: int = 100
     max_work: int = 50_000
+    governance_factor_weights: dict[str, float] = Field(
+        default_factory=lambda: {
+            "owner_risk": 0.20,
+            "lifecycle": 0.20,
+            "ownership": 0.15,
+            "exposure": 0.20,
+            "trust": 0.10,
+            "compliance": 0.15,
+        }
+    )
 
     @field_validator("expiry_warning_days", "max_key_age_days", mode="before")
     @classmethod
@@ -1037,4 +1257,26 @@ class CryptoConfig(_ValueFreeModel):
                 raise CryptoConfigInvalid("min_key_sizes keys must be strings")
             key = _nonempty(algorithm, field="min_key_sizes algorithm")
             selected[key] = _positive_int(minimum, field=f"min_key_sizes[{key!r}]")
+        return selected
+
+    @field_validator("governance_factor_weights", mode="before")
+    @classmethod
+    def _governance_factor_weights(cls, value: object) -> dict[str, float]:
+        if not isinstance(value, dict) or not value:
+            raise CryptoConfigInvalid("governance_factor_weights must be a non-empty object")
+        selected: dict[str, float] = {}
+        for name, weight in value.items():
+            if not isinstance(name, str):
+                raise CryptoConfigInvalid("governance factor names must be strings")
+            selected[_nonempty(name, field="governance factor name")] = _unit(
+                weight,
+                field=f"governance_factor_weights[{name!r}]",
+            )
+        if set(selected) != set(GOVERNANCE_FACTOR_NAMES):
+            raise CryptoConfigInvalid(
+                "governance_factor_weights must define owner_risk, lifecycle, ownership, "
+                "exposure, trust, and compliance"
+            )
+        if not math.isclose(sum(selected.values()), 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise CryptoConfigInvalid("governance_factor_weights must sum to 1 within 1e-6")
         return selected

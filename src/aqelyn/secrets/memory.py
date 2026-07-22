@@ -7,7 +7,13 @@ from aqelyn.conventions.errors import (
     CryptoConfigInvalid,
     OptimisticConcurrencyConflict,
 )
-from aqelyn.secrets.models import CryptoAssessment, CryptoAsset, CryptoAssetKind, CryptoQuery
+from aqelyn.secrets.models import (
+    CredentialGovernanceScore,
+    CryptoAssessment,
+    CryptoAsset,
+    CryptoAssetKind,
+    CryptoQuery,
+)
 from aqelyn.secrets.store import (
     asset_kind,
     validate_assessment,
@@ -17,6 +23,8 @@ from aqelyn.secrets.store import (
     validate_fingerprint,
     validate_kind,
     validate_query,
+    validate_score,
+    validate_score_id,
     validate_tenant_scope,
     validate_write_tenant,
 )
@@ -28,6 +36,7 @@ class InMemoryCryptoStore:
         self._asset_history: dict[str, list[CryptoAsset]] = {}
         self._identities: dict[tuple[str | None, CryptoAssetKind, str], str] = {}
         self._assessments: dict[str, CryptoAssessment] = {}
+        self._scores: dict[str, CredentialGovernanceScore] = {}
 
     async def put_asset(self, asset: CryptoAsset) -> CryptoAsset:
         stored = validate_asset(asset)
@@ -124,6 +133,35 @@ class InMemoryCryptoStore:
         if record is None or not self._visible(record.tenant_id, selected_tenant):
             return None
         return record.model_copy(deep=True)
+
+    async def put_score(
+        self,
+        score: CredentialGovernanceScore,
+    ) -> CredentialGovernanceScore:
+        stored = validate_score(score)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        current = self._scores.get(stored.id)
+        if current is not None:
+            if current.tenant_id != stored.tenant_id:
+                raise CrossTenantReference("credential governance score tenant_id cannot change")
+            if current.model_dump(mode="json") != stored.model_dump(mode="json"):
+                raise OptimisticConcurrencyConflict("credential governance scores are append-only")
+            return validate_score(current)
+        self._scores[stored.id] = stored.model_copy(deep=True)
+        return stored.model_copy(deep=True)
+
+    async def get_score(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> CredentialGovernanceScore | None:
+        selected_id = validate_score_id(score_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        record = self._scores.get(selected_id)
+        if record is None or not self._visible(record.tenant_id, selected_tenant):
+            return None
+        return validate_score(record)
 
     def _visible(self, row_tenant_id: str | None, requested_tenant_id: str | None) -> bool:
         if self.mode == "local":

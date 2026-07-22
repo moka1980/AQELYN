@@ -17,6 +17,7 @@ from aqelyn.secrets.engine import SecretsIntelligenceEngine
 from aqelyn.secrets.models import (
     CertificateAsset,
     CertificateDescriptor,
+    CredentialGovernanceScore,
     CryptoAssessment,
     CryptoAsset,
     CryptoConfig,
@@ -37,6 +38,7 @@ CRYPTO_EVENTS: dict[str, int] = {
     "aqelyn.crypto.certificate_expiring": 1,
     "aqelyn.crypto.weak_key_detected": 1,
     "aqelyn.crypto.lifecycle_unknown": 1,
+    "aqelyn.crypto.governance_scored": 1,
 }
 
 _OWNER_SERVICES = frozenset(
@@ -44,6 +46,8 @@ _OWNER_SERVICES = frozenset(
         "inventory_engine",
         "exposure_engine",
         "compliance_engine",
+        "mission_engine",
+        "risk_engine",
         "trust_engine",
         "workflow_engine",
     )
@@ -77,6 +81,8 @@ class SecretsIntelligenceService:
             "inventory_engine",
             "exposure_engine",
             "compliance_engine",
+            "mission_engine",
+            "risk_engine",
             "trust_engine",
             "workflow_engine",
         ),
@@ -245,6 +251,14 @@ class SecretsIntelligenceService:
     ) -> CryptoAssessment:
         return await self.engine.assess(tenant_id=tenant_id, scope=scope)
 
+    async def score_credential(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> CredentialGovernanceScore:
+        return await self.engine.score_credential(asset_id, tenant_id=tenant_id)
+
     async def propose_rotation(
         self,
         finding_id: str,
@@ -320,6 +334,10 @@ class SecretsIntelligenceService:
             raise StoreUnavailable("EA-0023 crypto exposure owner unavailable")
         if self.engine.compliance_owner is None:
             raise StoreUnavailable("EA-0010 crypto compliance owner unavailable")
+        if self.engine.ownership_owner is None:
+            raise StoreUnavailable("EA-0025 crypto ownership owner unavailable")
+        if self.engine.mission_owner is None:
+            raise StoreUnavailable("EA-0007 crypto mission owner unavailable")
         if self.engine.workflow_engine is None:
             raise StoreUnavailable("EA-0008 crypto workflow owner unavailable")
 

@@ -407,6 +407,7 @@ def _runtime_crypto_config(config: AQELYNConfig) -> CryptoConfig:
         max_key_age_days=config.secrets_max_key_age_days,
         batch_size=config.secrets_batch_size,
         max_work=config.secrets_max_work,
+        governance_factor_weights=config.secrets_governance_factor_weights,
     )
 
 
@@ -809,6 +810,8 @@ def _register_runtime_services(
             "inventory_engine": inventory_service,
             "exposure_engine": exposure_service,
             "compliance_engine": compliance_service,
+            "mission_engine": mission_service,
+            "risk_engine": risk_service,
             "trust_engine": trust_service,
             "workflow_engine": workflow_service,
         },
@@ -1288,6 +1291,8 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         inventory=inventory_engine,
         evidence_store=evidence_store,
         trust=trust_engine,
+        ownership_owner=inventory_engine,
+        mission_owner=mission_engine,
         exposure_owner=exposure_engine,
         compliance_owner=compliance_engine,
         finding_store=finding_store,
@@ -2043,6 +2048,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         inventory=inventory_engine,
         evidence_store=evidence_store,
         trust=trust_engine,
+        ownership_owner=inventory_engine,
+        mission_owner=mission_engine,
         exposure_owner=exposure_engine,
         compliance_owner=compliance_engine,
         finding_store=finding_store,
