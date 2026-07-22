@@ -68,7 +68,9 @@ three. If they appear, the milestone has gone wrong.
 **Deliverables:** the models; `ControlFact` tri-state (`present|absent|unknown`,
 **default `unknown`**, carrying the reason); `ISPMAssessment.status` as **semantic
 tokens** `computed|truncated|pending` (not truthy strings — ECR-0033); config
-validation (`ISPMConfigInvalid`); **`ips`/`ibl`/`idr`/`ipa` prefixes registered
+validation (`ISPMConfigInvalid`); reuse EA-0027's existing `IdentityNotFound`
+per ECR-0050 and register only the three net-new errors;
+**`ips`/`ibl`/`idr`/`ipa` prefixes registered
 in BOTH `conventions/ids.py::PREFIXES` and CONVENTIONS §1**, errors in `errors.py` +
 CONVENTIONS §9. **Do not reuse the `cert` prefix** (`iag_certification`).
 **Rule 15 check:** no type defined here may require a widening scheduled later —

@@ -54,6 +54,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0047 | EA-0032 | Accepted | Keep single-asset missing-evidence refusal, but make batch assessment continue with that asset explicitly unknown and counted instead of denying all tenant posture. |
 | ECR-0048 | EA-0023 + EA-0032 | Accepted | Add an atomic persisted analyze-and-score owner path plus tenant-scoped exposure read so crypto findings cite the real replayable EA-0023 record without a second scorer. |
 | ECR-0049 | EA-0023 + EA-0033 | Proposed | Add semantic `identity_sensitivity` exposure impact while preserving the existing `data_sensitivity` default; land it with C-030 G5's first identity context. |
+| ECR-0050 | EA-0033 + EA-0027 | Accepted | Reuse EA-0027's existing platform `IdentityNotFound` error in ISPM instead of registering a duplicate code owner; EA-0033 contributes only its three net-new errors. |
 
 ---
 
@@ -2280,3 +2281,28 @@ retain their current default and explicit kinds. `impact_context` is already a
 JSONB field without a database kind constraint, so no DDL migration is needed.
 G5 proves the existing default remains unchanged and that identity sensitivity
 survives owner scoring, persistence, and derivation replay.
+
+---
+
+## ECR-0050 - reuse the existing identity-not-found taxonomy
+
+**Raised by:** Codex during C-030 G1 verification against the shipped error
+registry and CONVENTIONS §9.
+**Status:** Accepted - required before registering G1's error contributions.
+**Severity:** blocking within G1 - one error named as an EA-0033 contribution
+already has a platform owner.
+
+**Problem.** The Accepted EA-0033 §9 lists `IdentityNotFound` as a new ISPM error.
+Shipped `conventions.errors` and CONVENTIONS §9 already assign that exact stable
+code to EA-0027, where identity-threat stores and engines raise it. Defining it
+again would give one public code two class owners; changing its spelling would
+create two answers to the same missing-identity condition.
+
+**Resolution.** EA-0033 reuses the existing `IdentityNotFound` class. ISPM adds
+only `ISPMConfigInvalid`, `PostureScoreNotReplayable`, and
+`IdentityBaselineNotFound`. G1 tests assert both the reused code and the three
+new contributions through `ALL_ERROR_CODES` and CONVENTIONS §9.
+
+**Impact.** Taxonomy-only correction; no shipped behavior or error code changes.
+The existing EA-0027 owner remains authoritative, and ISPM callers receive the
+same stable missing-identity code used elsewhere in the platform.

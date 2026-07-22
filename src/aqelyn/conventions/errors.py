@@ -529,6 +529,19 @@ class CertificateNotFound(AQError):
     code = "CertificateNotFound"
 
 
+# --- EA-0033 ---
+class ISPMConfigInvalid(AQError):
+    code = "ISPMConfigInvalid"
+
+
+class PostureScoreNotReplayable(AQError):
+    code = "PostureScoreNotReplayable"
+
+
+class IdentityBaselineNotFound(AQError):
+    code = "IdentityBaselineNotFound"
+
+
 # --- EA-0001 ---
 class ServiceStartFailed(AQError):
     code = "ServiceStartFailed"

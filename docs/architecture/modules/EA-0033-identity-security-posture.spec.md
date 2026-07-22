@@ -5,6 +5,7 @@
 **Consumed by:** EA-0011 (`analyze_risk` reads the identities this engine normalizes), EA-0023 (identity exposure), EA-0013 (findings path), the ISPM UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
 **Build milestone:** C-030 (see `C-030_Task_Bundle.md`)
+**Change control:** ECR-0049 (Proposed; G5), ECR-0050
 **Definition of Ready:** see §12
 
 ---
@@ -383,10 +384,11 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 
 ## 9. Error taxonomy (contributions)
 
-`ISPMConfigInvalid`, `IdentityNotFound`, `PostureScoreNotReplayable`,
+Contributes `ISPMConfigInvalid`, `PostureScoreNotReplayable`, and
 `IdentityBaselineNotFound` (added to `conventions.errors` **and** CONVENTIONS §9 —
-a test asserts the code set). Reuses EA-0020 `DerivationNotReplayable`,
-`StoreUnavailable`, `TenantScopeRequired`.
+a test asserts the code set). Reuses EA-0027's existing platform
+`IdentityNotFound` rather than declaring a second owner (ECR-0050), plus EA-0020
+`DerivationNotReplayable`, `StoreUnavailable`, and `TenantScopeRequired`.
 
 ## 10. Registered event types (owned by EA-0033)
 
