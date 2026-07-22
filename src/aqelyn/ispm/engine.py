@@ -5,17 +5,22 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 
-from aqelyn.conventions import ActorRef, new_id, require_tenant_id
+from aqelyn.conventions import ActorRef, new_id, require_tenant_id, utc_now
 from aqelyn.conventions.errors import (
     CrossTenantReference,
+    EvidenceNotFound,
+    EvidenceTampered,
+    IdentityBaselineNotFound,
     IdentityNotFound,
     ISPMConfigInvalid,
     StoreUnavailable,
 )
+from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceStore
 from aqelyn.evidence.models import EvidenceRecord
 from aqelyn.iag import AccessPath, AccessRiskReport, Certification
 from aqelyn.inventory import DiscoverySource
+from aqelyn.ispm.drift import drift_snapshot, identity_drift_items, validate_drift_scope
 from aqelyn.ispm.governance import (
     IdentityGovernanceOwner,
     complete_certification,
@@ -25,7 +30,14 @@ from aqelyn.ispm.governance import (
     open_certification,
     risks_to_findings,
 )
-from aqelyn.ispm.models import IdentityDescriptor, ISPMConfig, NormalizedIdentity
+from aqelyn.ispm.models import (
+    IdentityDescriptor,
+    IdentityDriftItem,
+    IdentityDriftSnapshot,
+    IdentityPostureScore,
+    ISPMConfig,
+    NormalizedIdentity,
+)
 from aqelyn.ispm.normalize import (
     HAS_ACCOUNT,
     IdentityInventoryOwner,
@@ -42,8 +54,10 @@ from aqelyn.ispm.normalize import (
     relationship,
     validate_edge_target,
 )
+from aqelyn.ispm.scoring import IdentityMissionOwner, compose_posture
 from aqelyn.ispm.store import ISPMStore
 from aqelyn.objects import AQObject, AQRelationship, NaturalKey, ObjectQuery
+from aqelyn.risk import RiskConfig
 
 _ISPM_ACTOR = ActorRef(actor_type="system", actor_id="ispm_engine")
 
@@ -58,8 +72,11 @@ class ISPMEngine:
         evidence_store: EvidenceStore,
         trust: TrustAssessor,
         governance_owner: IdentityGovernanceOwner | None = None,
+        mission_owner: IdentityMissionOwner | None = None,
+        risk_config: RiskConfig | None = None,
         config: ISPMConfig | None = None,
         actor: ActorRef | None = None,
+        source_id: str | None = None,
     ) -> None:
         self.store = store
         self.object_store = object_store
@@ -67,8 +84,11 @@ class ISPMEngine:
         self.evidence_store = evidence_store
         self.trust = trust
         self.governance_owner = governance_owner
+        self.mission_owner = mission_owner
+        self.risk_config = risk_config or RiskConfig()
         self.config = config or ISPMConfig()
         self.actor = actor or _ISPM_ACTOR
+        self.source_id = source_id or new_id("src")
         ensure_identity_object_types(object_store)
 
     async def governance_context(
@@ -176,6 +196,273 @@ class ISPMEngine:
         if self.governance_owner is None:
             raise StoreUnavailable("EA-0011 governance owner is unavailable")
         return self.governance_owner
+
+    async def score_identity(
+        self,
+        account_object_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityPostureScore:
+        selected_tenant = require_tenant_id(tenant_id)
+        identity = await self._identity_for_account(
+            account_object_id,
+            tenant_id=selected_tenant,
+        )
+        report = await self.governance_context(
+            identity.object_id,
+            tenant_id=selected_tenant,
+        )
+        if report.truncated:
+            raise StoreUnavailable("EA-0011 risk report was truncated")
+        if self.mission_owner is None:
+            raise StoreUnavailable("EA-0007 mission owner is unavailable")
+        subject_ids = {identity.object_id, account_object_id}
+        risks = [risk for risk in report.risks if risk.subject_id in subject_ids]
+        evidence = await self._verified_score_evidence(identity)
+        computed_at = utc_now()
+        trust = await self.trust.assess(
+            f"ispm:{account_object_id}",
+            evidence,
+            now=max(record.collected_at for record in evidence),
+        )
+        mission = await self.mission_owner.mission_impact(account_object_id)
+        composed = compose_posture(
+            identity,
+            account_object_id,
+            iag_risks=risks,
+            trust=trust,
+            mission=mission,
+            factor_weights=self.config.factor_weights,
+            risk_config=self.risk_config,
+            computed_at=computed_at,
+        )
+        score_id = new_id("ips")
+        result_evidence = await self.evidence_store.add(
+            EvidenceRecord(
+                id="",
+                tenant_id=selected_tenant,
+                evidence_type="ispm.posture_score",
+                schema_version=1,
+                subject=Subject(object_ids=sorted(subject_ids)),
+                collected_at=computed_at,
+                recorded_at=computed_at,
+                collector=self.actor,
+                source_id=self.source_id,
+                method="ispm.posture_score/v1",
+                content={
+                    "score_id": score_id,
+                    "subject_ref": account_object_id,
+                    "score": composed.score,
+                    "factors": [
+                        {
+                            "name": factor.name,
+                            "status": factor.status,
+                            "value": factor.value,
+                            "weight": factor.weight,
+                        }
+                        for factor in composed.factors
+                    ],
+                    "iag_risk_count": len(composed.iag_risks),
+                    "metadata_only": True,
+                },
+                content_hash="",
+                confidence=composed.confidence,
+                seq=0,
+                prev_hash=None,
+                record_hash="",
+            )
+        )
+        score = IdentityPostureScore(
+            id=score_id,
+            tenant_id=selected_tenant,
+            subject_ref=account_object_id,
+            score=composed.score,
+            factors=composed.factors,
+            iag_risks=composed.iag_risks,
+            derivation=composed.derivation,
+            confidence=composed.confidence,
+            statement=composed.statement,
+            computed_at=computed_at,
+            evidence_id=result_evidence.id,
+        )
+        return await self.store.put_score(score)
+
+    async def detect_drift(
+        self,
+        *,
+        baseline_id: str,
+        tenant_id: str | None,
+        scope: dict[str, object] | None = None,
+    ) -> IdentityDriftSnapshot:
+        selected_tenant = require_tenant_id(tenant_id)
+        baseline = await self.store.get_baseline(
+            baseline_id,
+            tenant_id=selected_tenant,
+        )
+        if baseline is None:
+            raise IdentityBaselineNotFound(baseline_id)
+        if baseline.approved_by is None or baseline.approved_at is None:
+            raise ISPMConfigInvalid("identity drift requires an approved baseline")
+        provider = validate_drift_scope(scope)
+        items: list[IdentityDriftItem] = []
+        cursor: str | None = None
+        next_cursor: str | None = None
+        seen_cursors: set[str] = set()
+        evaluated_identities = 0
+        while evaluated_identities < self.config.page_budget:
+            remaining = self.config.page_budget - evaluated_identities
+            rows, next_cursor = await self.store.query_identities(
+                tenant_id=selected_tenant,
+                provider=provider,
+                identity_kind=baseline.identity_kind,
+                cursor=cursor,
+                limit=min(100, remaining),
+            )
+            for identity in rows:
+                established = await self._established_control_evidence(identity)
+                items.extend(
+                    identity_drift_items(
+                        identity,
+                        baseline,
+                        established_evidence=established,
+                    )
+                )
+            evaluated_identities += len(rows)
+            if next_cursor is None:
+                break
+            if next_cursor in seen_cursors:
+                raise StoreUnavailable("ISPMStore returned a repeated pagination cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        if next_cursor is not None and evaluated_identities >= self.config.page_budget:
+            raise StoreUnavailable("identity drift scope exceeds page_budget")
+        run_at = utc_now()
+        snapshot_id = new_id("idr")
+        evidence = await self.evidence_store.add(
+            EvidenceRecord(
+                id="",
+                tenant_id=selected_tenant,
+                evidence_type="ispm.identity_drift",
+                schema_version=1,
+                subject=Subject(object_ids=sorted({item.identity_id for item in items})),
+                collected_at=run_at,
+                recorded_at=run_at,
+                collector=self.actor,
+                source_id=self.source_id,
+                method="ispm.identity_drift/v1",
+                content={
+                    "snapshot_id": snapshot_id,
+                    "baseline_id": baseline.id,
+                    "baseline_version": baseline.version,
+                    "evaluated": len(items),
+                    "passed": sum(item.status == "pass" for item in items),
+                    "failed": sum(item.status == "fail" for item in items),
+                    "unknown": sum(item.status == "unknown" for item in items),
+                    "metadata_only": True,
+                },
+                content_hash="",
+                confidence=1.0,
+                seq=0,
+                prev_hash=None,
+                record_hash="",
+            )
+        )
+        snapshot = drift_snapshot(
+            snapshot_id=snapshot_id,
+            tenant_id=selected_tenant,
+            baseline=baseline,
+            items=items,
+            run_at=run_at,
+            evidence_id=evidence.id,
+        )
+        return await self.store.put_drift(snapshot)
+
+    async def _identity_for_account(
+        self,
+        account_object_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> NormalizedIdentity:
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        evaluated = 0
+        while evaluated < self.config.page_budget:
+            remaining = self.config.page_budget - evaluated
+            rows, next_cursor = await self.store.query_identities(
+                tenant_id=tenant_id,
+                cursor=cursor,
+                limit=min(100, remaining),
+            )
+            matches = [
+                identity for identity in rows if account_object_id in identity.account_object_ids
+            ]
+            if matches:
+                if len(matches) != 1:
+                    raise ISPMConfigInvalid(
+                        "account object belongs to multiple normalized identities"
+                    )
+                return matches[0]
+            evaluated += len(rows)
+            if next_cursor is None:
+                raise IdentityNotFound(account_object_id)
+            if next_cursor in seen_cursors:
+                raise StoreUnavailable("ISPMStore returned a repeated pagination cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        raise StoreUnavailable("account lookup exceeds page_budget")
+
+    async def _verified_score_evidence(
+        self,
+        identity: NormalizedIdentity,
+    ) -> list[EvidenceRecord]:
+        evidence_ids = {identity.evidence_id}
+        evidence_ids.update(
+            fact.evidence_id
+            for fact in (
+                identity.controls.mfa,
+                identity.controls.lifecycle,
+                identity.controls.last_activity,
+            )
+            if fact.evidence_id is not None
+        )
+        records: list[EvidenceRecord] = []
+        for evidence_id in sorted(evidence_ids):
+            record = await self.evidence_store.get(evidence_id, actor=self.actor)
+            if record.tenant_id != identity.tenant_id:
+                raise CrossTenantReference("ISPM score evidence belongs to another tenant")
+            verification = await self.evidence_store.verify(evidence_id)
+            if not verification.ok:
+                raise EvidenceTampered(
+                    verification.detail or "ISPM score evidence failed verification"
+                )
+            records.append(record)
+        if not records:
+            raise StoreUnavailable("ISPM score requires evidence")
+        return records
+
+    async def _established_control_evidence(
+        self,
+        identity: NormalizedIdentity,
+    ) -> dict[str, bool]:
+        evidence_ids = {
+            fact.evidence_id
+            for fact in (
+                identity.controls.mfa,
+                identity.controls.lifecycle,
+                identity.controls.last_activity,
+            )
+            if fact.evidence_id is not None
+        }
+        established: dict[str, bool] = {}
+        for evidence_id in sorted(evidence_ids):
+            try:
+                record = await self.evidence_store.get(evidence_id, actor=self.actor)
+                if record.tenant_id != identity.tenant_id:
+                    raise CrossTenantReference("ISPM control evidence belongs to another tenant")
+                established[evidence_id] = (await self.evidence_store.verify(evidence_id)).ok
+            except (EvidenceNotFound, EvidenceTampered):
+                established[evidence_id] = False
+        return established
 
     async def ingest_identities(
         self,

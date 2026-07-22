@@ -161,7 +161,7 @@ def _score(**overrides: object) -> IdentityPostureScore:
         "tenant_id": TENANT,
         "subject_ref": new_id("obj"),
         "score": 80.0,
-        "factors": [_factor()],
+        "factors": [_factor(value=0.8, weight=1.0)],
         "iag_risks": [_risk()],
         "derivation": _derivation(),
         "confidence": 0.9,

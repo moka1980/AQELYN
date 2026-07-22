@@ -29,6 +29,7 @@ from aqelyn.ispm import (
     NormalizedIdentity,
     PostgresISPMStore,
 )
+from aqelyn.mission import MissionImpactResult
 from aqelyn.objects import AQObject, InMemoryObjectStore, NaturalKey, SourceRef
 from aqelyn.policy import PolicyEngine
 from aqelyn.trust import (
@@ -42,6 +43,12 @@ NOW = datetime(2026, 7, 22, 12, 0, tzinfo=UTC)
 TENANT = "018f0000-0000-7000-8000-000000330201"
 OTHER_TENANT = "018f0000-0000-7000-8000-000000330202"
 ACTOR = ActorRef(actor_type="system", actor_id="ispm-g2-test")
+
+
+class _NoMissionImpact:
+    async def mission_impact(self, object_id: str) -> MissionImpactResult:
+        _ = object_id
+        return MissionImpactResult()
 
 
 class _Closable(Protocol):
@@ -587,6 +594,7 @@ async def test_ispm_real_iag_round_trip() -> None:
             harness.evidence_store,
         )
         harness.engine.governance_owner = iag
+        harness.engine.mission_owner = _NoMissionImpact()
         report = await harness.engine.governance_context(
             normalized.object_id,
             tenant_id=TENANT,
@@ -597,3 +605,9 @@ async def test_ispm_real_iag_round_trip() -> None:
         assert any(risk.kind == "dormant" for risk in account_risks)
         assert all(risk.kind != "orphaned" for risk in account_risks)
         assert {risk.kind for risk in bare_risks} == {"dormant", "orphaned"}
+
+        score = await harness.engine.score_identity(account_id, tenant_id=TENANT)
+        assert score.iag_risks == account_risks
+        assert score.derivation.steps[0].params["iag_risks"] == [
+            risk.model_dump(mode="json") for risk in account_risks
+        ]

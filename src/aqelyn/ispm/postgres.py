@@ -10,18 +10,31 @@ import asyncpg
 from aqelyn.conventions.errors import (
     CrossTenantReference,
     ISPMConfigInvalid,
+    OptimisticConcurrencyConflict,
     StoreUnavailable,
 )
 from aqelyn.ispm.ddl import DDL
-from aqelyn.ispm.models import NormalizedIdentity, NormalizedIdentityKind
+from aqelyn.ispm.models import (
+    IdentityBaseline,
+    IdentityDriftSnapshot,
+    IdentityPostureScore,
+    NormalizedIdentity,
+    NormalizedIdentityKind,
+)
 from aqelyn.ispm.store import (
+    validate_baseline,
+    validate_baseline_id,
     validate_cursor,
+    validate_drift,
+    validate_drift_id,
     validate_external_id,
     validate_identity,
     validate_identity_kind,
     validate_limit,
     validate_object_id,
     validate_provider,
+    validate_score,
+    validate_score_id,
     validate_tenant_scope,
     validate_write_tenant,
 )
@@ -212,6 +225,156 @@ class PostgresISPMStore:
         next_cursor = str(page[-1]["id"]) if has_more else None
         return [_identity_from_payload(row["record"]) for row in page], next_cursor
 
+    async def put_score(self, score: IdentityPostureScore) -> IdentityPostureScore:
+        stored = validate_score(score)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        payload = stored.model_dump(mode="json")
+        async with self._pool.acquire() as conn:
+            current = await conn.fetchrow(
+                "SELECT record FROM aq_ispm_posture_score WHERE id=$1",
+                stored.id,
+            )
+            if current is not None:
+                existing = _score_from_payload(current["record"])
+                if existing.model_dump(mode="json") != payload:
+                    raise OptimisticConcurrencyConflict("posture scores are append-only")
+                return existing
+            try:
+                await conn.execute(
+                    "INSERT INTO aq_ispm_posture_score "
+                    "(id, tenant_id, subject_ref, record) VALUES ($1,$2,$3,$4)",
+                    stored.id,
+                    stored.tenant_id,
+                    stored.subject_ref,
+                    json.dumps(payload),
+                )
+            except asyncpg.UniqueViolationError as exc:
+                raise OptimisticConcurrencyConflict("posture scores are append-only") from exc
+        return stored.model_copy(deep=True)
+
+    async def get_score(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityPostureScore | None:
+        selected_id = validate_score_id(score_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        args: list[Any] = [selected_id]
+        clauses = ["id=$1"]
+        self._tenant_clauses(clauses, args, selected_tenant)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT record FROM aq_ispm_posture_score WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        return None if row is None else validate_score(_score_from_payload(row["record"]))
+
+    async def put_baseline(self, baseline: IdentityBaseline) -> IdentityBaseline:
+        stored = validate_baseline(baseline)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        payload = stored.model_dump(mode="json")
+        async with self._pool.acquire() as conn, conn.transaction():
+            current = await conn.fetchrow(
+                "SELECT tenant_id, version, record FROM aq_ispm_baseline_revision "
+                "WHERE id=$1 ORDER BY version DESC LIMIT 1 FOR UPDATE",
+                stored.id,
+            )
+            if current is not None:
+                if current["tenant_id"] != stored.tenant_id:
+                    raise CrossTenantReference("identity baseline tenant_id cannot change")
+                current_version = int(current["version"])
+                if current_version == stored.version:
+                    existing = _baseline_from_payload(current["record"])
+                    if existing.model_dump(mode="json") != payload:
+                        raise OptimisticConcurrencyConflict(
+                            "identity baseline version is append-only"
+                        )
+                    return existing
+                if stored.version <= current_version:
+                    raise OptimisticConcurrencyConflict("identity baseline version must increase")
+            try:
+                await conn.execute(
+                    "INSERT INTO aq_ispm_baseline_revision "
+                    "(id, tenant_id, identity_kind, version, record) VALUES ($1,$2,$3,$4,$5)",
+                    stored.id,
+                    stored.tenant_id,
+                    stored.identity_kind,
+                    stored.version,
+                    json.dumps(payload),
+                )
+            except asyncpg.UniqueViolationError as exc:
+                raise OptimisticConcurrencyConflict(
+                    "identity baseline version is append-only"
+                ) from exc
+        return stored.model_copy(deep=True)
+
+    async def get_baseline(
+        self,
+        baseline_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityBaseline | None:
+        selected_id = validate_baseline_id(baseline_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        args: list[Any] = [selected_id]
+        clauses = ["id=$1"]
+        self._tenant_clauses(clauses, args, selected_tenant)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT record FROM aq_ispm_baseline_revision "
+                f"WHERE {' AND '.join(clauses)} ORDER BY version DESC LIMIT 1",
+                *args,
+            )
+        return None if row is None else _baseline_from_payload(row["record"])
+
+    async def put_drift(self, snapshot: IdentityDriftSnapshot) -> IdentityDriftSnapshot:
+        stored = validate_drift(snapshot)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        payload = stored.model_dump(mode="json")
+        async with self._pool.acquire() as conn:
+            current = await conn.fetchrow(
+                "SELECT record FROM aq_ispm_drift_snapshot WHERE id=$1",
+                stored.id,
+            )
+            if current is not None:
+                existing = _drift_from_payload(current["record"])
+                if existing.model_dump(mode="json") != payload:
+                    raise OptimisticConcurrencyConflict("identity drift snapshots are append-only")
+                return existing
+            try:
+                await conn.execute(
+                    "INSERT INTO aq_ispm_drift_snapshot "
+                    "(id, tenant_id, baseline_id, record) VALUES ($1,$2,$3,$4)",
+                    stored.id,
+                    stored.tenant_id,
+                    stored.baseline_id,
+                    json.dumps(payload),
+                )
+            except asyncpg.UniqueViolationError as exc:
+                raise OptimisticConcurrencyConflict(
+                    "identity drift snapshots are append-only"
+                ) from exc
+        return stored.model_copy(deep=True)
+
+    async def get_drift(
+        self,
+        snapshot_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityDriftSnapshot | None:
+        selected_id = validate_drift_id(snapshot_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        args: list[Any] = [selected_id]
+        clauses = ["id=$1"]
+        self._tenant_clauses(clauses, args, selected_tenant)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT record FROM aq_ispm_drift_snapshot WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        return None if row is None else _drift_from_payload(row["record"])
+
     def _tenant_clauses(
         self,
         clauses: list[str],
@@ -229,3 +392,21 @@ def _identity_from_payload(payload: object) -> NormalizedIdentity:
     if isinstance(payload, str):
         payload = json.loads(payload)
     return NormalizedIdentity.model_validate(payload)
+
+
+def _score_from_payload(payload: object) -> IdentityPostureScore:
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    return IdentityPostureScore.model_validate(payload)
+
+
+def _baseline_from_payload(payload: object) -> IdentityBaseline:
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    return IdentityBaseline.model_validate(payload)
+
+
+def _drift_from_payload(payload: object) -> IdentityDriftSnapshot:
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    return IdentityDriftSnapshot.model_validate(payload)
