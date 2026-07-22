@@ -55,6 +55,9 @@ resolve toward "safe".
 Related to rule 4 but distinct: when an optional factor is missing, the result must not improve.
 EA-0023's `ExposureImpactContext` gets this right — no context behaves as factor `1.0` (maximum
 impact), so not knowing a store's sensitivity never buys it a lower score.
+Denominator exclusion alone is not sufficient: C-030 G4 showed that dropping an unknown MFA factor
+would otherwise make the unknown case score exactly like MFA-present. Test the same subject with the
+factor known-good, known-bad, and unknown; the unknown result must not become the favourable result.
 
 ### 6. Losing or corrupting evidence must never improve an answer
 EA-0031 P2 discarded a detector signal whose evidence was missing *or failed integrity
@@ -120,9 +123,175 @@ needs was scheduled for W4, so on-branch it could *only* be built with the ECR-0
 depends on a change in ticket N+k, either move the additive dependency forward to N or defer the type
 to N+k. Review a type against the ticket its dependency lands in, never in isolation.
 
+### 16. Prove the no-action boundary against the owning finding's automation contract
+`source_finding` binding is mandatory (rule 7), but not every owner finding has
+`eligibility="none"`. EA-0033 correctly preserves EA-0011's `assisted` access-remediation contract:
+the module only proposes, `requires_approval=True`, and the real workflow refuses execution before
+approval. Do not rewrite an owner's automation semantics merely to make a stronger-looking test.
+Drive the real workflow and prove the exact applicable boundary: permanent refusal for `none`, or
+approval-gated execution for `assisted`.
+
+### 17. Historical handoffs pin exact owner records; they never recompute
+C-030 G5 exposed this at the assessment-to-finding boundary. A method accepting only an assessment
+id cannot later reproduce the records it used unless the assessment durably stores their exact ids.
+Persist the owner refs at computation time, validate them on read, and route those records forward.
+Re-running the owner engine against today's estate is silent historical drift, not reconstruction.
+
 ---
 
-## Part 2 — Current handover: IS-033 / EA-0033 (Identity Security Posture Management)
+## Part 2 — Current handover: IS-034 / EA-0034 (Machine Identity & NHI Governance)
+
+**Repository state:** `main @496f0e8`, green (ruff, format, mypy --strict,
+1237 passed / 3 skipped on live PG16 + Redis 7).
+**Next free ECR:** **0053** (the log ends at ECR-0052; re-read it before assigning).
+**Archive verified:** `archive/EA-0034/EA-0034_Master.md` is IS-034, Machine Identity &
+Non-Human Identity Governance. Its continuation to IS-035 was checked against the actual
+`archive/EA-0035/EA-0035_Master.md`, whose title is Secrets, Keys & Certificate Lifecycle
+Governance — a likely EA-0032 restatement to inspect at that later turn.
+
+### ECR-0015 result — do not build a second identity module
+
+The master's exact PascalCase event/type names have no literal shipped collision, but the
+capabilities and semantic events do. This is the IS-026 result distributed across several existing
+owners rather than concentrated in one package.
+
+```
+17 declared master events: 0 exact matches in src/aqelyn
+machine_identity 0 · non_human 0 · workload_identity 0 · service_account 0
+
+Master machine/NHI categories       -> EA-0033 IdentityKind already includes
+                                       service|machine|application|federated|temporary
+discovery + normalization + score   -> aqelyn.ispm.identity_normalized / posture_scored
+governance drift                    -> aqelyn.ispm.posture_drift_detected
+credential/certificate lifecycle    -> aqelyn.crypto.* + EA-0032 stores and assessment
+orphan/dormant/privilege/certify    -> aqelyn.iag.* + EA-0011 analysis/certification
+asset ownership + lifecycle         -> aqelyn.inventory.* + EA-0025 Ownership/lifecycle
+recommendation/workflow             -> aqelyn.decision.* / aqelyn.workflow.*
+```
+
+**Decision for the spec pass:** machine identity is a scope over EA-0033's identity capability, not
+a new capability owner. Do not create `src/aqelyn/machine_identity/`, a second identity repository,
+a second posture score, or a `machine_identity_engine` service. Propose ECR-0053 as an IS-034
+conformance decision and realize only the genuine gaps as small enhancements to their existing
+owners. If a task bundle says a new package or service is required, the reconciliation has gone
+wrong.
+
+### Capability ownership — verified against shipped code
+
+| Archive capability | Shipped owner / exact seam |
+|---|---|
+| handed-in discovery + normalization | EA-0033 `ISPMEngine.ingest_identities(descriptors, *, tenant_id)` |
+| canonical identity/account objects | EA-0033 writes EA-0002 `AQObject`s and `has_account` relationships |
+| service/machine/application identity kinds | EA-0033 `IdentityKind` — already in the persisted model |
+| identity posture and coverage | EA-0033 `score_identity`, `assess`; exact scores pinned in `ISPMAssessment.score_ids` |
+| governance drift | EA-0033 `detect_drift` using the EA-0012 comparator shape |
+| access paths, orphan/dormant/privilege/SoD | EA-0011 `access_paths`, `analyze_risk` |
+| access certification | EA-0011 `open_certification` / `decide_item` / `complete_certification` |
+| ownership and asset lifecycle | EA-0025 `InventoryIntelligenceEngine.ingest`, `ownership`, `mark_unreported`, `decommission` |
+| secrets, keys, certificates, rotation/expiry | EA-0032 `ingest_crypto_assets`, `assess_key`, `assess_certificate`, `propose_rotation` |
+| relationship storage / traversal | EA-0002 `ObjectStore.relate`; EA-0005 graph paths/subgraphs |
+| trust | EA-0006 `TrustEngine.assess` |
+| policy | EA-0009 `PolicyEngine`; do not add a machine-identity rule language |
+| findings | EA-0011 `risks_to_findings` / EA-0013 finding path; no new `SignalKind` |
+| recommendation | EA-0020 replayable advisory `Recommendation`; no prose-only recommendation engine |
+| remediation | EA-0008 `WorkflowEngine.propose(..., source_finding=finding)` |
+| reporting | EA-0022 figures/briefings; no machine-identity report engine |
+
+### The genuine remainder — enhancements, not a module
+
+1. **Ownership handoff is not connected.** EA-0025 already owns `Ownership` and reconciles it by
+   source reliability, but EA-0033's `IdentityDescriptor` has no owner claim and
+   `ispm.normalize.inventory_report()` omits `owner`. Add an evidence-backed ownership input and
+   prove a real ISPM ingest produces the same owner through `InventoryIntelligenceEngine.ownership`.
+   Do not create an NHI ownership store.
+2. **Identity-to-credential/workload bindings are not represented.** EA-0033 currently accepts only
+   `has_role|grants_entitlement|member_of` access edges (plus its required `has_account` edge).
+   EA-0032 stores secret/key/certificate objects, but no shipped seam binds them to the non-human
+   identity that uses them. Add a narrow, typed, evidence-backed relationship input to EA-0033 and
+   persist it with EA-0002 `relate`; use EA-0005 for traversal. Never copy credential metadata or
+   secret values into ISPM.
+3. **Provider lifecycle detail is collapsed.** EA-0033 normalizes lifecycle to
+   `present|absent|unknown`; values such as requested, provisioned, rotating, suspended, and revoked
+   are not retained as an append-only identity lifecycle history. First map states that genuinely
+   belong to EA-0025's asset lifecycle. If identity-only states remain, add the narrow history to
+   EA-0033 under change control — not a second lifecycle engine — and keep source silence distinct
+   from suspension/revocation.
+4. **Missing archive events belong to their owners.** A needed credential-rotation event is an
+   additive `aqelyn.crypto.*` event; an identity lifecycle event is an additive `aqelyn.ispm.*`
+   event only if EA-0025's `aqelyn.inventory.lifecycle_changed` cannot express it. Do not re-emit
+   existing ISPM, IAG, inventory, crypto, decision, or workflow events under a new NHI namespace.
+
+A small conformance bundle is the expected shape: shipped-code conformance first, then only the
+owner-handoff/relationship/lifecycle gaps that survive that proof. No service/factory ticket should
+exist unless an existing owner's service needs an additive method or event.
+
+### Boundaries the spec must make structural
+
+- **Handed-in descriptors only.** The master repeatedly asks for connector orchestration and
+  continuous discovery. IS-034 opens no provider/Kubernetes/vault connection, holds no credential,
+  and schedules nothing. Connectors remain future EA-0008-gated actions; scheduling remains a
+  platform capability.
+- **No credential values.** Reuse EA-0032's value-free descriptors/records. A machine-identity link
+  carries ids, fingerprints where already permitted, evidence, and provenance — never a key, token,
+  password, certificate private material, or provider payload.
+- **Absence is not revocation or safety.** A source going quiet maps through EA-0025's `unreported`
+  rule; it never suspends, revokes, archives, or deletes an identity. Missing ownership, lifecycle,
+  or credential binding is `unknown`/flagged and cannot improve posture.
+- **One score owner.** Any machine-identity posture result extends EA-0033's replayable score and
+  pinned owner inputs. It must not introduce `MachineIdentityRiskScore`, `GovernanceScore`, or a
+  second scorer merely because the subject is non-human.
+- **No action.** Suspend, revoke, rotate, renew, or alter privileges only through an EA-0008
+  proposal bound to its source finding. Preserve the owning finding's automation contract and prove
+  the real workflow boundary per rule 16.
+- **No synthetic trust.** Confidence comes from EA-0006; EA-0004 integrity does not prove provider,
+  workload, certificate, or event authenticity.
+- **No silent cap.** Every inventory-backed assessment inherits unresolved ECR-0034. It must expose
+  incomplete coverage and must not claim the first 10,000 assets are the whole NHI estate.
+
+### Acceptance proofs to require
+
+- **Conformance, not grep alone:** construct each supported non-human `IdentityKind`, ingest it
+  through the real EA-0033 engine, and show the real EA-0011 analysis can act on its account graph.
+- **Ownership round trip:** handed-in owner evidence -> EA-0033 ingest -> real EA-0025
+  `ownership(...)`, including conflicting-source reliability and unresolved ties.
+- **Credential binding round trip:** real EA-0032 crypto object -> evidence-backed EA-0002 relation
+  from the normalized machine identity -> EA-0005 traversal; missing/tampered evidence writes
+  neither the edge nor a favourable assessment.
+- **Lifecycle contrast:** explicit revoked/suspended evidence, healthy active evidence, and source
+  silence produce three distinguishable results; silence must become unreported/unknown, never
+  revoked or clean.
+- **No duplicate computation/events:** owner spies prove delegation, then real-owner tests prove the
+  handoffs are actionable. Event registration must contain only genuinely new owner events.
+- **No values under normal Python and `python -O`; no network attempts; both backends and both tenant
+  modes.**
+
+### Existing follow-ups to preserve, not absorb
+
+- **ECR-0032 (Proposed):** the shared posture-normalization-base revisit threshold was met before
+  EA-0033. IS-034 must not become a fifth implementation while that decision remains open.
+- **ECR-0034 (Proposed):** inventory's 10,000-row cap can report a partial denominator as complete.
+- **EA-0018:** `response/metrics.py` has an unclamped negative-duration timestamp flake.
+- **EA-0027 + EA-0018:** enterprise-mode health probes remain unscoped in `idthreat_engine` and
+  `response_engine`.
+- **EA-0013:** equal-timestamp finding ordering still needs a deterministic tie-breaker.
+
+### Pasteable spec-author brief
+
+> Treat IS-034 as conformance plus targeted enhancement, not EA-0034 as a new runtime module.
+> Machine/non-human identity is already an EA-0033 `IdentityKind` scope; governance is EA-0011,
+> ownership/lifecycle EA-0025, credentials/certificates EA-0032, trust EA-0006, policy EA-0009,
+> recommendations EA-0020, and actions EA-0008. Propose ECR-0053 to forbid a second identity store,
+> score, service, or event namespace. Verify conformance against shipped code first. The honest
+> remainders are: carry evidence-backed ownership from EA-0033 into EA-0025; add narrow
+> evidence-backed identity-to-crypto/workload relationships through EA-0002/0005; and preserve any
+> genuinely identity-specific lifecycle states without conflating source silence with revocation.
+> Every handoff needs a real-owner round trip, not only a spy. Handed-in descriptors only, no secret
+> values, no direct action, no favourable unknown, no duplicate events, and no claim of exhaustive
+> inventory while ECR-0034 remains open.
+
+---
+
+## Prior handover — IS-033 / EA-0033 (Identity Security Posture Management)
 
 **Repository state:** `main @97efba5`, green (ruff, format, mypy --strict over 300 files,
 1193 passed / 3 skipped on live PG16 + Redis 7).
