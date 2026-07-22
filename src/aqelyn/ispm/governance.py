@@ -59,6 +59,7 @@ class IdentityGovernanceOwner(Protocol):
         *,
         by: ActorRef,
         prioritize: bool = True,
+        tenant_id: str | None = None,
     ) -> list[str]: ...
 
 
@@ -138,5 +139,13 @@ async def risks_to_findings(
     *,
     by: ActorRef,
     prioritize: bool = True,
+    tenant_id: str | None = None,
 ) -> list[str]:
-    return await owner.risks_to_findings(report, by=by, prioritize=prioritize)
+    if tenant_id is None:
+        return await owner.risks_to_findings(report, by=by, prioritize=prioritize)
+    return await owner.risks_to_findings(
+        report,
+        by=by,
+        prioritize=prioritize,
+        tenant_id=tenant_id,
+    )

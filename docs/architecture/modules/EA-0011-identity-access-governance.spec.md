@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), EA-0002 (identities/accounts/roles/entitlements as objects + relationships), EA-0005 (entitlement-path graph analysis), EA-0009 (SoD / access policy rules), EA-0004 (review & certification evidence), the Finding model; EA-0008 (remediation is proposed, gated, never direct)
 **Consumed by:** access-review & certification UI (reviewer inboxes, campaigns — a WCAG 2.2 AA surface), the Finding pipeline (access risks become findings), EA-0010 governance reporting, auditors (certification evidence packages)
 **Status:** Accepted
-**Change control:** ECR-0030 (identity/risk enumeration follows object pages to exhaustion)
+**Change control:** ECR-0030 (identity/risk enumeration follows object pages to exhaustion), ECR-0052 (optional tenant-scoped risk findings)
 **Build milestone:** C-008 (see `C-008_Task_Bundle.md`)
 **Definition of Ready:** see §11
 
@@ -125,7 +125,8 @@ class IdentityAccessGovernanceEngine(Protocol):
     async def complete_certification(self, cert_id: str, *, by: ActorRef,
                                      raise_findings: bool = True) -> list[str]: ...  # revokes -> findings/runs (D5)
     async def risks_to_findings(self, report: AccessRiskReport, *, by: ActorRef,
-                                prioritize: bool = True) -> list[str]: ...
+                                prioritize: bool = True,
+                                tenant_id: str | None = None) -> list[str]: ...
     def explain(self, risk: AccessRisk) -> dict: ...
 ```
 
@@ -168,7 +169,7 @@ revoke.
 - **FR-5** `open_certification` SHALL create a persisted `Certification` with one `ReviewItem` per in-scope access, each carrying a risk-derived `recommendation`.
 - **FR-6** `decide_item` SHALL enforce optimistic `version`, record decider/decision/time, and write an `EvidenceRecord` per decision (D4).
 - **FR-7** `complete_certification` SHALL, for each `revoked` item, raise a finding and a **proposed** Workflow remediation run; it SHALL NOT grant or revoke access directly (§0/D5).
-- **FR-8** `risks_to_findings` SHALL raise a finding per risk (severity from the risk), optionally Mission-prioritized, with the access path as evidence.
+- **FR-8** `risks_to_findings` SHALL raise a finding per risk (severity from the risk), optionally Mission-prioritized, with the access path as evidence and the supplied optional tenant scope preserved on both evidence and finding (ECR-0052).
 - **FR-9** All operations SHALL be tenant-scoped; no cross-tenant identity/account/entitlement appears (D6).
 - **FR-10** Reports/campaigns SHALL exhaust object-store pages, inherit KG bounds, and propagate KG `truncated`; object pagination SHALL NOT silently cap the estate (ECR-0030).
 - **FR-11** Invalid config (`dormant_days ≤ 0`, unknown `privileged_roles`, `review_default_due_days ≤ 0`) SHALL raise `IAGConfigInvalid`.

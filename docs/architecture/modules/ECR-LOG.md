@@ -53,9 +53,10 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0046 | EA-0032 | Accepted | Bind descriptor evidence and certificate-authenticity results to the exact crypto fingerprint and basis evidence before any known lifecycle state can be recorded. |
 | ECR-0047 | EA-0032 | Accepted | Keep single-asset missing-evidence refusal, but make batch assessment continue with that asset explicitly unknown and counted instead of denying all tenant posture. |
 | ECR-0048 | EA-0023 + EA-0032 | Accepted | Add an atomic persisted analyze-and-score owner path plus tenant-scoped exposure read so crypto findings cite the real replayable EA-0023 record without a second scorer. |
-| ECR-0049 | EA-0023 + EA-0033 | Proposed | Add semantic `identity_sensitivity` exposure impact while preserving the existing `data_sensitivity` default; land it with C-030 G5's first identity context. |
+| ECR-0049 | EA-0023 + EA-0033 | Accepted | Add semantic `identity_sensitivity` exposure impact while preserving the existing `data_sensitivity` default; land it with C-030 G5's first identity context. |
 | ECR-0050 | EA-0033 + EA-0027 | Accepted | Reuse EA-0027's existing platform `IdentityNotFound` error in ISPM instead of registering a duplicate code owner; EA-0033 contributes only its three net-new errors. |
 | ECR-0051 | EA-0033 | Accepted | Make unknown identity classification visibly fail-safe in every representation: `NormalizedIdentity.identity_kind="unknown"` requires `flagged=true`, rather than relying on an EA-0002 label that disappears from normalized-store reads. |
+| ECR-0052 | EA-0033 + EA-0011 | Accepted | Make assessment-to-finding routing durable and tenant-correct: assessments pin exact posture-score ids, both stores persist them append-only, and EA-0011's finding path accepts an optional tenant scope while preserving local callers. |
 
 ---
 
@@ -2258,8 +2259,7 @@ and the finding path uses no new `SignalKind` or crypto-local scorer.
 
 **Raised by:** EA-0033 pre-implementation verification against the shipped
 EA-0023 exposure-impact contract and spec-author rule 15.
-**Status:** Proposed - implementation belongs to C-030 G5, not an earlier
-types ticket.
+**Status:** Accepted - implemented in C-030 G5, not an earlier types ticket.
 **Severity:** blocking within G5 - the Accepted identity exposure handoff cannot
 name its semantic input using the currently shipped impact kinds.
 
@@ -2333,3 +2333,37 @@ write and read.
 column or check constraint for the flag, so no DDL migration is required. Known
 G1 records retain the false default. G2 acceptance constructs the forbidden state
 and verifies unknown classification stays flagged on both backends.
+
+---
+
+## ECR-0052 - persist the exact assessment-to-finding handoff
+
+**Raised by:** Codex during C-030 G5 construction against the Accepted ISPM
+assessment and EA-0011 finding interfaces.
+**Status:** Accepted - required before the first durable assessment-to-finding
+route.
+**Severity:** blocking within G5 - the Accepted handoff could not preserve
+historical identity or enterprise tenant scope.
+
+**Problem.** `posture_to_findings(assessment_id)` must route the exact owner
+risks pinned into the replayable posture scores produced by that assessment.
+The Accepted `ISPMAssessment` carried only counts, so a later call could not
+identify those scores without recomputing against current state. The Accepted
+`ISPMStore` also omitted assessment persistence entirely. Separately, shipped
+EA-0011 `risks_to_findings` hardcoded `tenant_id=None` on both its evidence and
+finding rows, so an enterprise-scoped ISPM assessment could not use the real
+owner path.
+
+**Resolution.** `ISPMAssessment` additively carries unique typed `score_ids`,
+with `scored == len(score_ids)` enforced structurally. Both stores persist and
+read assessments append-only under explicit tenant scope. ISPM loads those exact
+scores and routes their pinned `AccessRisk` records. EA-0011
+`risks_to_findings` additively accepts `tenant_id: str | None = None` and applies
+it to the owner evidence and finding; existing callers that omit it retain local
+behavior. ISPM's public finding operation requires explicit tenant scope.
+
+**Impact.** One new append-only JSONB assessment table, plus additive optional
+parameters and a JSONB model field. No existing posture-score, IAG finding, or
+local call shape changes. C-030's final owner-approved five-ticket plan combines
+the former bundle G5/G6 sequencing into one G5 because the exposure context,
+durable assessment, finding binding, and service wiring ship atomically.

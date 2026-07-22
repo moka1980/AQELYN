@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS aq_ispm_drift_snapshot (
 CREATE INDEX IF NOT EXISTS ix_ispm_drift_snapshot_tenant_baseline_id
     ON aq_ispm_drift_snapshot (tenant_id, baseline_id, id);
 
+CREATE TABLE IF NOT EXISTS aq_ispm_assessment (
+    id           text PRIMARY KEY,
+    tenant_id    text NULL,
+    status       text NOT NULL CHECK (status IN ('computed','truncated','pending')),
+    record       jsonb NOT NULL CHECK (jsonb_typeof(record) = 'object'),
+    recorded_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_ispm_assessment_tenant_status_id
+    ON aq_ispm_assessment (tenant_id, status, id);
+
 CREATE OR REPLACE FUNCTION aq_ispm_reject_mutation() RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION 'ISPM records are append-only';
@@ -96,5 +106,10 @@ FOR EACH ROW EXECUTE FUNCTION aq_ispm_reject_mutation();
 DROP TRIGGER IF EXISTS trg_ispm_drift_snapshot_immutable ON aq_ispm_drift_snapshot;
 CREATE TRIGGER trg_ispm_drift_snapshot_immutable
 BEFORE UPDATE OR DELETE ON aq_ispm_drift_snapshot
+FOR EACH ROW EXECUTE FUNCTION aq_ispm_reject_mutation();
+
+DROP TRIGGER IF EXISTS trg_ispm_assessment_immutable ON aq_ispm_assessment;
+CREATE TRIGGER trg_ispm_assessment_immutable
+BEFORE UPDATE OR DELETE ON aq_ispm_assessment
 FOR EACH ROW EXECUTE FUNCTION aq_ispm_reject_mutation();
 """

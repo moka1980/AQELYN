@@ -88,7 +88,7 @@ EA-0033 → `src/aqelyn/ispm/` + `tests/ispm/`.
 | [EA-0030 Software Supply Chain & SBOM](EA-0030-software-supply-chain-sbom.spec.md) | EA-0030 | EA-0005, EA-0024, EA-0025, EA-0004, EA-0010, EA-0013 | [C-027](C-027_Task_Bundle.md) | Accepted |
 | [EA-0031 Data Security Posture Management](EA-0031-data-security-posture.spec.md) | EA-0031 | EA-0019, EA-0025, EA-0023, EA-0011, EA-0010, EA-0013, EA-0006, EA-0004, EA-0008 | [C-028](C-028_Task_Bundle.md) | Accepted (ECR-0041, ECR-0042; ECR-0032 Proposed) |
 | [EA-0032 Secrets Security & Cryptographic Asset Intelligence](EA-0032-secrets-cryptographic-asset.spec.md) | EA-0032 | EA-0025, EA-0023, EA-0010, EA-0013, EA-0019, EA-0006, EA-0004, EA-0008 | [C-029](C-029_Task_Bundle.md) | Accepted (ECR-0043 through ECR-0048) |
-| [EA-0033 Identity Security Posture Management](EA-0033-identity-security-posture.spec.md) | EA-0033 | **EA-0011**, EA-0013, EA-0007, EA-0006, EA-0020, EA-0012, EA-0025, EA-0023 | [C-030](C-030_Task_Bundle.md) | Accepted (ECR-0049 Proposed) |
+| [EA-0033 Identity Security Posture Management](EA-0033-identity-security-posture.spec.md) | EA-0033 | **EA-0011**, EA-0013, EA-0007, EA-0006, EA-0020, EA-0012, EA-0025, EA-0023 | [C-030](C-030_Task_Bundle.md) | Accepted (ECR-0049–0052) |
 
 Spec authoring: [SPEC_AUTHOR_NOTES.md](SPEC_AUTHOR_NOTES.md) carries the reviewer's standing
 rules and the current per-module handover for whoever drafts the next spec.

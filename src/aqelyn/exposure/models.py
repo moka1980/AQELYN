@@ -23,7 +23,7 @@ AssetKind = Literal["asset", "cloud", "api", "identity", "domain", "cert"]
 ExposureBasisKind = Literal["inventory", "telemetry", "access", "graph"]
 ExposureStatus = Literal["open", "revalidated", "closed"]
 ExposureLevel = Literal["high", "medium", "low", "unknown"]
-ExposureImpactKind = Literal["data_sensitivity", "credential_sensitivity"]
+ExposureImpactKind = Literal["data_sensitivity", "credential_sensitivity", "identity_sensitivity"]
 ExposureImpactStatus = Literal["known", "unknown"]
 
 VALID_REACHABILITY: Final[frozenset[str]] = frozenset(("external", "internal", "unknown"))

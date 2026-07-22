@@ -1,6 +1,12 @@
 """Identity Security Posture Management public types (EA-0033 G1)."""
 
 from aqelyn.ispm.engine import ISPMEngine
+from aqelyn.ispm.exposure import (
+    IdentityExposureOwner,
+    IdentityKnownSurfaceSource,
+    identity_asset_ref,
+    identity_impact_context,
+)
 from aqelyn.ispm.governance import IdentityGovernanceOwner
 from aqelyn.ispm.memory import InMemoryISPMStore
 from aqelyn.ispm.models import (
@@ -32,6 +38,7 @@ from aqelyn.ispm.models import (
     PostureFactor,
 )
 from aqelyn.ispm.postgres import PostgresISPMStore
+from aqelyn.ispm.service import ISPMService, register_ispm_events
 from aqelyn.ispm.store import ISPMStore
 
 __all__ = [
@@ -49,6 +56,7 @@ __all__ = [
     "ISPMAssessment",
     "ISPMConfig",
     "ISPMEngine",
+    "ISPMService",
     "ISPMStore",
     "IdentityAccessEdgeDescriptor",
     "IdentityAccountDescriptor",
@@ -58,12 +66,17 @@ __all__ = [
     "IdentityDescriptor",
     "IdentityDriftItem",
     "IdentityDriftSnapshot",
+    "IdentityExposureOwner",
     "IdentityGovernanceOwner",
     "IdentityKind",
+    "IdentityKnownSurfaceSource",
     "IdentityPostureScore",
     "InMemoryISPMStore",
     "NormalizedIdentity",
     "NormalizedIdentityKind",
     "PostgresISPMStore",
     "PostureFactor",
+    "identity_asset_ref",
+    "identity_impact_context",
+    "register_ispm_events",
 ]

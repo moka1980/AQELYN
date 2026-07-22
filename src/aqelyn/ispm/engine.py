@@ -7,9 +7,11 @@ from datetime import datetime
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, utc_now
 from aqelyn.conventions.errors import (
+    AQError,
     CrossTenantReference,
     EvidenceNotFound,
     EvidenceTampered,
+    FindingNotFound,
     IdentityBaselineNotFound,
     IdentityNotFound,
     ISPMConfigInvalid,
@@ -18,9 +20,17 @@ from aqelyn.conventions.errors import (
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceStore
 from aqelyn.evidence.models import EvidenceRecord
+from aqelyn.exposure import ExposureRecord
+from aqelyn.findings import Finding, FindingStore
 from aqelyn.iag import AccessPath, AccessRiskReport, Certification
 from aqelyn.inventory import DiscoverySource
 from aqelyn.ispm.drift import drift_snapshot, identity_drift_items, validate_drift_scope
+from aqelyn.ispm.exposure import (
+    IdentityExposureOwner,
+    identity_asset_ref,
+    identity_impact_context,
+    validate_identity_exposure,
+)
 from aqelyn.ispm.governance import (
     IdentityGovernanceOwner,
     complete_certification,
@@ -35,6 +45,7 @@ from aqelyn.ispm.models import (
     IdentityDriftItem,
     IdentityDriftSnapshot,
     IdentityPostureScore,
+    ISPMAssessment,
     ISPMConfig,
     NormalizedIdentity,
 )
@@ -54,10 +65,11 @@ from aqelyn.ispm.normalize import (
     relationship,
     validate_edge_target,
 )
-from aqelyn.ispm.scoring import IdentityMissionOwner, compose_posture
+from aqelyn.ispm.scoring import IdentityMissionOwner, compose_posture, validate_replayable_score
 from aqelyn.ispm.store import ISPMStore
 from aqelyn.objects import AQObject, AQRelationship, NaturalKey, ObjectQuery
 from aqelyn.risk import RiskConfig
+from aqelyn.workflow import Playbook, Step, WorkflowEngine
 
 _ISPM_ACTOR = ActorRef(actor_type="system", actor_id="ispm_engine")
 
@@ -73,6 +85,9 @@ class ISPMEngine:
         trust: TrustAssessor,
         governance_owner: IdentityGovernanceOwner | None = None,
         mission_owner: IdentityMissionOwner | None = None,
+        exposure_owner: IdentityExposureOwner | None = None,
+        finding_store: FindingStore | None = None,
+        workflow_engine: WorkflowEngine | None = None,
         risk_config: RiskConfig | None = None,
         config: ISPMConfig | None = None,
         actor: ActorRef | None = None,
@@ -85,6 +100,9 @@ class ISPMEngine:
         self.trust = trust
         self.governance_owner = governance_owner
         self.mission_owner = mission_owner
+        self.exposure_owner = exposure_owner
+        self.finding_store = finding_store
+        self.workflow_engine = workflow_engine
         self.risk_config = risk_config or RiskConfig()
         self.config = config or ISPMConfig()
         self.actor = actor or _ISPM_ACTOR
@@ -184,12 +202,14 @@ class ISPMEngine:
         *,
         by: ActorRef,
         prioritize: bool = True,
+        tenant_id: str | None = None,
     ) -> list[str]:
         return await risks_to_findings(
             self._governance_owner(),
             report,
             by=by,
             prioritize=prioritize,
+            tenant_id=require_tenant_id(tenant_id),
         )
 
     def _governance_owner(self) -> IdentityGovernanceOwner:
@@ -287,6 +307,21 @@ class ISPMEngine:
         )
         return await self.store.put_score(score)
 
+    def explain(self, score: IdentityPostureScore) -> dict[str, object]:
+        stored = validate_replayable_score(score)
+        return {
+            "score_id": stored.id,
+            "subject_ref": stored.subject_ref,
+            "score": stored.score,
+            "statement": stored.statement,
+            "confidence": stored.confidence,
+            "factors": [factor.model_dump(mode="json") for factor in stored.factors],
+            "iag_risks": [risk.model_dump(mode="json") for risk in stored.iag_risks],
+            "inputs": [item.model_dump(mode="json") for item in stored.derivation.inputs],
+            "steps": [step.model_dump(mode="json") for step in stored.derivation.steps],
+            "result": stored.derivation.result,
+        }
+
     async def detect_drift(
         self,
         *,
@@ -376,6 +411,247 @@ class ISPMEngine:
             evidence_id=evidence.id,
         )
         return await self.store.put_drift(snapshot)
+
+    async def analyze_identity_exposure(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> ExposureRecord:
+        selected_tenant = require_tenant_id(tenant_id)
+        score = await self.store.get_score(score_id, tenant_id=selected_tenant)
+        if score is None:
+            raise IdentityNotFound(score_id)
+        owner = self.exposure_owner
+        if owner is None:
+            raise StoreUnavailable("EA-0023 identity exposure owner is unavailable")
+        context = identity_impact_context(score)
+        exposure = await owner.analyze_scored_exposure(
+            asset_ref=identity_asset_ref(score),
+            impact_context=context,
+            tenant_id=selected_tenant,
+        )
+        return validate_identity_exposure(exposure, score=score, context=context)
+
+    async def assess(
+        self,
+        *,
+        tenant_id: str | None,
+        scope: dict[str, object] | None = None,
+    ) -> ISPMAssessment:
+        selected_tenant = require_tenant_id(tenant_id)
+        selected_scope = _assessment_scope(scope)
+        selected_provider = selected_scope.get("provider")
+        if selected_provider is not None and not isinstance(selected_provider, str):
+            raise ISPMConfigInvalid("assessment provider must be a string")
+        run_at = utc_now()
+        inventory_note = await self._inventory_note(tenant_id=selected_tenant)
+        score_ids: list[str] = []
+        subject_ids: set[str] = set()
+        identities_evaluated = 0
+        unknown_controls = 0
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        status = "computed"
+        incomplete_reason: str | None = None
+
+        try:
+            while identities_evaluated < self.config.page_budget:
+                remaining = self.config.page_budget - identities_evaluated
+                rows, next_cursor = await self.store.query_identities(
+                    tenant_id=selected_tenant,
+                    provider=selected_provider,
+                    cursor=cursor,
+                    limit=min(100, remaining),
+                )
+                stopped_inside_identity = False
+                for identity in rows:
+                    if not identity.account_object_ids:
+                        identities_evaluated += 1
+                        unknown_controls += 3
+                        continue
+                    for account_id in identity.account_object_ids:
+                        if identities_evaluated >= self.config.page_budget:
+                            stopped_inside_identity = True
+                            break
+                        score = await self.score_identity(
+                            account_id,
+                            tenant_id=selected_tenant,
+                        )
+                        score_ids.append(score.id)
+                        subject_ids.add(score.subject_ref)
+                        unknown_controls += sum(
+                            factor.status == "unknown"
+                            for factor in score.factors
+                            if factor.name != "iag_risk"
+                        )
+                        identities_evaluated += 1
+                    if stopped_inside_identity:
+                        break
+                if stopped_inside_identity:
+                    status = "truncated"
+                    incomplete_reason = "page_budget exhausted within a normalized identity"
+                    break
+                if next_cursor is None:
+                    break
+                if next_cursor == cursor or next_cursor in seen_cursors:
+                    raise StoreUnavailable("ISPMStore returned a repeated pagination cursor")
+                if identities_evaluated >= self.config.page_budget:
+                    status = "truncated"
+                    incomplete_reason = "page_budget exhausted before cursor completion"
+                    break
+                seen_cursors.add(next_cursor)
+                cursor = next_cursor
+        except AQError as exc:
+            if not exc.retriable:
+                raise
+            status = "pending" if identities_evaluated == 0 else "truncated"
+            incomplete_reason = exc.message
+
+        if status == "pending":
+            return await self.store.put_assessment(
+                ISPMAssessment(
+                    tenant_id=selected_tenant,
+                    run_at=run_at,
+                    scope=selected_scope,
+                    status="pending",
+                    inventory_complete=False,
+                    inventory_note=f"{inventory_note} Assessment pending: {incomplete_reason}.",
+                )
+            )
+
+        drift_snapshot_id: str | None = None
+        if self.config.baseline_ids:
+            snapshot = await self.detect_drift(
+                baseline_id=self.config.baseline_ids[0],
+                tenant_id=selected_tenant,
+                scope=selected_scope,
+            )
+            drift_snapshot_id = snapshot.id
+        assessment_id = new_id("ipa")
+        evidence = await self.evidence_store.add(
+            EvidenceRecord(
+                id="",
+                tenant_id=selected_tenant,
+                evidence_type="ispm.assessment",
+                schema_version=1,
+                subject=Subject(object_ids=sorted(subject_ids)),
+                collected_at=run_at,
+                recorded_at=run_at,
+                collector=self.actor,
+                source_id=self.source_id,
+                method="ispm.assessment/v1",
+                content={
+                    "assessment_id": assessment_id,
+                    "status": status,
+                    "identities_evaluated": identities_evaluated,
+                    "score_ids": score_ids,
+                    "unknown_controls": unknown_controls,
+                    "drift_snapshot_id": drift_snapshot_id,
+                    "inventory_complete": False,
+                    "inventory_note": inventory_note,
+                    "incomplete_reason": incomplete_reason,
+                    "metadata_only": True,
+                },
+                content_hash="",
+                confidence=1.0,
+                seq=0,
+                prev_hash=None,
+                record_hash="",
+            )
+        )
+        assessment = ISPMAssessment(
+            id=assessment_id,
+            tenant_id=selected_tenant,
+            run_at=run_at,
+            scope=selected_scope,
+            identities_evaluated=identities_evaluated,
+            scored=len(score_ids),
+            score_ids=score_ids,
+            unknown_controls=unknown_controls,
+            drift_snapshot_id=drift_snapshot_id,
+            status=status,
+            inventory_complete=False,
+            inventory_note=(
+                inventory_note
+                if incomplete_reason is None
+                else f"{inventory_note} Assessment truncated: {incomplete_reason}."
+            ),
+            evidence_id=evidence.id,
+        )
+        return await self.store.put_assessment(assessment)
+
+    async def posture_to_findings(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+        by: ActorRef,
+        propose_remediation: bool = True,
+    ) -> list[str]:
+        selected_tenant = require_tenant_id(tenant_id)
+        assessment = await self.store.get_assessment(
+            assessment_id,
+            tenant_id=selected_tenant,
+        )
+        if assessment is None:
+            raise ISPMConfigInvalid(f"assessment not found: {assessment_id}")
+        if assessment.status != "computed":
+            raise ISPMConfigInvalid("findings require a computed, non-truncated assessment")
+        risks = []
+        seen_risks: set[str] = set()
+        for score_id in assessment.score_ids:
+            score = await self.store.get_score(score_id, tenant_id=selected_tenant)
+            if score is None:
+                raise StoreUnavailable(f"assessment score is unavailable: {score_id}")
+            for risk in score.iag_risks:
+                key = risk.model_dump_json()
+                if key not in seen_risks:
+                    risks.append(risk)
+                    seen_risks.add(key)
+        report = AccessRiskReport(
+            risks=risks,
+            evaluated=assessment.identities_evaluated,
+            truncated=False,
+        )
+        finding_ids = await risks_to_findings(
+            self._governance_owner(),
+            report,
+            by=by,
+            prioritize=True,
+            tenant_id=selected_tenant,
+        )
+        if not propose_remediation:
+            return finding_ids
+        if self.finding_store is None:
+            raise StoreUnavailable("ISPM finding read path is unavailable")
+        if self.workflow_engine is None:
+            raise StoreUnavailable("EA-0008 ISPM proposal path is unavailable")
+        for finding_id in finding_ids:
+            finding = await self.finding_store.get(finding_id)
+            if finding is None:
+                raise FindingNotFound(finding_id)
+            if finding.tenant_id != selected_tenant:
+                raise CrossTenantReference("finding tenant does not match ISPM assessment")
+            await self.workflow_engine.propose(
+                _remediation_playbook(finding),
+                by=by,
+                source_finding=finding,
+            )
+        return finding_ids
+
+    async def _inventory_note(self, *, tenant_id: str | None) -> str:
+        try:
+            report = await self.inventory.inventory(tenant_id=tenant_id)
+        except AQError as exc:
+            if exc.retriable:
+                return f"EA-0025 inventory unavailable: {exc.message}"
+            raise
+        return (
+            "EA-0025 reported "
+            f"{report.total} assets, but ECR-0034's 10,000-row cap is unresolved; "
+            "the inventory is not claimed exhaustive."
+        )
 
     async def _identity_for_account(
         self,
@@ -787,3 +1063,49 @@ class ISPMEngine:
                 observed_at=observed_at,
             )
         )
+
+
+def _assessment_scope(scope: dict[str, object] | None) -> dict[str, object]:
+    if scope is None:
+        return {}
+    unknown = set(scope) - {"provider"}
+    if unknown:
+        raise ISPMConfigInvalid(
+            f"unknown ISPM assessment scope fields: {', '.join(sorted(unknown))}"
+        )
+    provider = scope.get("provider")
+    if provider is None:
+        return {}
+    if not isinstance(provider, str) or not provider.strip():
+        raise ISPMConfigInvalid("assessment provider must be a non-empty string")
+    return {"provider": provider}
+
+
+def _remediation_playbook(finding: Finding) -> Playbook:
+    action_ref = finding.automation.action_ref
+    if action_ref is None:
+        raise ISPMConfigInvalid("ISPM finding has no owner remediation action")
+    step_id = f"remediate-{finding.id}"
+    return Playbook(
+        id=f"ispm-remediate-{finding.id}",
+        version=1,
+        name="ISPM access-control remediation proposal",
+        description=(
+            "Proposed EA-0011 remediation for an evidence-backed identity posture finding."
+        ),
+        tenant_id=finding.tenant_id,
+        steps=[
+            Step(
+                id=step_id,
+                action_type=action_ref,
+                inputs={
+                    "proposed_action": "review_identity_access",
+                    "finding_id": finding.id,
+                    "affected_object_ids": list(finding.affected_object_ids),
+                    "evidence_ids": list(finding.evidence_ids),
+                },
+                idempotency_key=f"ispm:{finding.id}:review_identity_access",
+                requires_approval=True,
+            )
+        ],
+    )

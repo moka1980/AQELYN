@@ -11,10 +11,13 @@ from aqelyn.ispm.models import (
     IdentityBaseline,
     IdentityDriftSnapshot,
     IdentityPostureScore,
+    ISPMAssessment,
     NormalizedIdentity,
     NormalizedIdentityKind,
 )
 from aqelyn.ispm.store import (
+    validate_assessment,
+    validate_assessment_id,
     validate_baseline,
     validate_baseline_id,
     validate_cursor,
@@ -41,6 +44,7 @@ class InMemoryISPMStore:
         self._scores: dict[str, IdentityPostureScore] = {}
         self._baselines: dict[str, list[IdentityBaseline]] = {}
         self._drifts: dict[str, IdentityDriftSnapshot] = {}
+        self._assessments: dict[str, ISPMAssessment] = {}
 
     async def upsert_identity(self, identity: NormalizedIdentity) -> NormalizedIdentity:
         stored = validate_identity(identity)
@@ -198,6 +202,30 @@ class InMemoryISPMStore:
         if stored is None or not self._visible(stored.tenant_id, selected_tenant):
             return None
         return validate_drift(stored)
+
+    async def put_assessment(self, assessment: ISPMAssessment) -> ISPMAssessment:
+        stored = validate_assessment(assessment)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        current = self._assessments.get(stored.id)
+        if current is not None:
+            if current.model_dump(mode="json") != stored.model_dump(mode="json"):
+                raise OptimisticConcurrencyConflict("ISPM assessments are append-only")
+            return current.model_copy(deep=True)
+        self._assessments[stored.id] = stored.model_copy(deep=True)
+        return stored.model_copy(deep=True)
+
+    async def get_assessment(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> ISPMAssessment | None:
+        selected_id = validate_assessment_id(assessment_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        stored = self._assessments.get(selected_id)
+        if stored is None or not self._visible(stored.tenant_id, selected_tenant):
+            return None
+        return validate_assessment(stored)
 
     def _visible(self, row_tenant_id: str | None, requested_tenant_id: str | None) -> bool:
         if self.mode == "local":

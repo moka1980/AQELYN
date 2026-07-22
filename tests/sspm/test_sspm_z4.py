@@ -13,6 +13,7 @@ from aqelyn.conventions import new_id
 from aqelyn.dspm import DataStoreKnownSurfaceSource
 from aqelyn.events import EventTypeRegistry
 from aqelyn.inventory import DiscoverySource, InventoryKnownSurfaceSource
+from aqelyn.ispm import IdentityKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime, create_runtime
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.secrets import CryptoKnownSurfaceSource
@@ -159,7 +160,9 @@ async def test_sspm_surface_source_wired(backend: str) -> None:
                 "TRUNCATE aq_crypto_assessment, aq_crypto_asset_revision, "
                 "aq_crypto_asset_identity RESTART IDENTITY CASCADE"
             )
-    crypto_source = runtime.exposure_engine.source
+    identity_source = runtime.exposure_engine.source
+    assert isinstance(identity_source, IdentityKnownSurfaceSource)
+    crypto_source = identity_source.upstream
     assert isinstance(crypto_source, CryptoKnownSurfaceSource)
     source = crypto_source.upstream
     assert isinstance(source, SaaSIntegrationKnownSurfaceSource)

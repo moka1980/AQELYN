@@ -146,9 +146,9 @@ a local "risk id" or replace the owner record with a locally re-derived summary.
 `test_ispm_unknown_not_favourable`, `test_ispm_score_replay`,
 `test_ispm_score_composed`, `test_ispm_no_person_score`, `test_ispm_drift_shape`.
 
-## G5 — Exposure seam **+ the ECR-0049 widening (same ticket — rule 15)**
+## G5 — Exposure, findings, service & wiring **(final ticket)**
 
-**Spec:** §6, FR-13/14, D6, §13.
+**Spec:** §6, FR-11/12/13/14/17/21, D6, §10, §12a, §13.
 **Deliverables:** a `KnownSurfaceSource` yielding `KnownSurfaceRecord`s for
 identities, reusing the existing **`AssetRef.kind="identity"`**; an
 `ExposureImpactContext` carrying identity sensitivity.
@@ -157,13 +157,8 @@ THIS ticket** — additive, `data_sensitivity` default preserved, replay-pinned.
 **Rule 15 is the reason:** the context type's only valid construction depends on
 this widening, so defining it earlier would leave an interim where it could only
 be built with a forbidden kind (the C-029 W1 failure, exactly).
-**Depends on:** G4.
-**Acceptance:** `test_ispm_exposure_seam`, `test_ispm_identity_sensitivity_kind`.
-
-## G6 — Findings, gated proposals, service & events
-
-**Spec:** §6, FR-12/17/21, §10, §12a.
-**Deliverables:** `posture_to_findings` (evidence-backed, via EA-0011/EA-0013) and
+Also deliver `posture_to_findings` over the assessment's exact persisted
+`score_ids` (ECR-0052; evidence-backed via tenant-scoped EA-0011/EA-0013) and
 **EA-0008 `propose(playbook, by=, source_finding=finding)`** with
 `requires_approval=True` — **`source_finding` binding mandatory** (rule 7);
 **no identity provider is modified**; `ISPMAssessment` carries `inventory_complete`
@@ -171,8 +166,9 @@ be built with a forbidden kind (the C-029 W1 failure, exactly).
 (`AQService`, name `"ispm_engine"`) with a **tenant-scoped health probe** (add
 `_health_tenant()` — rule 11) + `register_ispm_events` (`aqelyn.ispm.*` only,
 **never `aqelyn.iag.*`**); wired into the kernel factory.
-**Depends on:** G5.
-**Acceptance:** `test_ispm_propose_binds_finding`,
+**Depends on:** G4.
+**Acceptance:** `test_ispm_exposure_seam`,
+`test_ispm_identity_sensitivity_kind`, `test_ispm_propose_binds_finding`,
 `test_ispm_inventory_not_exhaustive`,
 `test_ispm_service_health[local]`, `test_ispm_service_health[enterprise]`.
 

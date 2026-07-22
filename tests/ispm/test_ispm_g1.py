@@ -267,6 +267,7 @@ def test_ispm_assessment_status() -> None:
         status="computed",
         identities_evaluated=2,
         scored=2,
+        score_ids=[new_id("ips"), new_id("ips")],
         unknown_controls=1,
         inventory_complete=True,
         inventory_note="Inventory pagination reached exhaustion.",
@@ -276,6 +277,7 @@ def test_ispm_assessment_status() -> None:
         status="truncated",
         identities_evaluated=1,
         scored=1,
+        score_ids=[new_id("ips")],
         inventory_note="The ISPM page budget was exhausted.",
         evidence_id=new_id("evd"),
     )
@@ -302,6 +304,13 @@ def test_ispm_assessment_status() -> None:
             status="computed",
             identities_evaluated=1,
             unknown_controls=4,
+            evidence_id=new_id("evd"),
+        )
+    with pytest.raises(ISPMConfigInvalid, match="number of score_ids"):
+        _assessment(
+            status="computed",
+            identities_evaluated=1,
+            scored=1,
             evidence_id=new_id("evd"),
         )
 
