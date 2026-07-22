@@ -111,6 +111,15 @@ If a module handles sensitive material, the typed shapes must make raw content u
 (`extra="forbid"`, no `value`/`sample`/`content`/`blob` field), and the acceptance test must attempt
 construction rather than grep for the words.
 
+### 15. Sequence a type with the ticket its dependency lands in
+A type pulled into an earlier ticket than the change it depends on can have an interim where its only
+constructible form violates a rule that arrives later — it will pass its own ticket's tests and fail
+the system. (C-029 W1 shipped `CryptographicExposure` while the `credential_sensitivity` widening it
+needs was scheduled for W4, so on-branch it could *only* be built with the ECR-0044-forbidden
+`data_sensitivity` kind.) At spec/bundle stage, if ticket N defines a type whose valid construction
+depends on a change in ticket N+k, either move the additive dependency forward to N or defer the type
+to N+k. Review a type against the ticket its dependency lands in, never in isolation.
+
 ---
 
 ## Part 2 — Current handover: IS-032 / EA-0032
