@@ -104,6 +104,12 @@ if TYPE_CHECKING:
         InventoryIntelligenceEngine,
         InventoryIntelligenceService,
     )
+    from aqelyn.ispm import (
+        IdentityKnownSurfaceSource,
+        ISPMEngine,
+        ISPMService,
+        ISPMStore,
+    )
     from aqelyn.lake.retention import RetentionEngine
     from aqelyn.lake.service import DataLakeService
     from aqelyn.lake.store import DatasetCatalogStore, TelemetryRecordStore
@@ -237,6 +243,9 @@ class Runtime:
     secrets_store: CryptoStore
     secrets_engine: SecretsIntelligenceEngine
     secrets_engine_service: SecretsIntelligenceService
+    ispm_store: ISPMStore
+    ispm_engine: ISPMEngine
+    ispm_engine_service: ISPMService
 
 
 class _RuntimeService:
@@ -469,6 +478,9 @@ def _register_runtime_services(
     secrets_store: CryptoStore,
     secrets_engine: SecretsIntelligenceEngine,
     secrets_known_surface_source: CryptoKnownSurfaceSource,
+    ispm_store: ISPMStore,
+    ispm_engine: ISPMEngine,
+    ispm_known_surface_source: IdentityKnownSurfaceSource,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
@@ -501,6 +513,7 @@ def _register_runtime_services(
     close_saas_normalization_store: Callable[[], Awaitable[None]] | None = None,
     close_supplychain_store: Callable[[], Awaitable[None]] | None = None,
     close_secrets_store: Callable[[], Awaitable[None]] | None = None,
+    close_ispm_store: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[
     KnowledgeGraphService,
     TrustEngineService,
@@ -529,6 +542,7 @@ def _register_runtime_services(
     SaaSPostureService,
     SupplyChainService,
     SecretsIntelligenceService,
+    ISPMService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.cspm.service import CloudPostureService
@@ -543,6 +557,7 @@ def _register_runtime_services(
     from aqelyn.iag.service import IdentityAccessGovernanceService
     from aqelyn.idthreat.service import IdentityThreatService
     from aqelyn.inventory.service import InventoryIntelligenceService
+    from aqelyn.ispm.service import ISPMService
     from aqelyn.lake.service import DataLakeService
     from aqelyn.response.service import ResponseOrchestrationService
     from aqelyn.risk.service import RiskIntelligenceService
@@ -800,6 +815,25 @@ def _register_runtime_services(
         close_store=close_secrets_store,
     )
     kernel.register(secrets_service)
+    ispm_service = ISPMService(
+        ispm_engine,
+        store=ispm_store,
+        known_surface_source=ispm_known_surface_source,
+        owner_services={
+            "iag_engine": iag_service,
+            "inventory_engine": inventory_service,
+            "exposure_engine": exposure_service,
+            "risk_engine": risk_service,
+            "mission_engine": mission_service,
+            "trust_engine": trust_service,
+            "decision_engine": decision_service,
+            "acg_engine": acg_service,
+            "compliance_engine": compliance_service,
+            "workflow_engine": workflow_service,
+        },
+        close_store=close_ispm_store,
+    )
+    kernel.register(ispm_service)
     return (
         graph_service,
         trust_service,
@@ -828,6 +862,7 @@ def _register_runtime_services(
         saas_service,
         supplychain_service,
         secrets_service,
+        ispm_service,
     )
 
 
@@ -902,6 +937,12 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         InventoryKnownSurfaceSource,
         InventoryVulnerabilityCoverageProvider,
         register_inventory_events,
+    )
+    from aqelyn.ispm import (
+        IdentityKnownSurfaceSource,
+        InMemoryISPMStore,
+        ISPMEngine,
+        register_ispm_events,
     )
     from aqelyn.lake.memory import InMemoryDatasetCatalog, InMemoryTelemetryRecordStore
     from aqelyn.lake.retention import ReferenceCheckers, RetentionEngine
@@ -980,6 +1021,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_saas_events(registry)
     register_supplychain_events(registry)
     register_crypto_events(registry)
+    register_ispm_events(registry)
     bus = InMemoryEventBus(registry=registry)
 
     sink = BusObjectEventSink(bus)
@@ -1202,6 +1244,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         actor=saas_actor,
     )
     secrets_store = InMemoryCryptoStore(mode=cfg.tenant_mode)
+    ispm_store = InMemoryISPMStore(mode=cfg.tenant_mode)
     secrets_known_surface_source = CryptoKnownSurfaceSource(
         SaaSIntegrationKnownSurfaceSource(
             dspm_known_surface_source,
@@ -1209,10 +1252,15 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         ),
         secrets_store,
     )
+    ispm_known_surface_source = IdentityKnownSurfaceSource(
+        secrets_known_surface_source,
+        ispm_store,
+        evidence_store,
+    )
     exposure_store = InMemoryExposureStore(mode=cfg.tenant_mode)
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
-        secrets_known_surface_source,
+        ispm_known_surface_source,
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -1245,6 +1293,18 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         finding_store=finding_store,
         workflow_engine=workflow_engine,
         config=_runtime_crypto_config(cfg),
+    )
+    ispm_engine = ISPMEngine(
+        ispm_store,
+        object_store=object_store,
+        inventory=inventory_engine,
+        evidence_store=evidence_store,
+        trust=trust_engine,
+        governance_owner=iag_engine,
+        mission_owner=mission_engine,
+        exposure_owner=exposure_engine,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
     )
     vuln_store = InMemoryVulnerabilityStore(mode=cfg.tenant_mode)
     vuln_engine = VulnerabilityIntelligenceEngine(
@@ -1325,6 +1385,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         saas_posture_service,
         supplychain_engine_service,
         secrets_engine_service,
+        ispm_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1392,6 +1453,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         secrets_store=secrets_store,
         secrets_engine=secrets_engine,
         secrets_known_surface_source=secrets_known_surface_source,
+        ispm_store=ispm_store,
+        ispm_engine=ispm_engine,
+        ispm_known_surface_source=ispm_known_surface_source,
     )
     return Runtime(
         kernel=kernel,
@@ -1487,6 +1551,9 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         secrets_store=secrets_store,
         secrets_engine=secrets_engine,
         secrets_engine_service=secrets_engine_service,
+        ispm_store=ispm_store,
+        ispm_engine=ispm_engine,
+        ispm_engine_service=ispm_engine_service,
     )
 
 
@@ -1563,6 +1630,12 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         InventoryVulnerabilityCoverageProvider,
         PostgresAssetStore,
         register_inventory_events,
+    )
+    from aqelyn.ispm import (
+        IdentityKnownSurfaceSource,
+        ISPMEngine,
+        PostgresISPMStore,
+        register_ispm_events,
     )
     from aqelyn.lake.postgres import PostgresDatasetCatalog, PostgresTelemetryRecordStore
     from aqelyn.lake.retention import ReferenceCheckers, RetentionEngine
@@ -1646,6 +1719,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
     register_saas_events(registry)
     register_supplychain_events(registry)
     register_crypto_events(registry)
+    register_ispm_events(registry)
     bus = InMemoryEventBus(registry=registry)
     sink = BusObjectEventSink(bus)
     object_store = await PostgresObjectStore.connect(
@@ -1919,6 +1993,10 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         cfg.database_url,
         mode=cfg.tenant_mode,
     )
+    ispm_store = await PostgresISPMStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+    )
     secrets_known_surface_source = CryptoKnownSurfaceSource(
         SaaSIntegrationKnownSurfaceSource(
             dspm_known_surface_source,
@@ -1926,13 +2004,18 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         ),
         secrets_store,
     )
+    ispm_known_surface_source = IdentityKnownSurfaceSource(
+        secrets_known_surface_source,
+        ispm_store,
+        evidence_store,
+    )
     exposure_store = await PostgresExposureStore.connect(
         cfg.database_url,
         mode=cfg.tenant_mode,
     )
     exposure_engine = KnownDataExposureEngine(
         exposure_store,
-        secrets_known_surface_source,
+        ispm_known_surface_source,
         graph=knowledge_graph,
         identity_provider=iag_engine,
         trend_provider=forecast_engine,
@@ -1965,6 +2048,18 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         finding_store=finding_store,
         workflow_engine=workflow_engine,
         config=_runtime_crypto_config(cfg),
+    )
+    ispm_engine = ISPMEngine(
+        ispm_store,
+        object_store=object_store,
+        inventory=inventory_engine,
+        evidence_store=evidence_store,
+        trust=trust_engine,
+        governance_owner=iag_engine,
+        mission_owner=mission_engine,
+        exposure_owner=exposure_engine,
+        finding_store=finding_store,
+        workflow_engine=workflow_engine,
     )
     vuln_store = await PostgresVulnerabilityStore.connect(
         cfg.database_url,
@@ -2054,6 +2149,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         saas_posture_service,
         supplychain_engine_service,
         secrets_engine_service,
+        ispm_engine_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -2121,6 +2217,9 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         secrets_store=secrets_store,
         secrets_engine=secrets_engine,
         secrets_known_surface_source=secrets_known_surface_source,
+        ispm_store=ispm_store,
+        ispm_engine=ispm_engine,
+        ispm_known_surface_source=ispm_known_surface_source,
         close_object_store=object_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
@@ -2153,6 +2252,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         close_saas_normalization_store=saas_normalization_store.close,
         close_supplychain_store=supplychain_store.close,
         close_secrets_store=secrets_store.close,
+        close_ispm_store=ispm_store.close,
     )
     return Runtime(
         kernel=kernel,
@@ -2248,4 +2348,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         secrets_store=secrets_store,
         secrets_engine=secrets_engine,
         secrets_engine_service=secrets_engine_service,
+        ispm_store=ispm_store,
+        ispm_engine=ispm_engine,
+        ispm_engine_service=ispm_engine_service,
     )

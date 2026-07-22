@@ -5,7 +5,7 @@
 **Consumed by:** EA-0011 (`analyze_risk` reads the identities this engine normalizes), EA-0023 (identity exposure), EA-0013 (findings path), the ISPM UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
 **Build milestone:** C-030 (see `C-030_Task_Bundle.md`)
-**Change control:** ECR-0049 (Proposed; G5), ECR-0050, ECR-0051
+**Change control:** ECR-0049, ECR-0050, ECR-0051, ECR-0052
 **Definition of Ready:** see §12
 
 ---
@@ -228,6 +228,7 @@ IdentityDriftSnapshot = { id,                            # idr_ (§7 FR-18)
 ISPMAssessment = { id,                                   # ipa_ (§7 FR-18)
                    tenant_id, run_at, scope: dict,
                    identities_evaluated: int, scored: int,
+                   score_ids: list[str],                       # exact replayable ips_ records (ECR-0052)
                    unknown_controls: int,                 # surfaced, never hidden (S1b)
                    drift_snapshot_id: str | null,
                    status: "computed" | "truncated" | "pending",   # rule 4
@@ -252,6 +253,8 @@ class ISPMStore(Protocol):
     async def put_score(self, s: IdentityPostureScore) -> IdentityPostureScore: ...   # rejects unreplayable (S1c)
     async def put_drift(self, d: IdentityDriftSnapshot) -> IdentityDriftSnapshot: ... # append-only (S2)
     async def put_assessment(self, a: ISPMAssessment) -> ISPMAssessment: ...
+    async def get_assessment(self, assessment_id: str, *,
+                             tenant_id: str | None) -> ISPMAssessment | None: ...
     async def query_identities(self, *, tenant_id: str | None, cursor: str | None = None,
                                limit: int = 100) -> tuple[list[NormalizedIdentity], str | None]: ...
     # EA-0002 D8 pagination: stable id order, exclusive cursor, filters before LIMIT (rule 10)
@@ -269,7 +272,8 @@ class ISPMEngine(Protocol):
 
     async def assess(self, *, tenant_id: str | None,
                      scope: dict | None = None) -> ISPMAssessment: ...
-    async def posture_to_findings(self, assessment_id: str, *, by: ActorRef,
+    async def posture_to_findings(self, assessment_id: str, *,
+                                  tenant_id: str | None, by: ActorRef,
                                   propose_remediation: bool = True) -> list[str]: ...
     # findings via EA-0011 risks_to_findings / EA-0013 path; proposals bind source_finding (rule 7)
 
@@ -314,9 +318,11 @@ favourably (S1b). Combine under `factor_weights` into 0–100; build the **EA-00
 
 **Assess.** Page identities under `page_budget` (rule 10); snapshot counts
 including **`unknown_controls`**; set `status` to `computed | truncated |
-pending` (rule 4); carry `inventory_complete` from EA-0025 honestly (§12a).
+pending` (rule 4); pin the exact replayable posture scores in `score_ids`
+(ECR-0052); carry `inventory_complete` from EA-0025 honestly (§12a).
 
-**Findings.** `posture_to_findings` raises evidence-backed findings via EA-0011
+**Findings.** `posture_to_findings` loads the assessment's exact `score_ids` and
+raises evidence-backed findings via tenant-scoped EA-0011
 `risks_to_findings` / the EA-0013 path (**no new `SignalKind`**) and, when
 requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 `requires_approval=True` (rule 7).
@@ -335,7 +341,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 - **FR-8** Score composition SHALL use **EA-0013 risk scoring / EA-0007 mission / EA-0006 trust**; the module SHALL NOT introduce a second scorer (§2.1).
 - **FR-9** `subject_ref` SHALL be an identity/account object id, and `statement` SHALL use control language; **no type, field, or method SHALL aggregate an individual's accounts into a person-level score or trust rating** (§0.3) — structurally unrepresentable.
 - **FR-10** Drift SHALL reuse the **EA-0012** baseline/comparator shape with **append-only** snapshots; an unestablishable fact SHALL be `status="unknown"`, never `pass` (§2.2).
-- **FR-11** Findings SHALL flow via **EA-0011 `risks_to_findings`** / the EA-0013 finding path; the module SHALL NOT add a new `SignalKind` (§0.1/D5).
+- **FR-11** Findings SHALL flow from the assessment's exact persisted `score_ids` via tenant-scoped **EA-0011 `risks_to_findings`** / the EA-0013 finding path; the module SHALL NOT recompute history or add a new `SignalKind` (§0.1/D5, ECR-0052).
 - **FR-12** Remediation SHALL be an **EA-0008 `propose(playbook, by=, source_finding=finding)`** with `requires_approval=True`; the `source_finding` binding is **mandatory**, and the module SHALL modify no identity provider (§0.2, rule 7).
 - **FR-13** Identity exposure SHALL use the shipped **EA-0023 `KnownSurfaceSource → KnownSurfaceRecord`** seam reusing **`AssetRef.kind="identity"`**; the module SHALL NOT implement reachability or exposure scoring (D6).
 - **FR-14** Where identity sensitivity is supplied to EA-0023, it SHALL use the **`identity_sensitivity` `ExposureImpactKind`** (ECR-0049, additive, `data_sensitivity` default preserved, replay-pinned); this widening SHALL land in the same ticket that first constructs it (rule 15, §13).
@@ -452,7 +458,7 @@ EA-0033 does not fix ECR-0034; **it must not deepen it.**
 - **Handed-in descriptors** (§0.2) — provider connectors are a later EA-0008-gated
   action; the descriptor is the seam that keeps this engine unchanged when they
   land.
-- **ECR-0049 (Proposed) — `identity_sensitivity` `ExposureImpactKind` widening.**
+- **ECR-0049 (Accepted) — `identity_sensitivity` `ExposureImpactKind` widening.**
   `ExposureImpactKind` is currently `data_sensitivity | credential_sensitivity`
   (ECR-0041/0044). Feeding identity sensitivity into EA-0023 needs the same
   **additive widening + replay-pin** treatment, with the `data_sensitivity`

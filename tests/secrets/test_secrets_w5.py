@@ -16,6 +16,7 @@ from aqelyn.conventions.errors import EventSchemaValidationError
 from aqelyn.dspm import DataStoreKnownSurfaceSource
 from aqelyn.events import EventTypeRegistry, Subject
 from aqelyn.evidence import EvidenceRecord
+from aqelyn.ispm import IdentityKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime, create_runtime
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.secrets import (
@@ -129,7 +130,9 @@ async def test_crypto_service_health_and_owner_connectivity(
 
     source = runtime.secrets_engine_service.known_surface_source
     assert isinstance(source, CryptoKnownSurfaceSource)
-    assert runtime.exposure_engine.source is source
+    identity_source = runtime.exposure_engine.source
+    assert isinstance(identity_source, IdentityKnownSurfaceSource)
+    assert identity_source.upstream is source
     assert source.store is runtime.secrets_store
     assert isinstance(source.upstream, SaaSIntegrationKnownSurfaceSource)
     assert isinstance(source.upstream.upstream, DataStoreKnownSurfaceSource)

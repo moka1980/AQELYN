@@ -22,6 +22,7 @@ from aqelyn.exposure import (
 )
 from aqelyn.exposure.service import register_exposure_events
 from aqelyn.inventory import InventoryKnownSurfaceSource
+from aqelyn.ispm import IdentityKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime, create_runtime
 from aqelyn.secrets import CryptoKnownSurfaceSource
 from aqelyn.sspm import SaaSIntegrationKnownSurfaceSource
@@ -69,7 +70,9 @@ async def test_exp_service_health(backend: str) -> None:
     assert runtime.exposure_engine_service.engine is runtime.exposure_engine
     assert runtime.exposure_engine_service.store is runtime.exposure_store
     assert runtime.exposure_engine.store is runtime.exposure_store
-    crypto_source = runtime.exposure_engine.source
+    identity_source = runtime.exposure_engine.source
+    assert isinstance(identity_source, IdentityKnownSurfaceSource)
+    crypto_source = identity_source.upstream
     assert isinstance(crypto_source, CryptoKnownSurfaceSource)
     assert isinstance(crypto_source.upstream, SaaSIntegrationKnownSurfaceSource)
     assert isinstance(crypto_source.upstream.upstream, DataStoreKnownSurfaceSource)

@@ -15,7 +15,7 @@ from aqelyn.conventions.errors import (
     StoreUnavailable,
 )
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
-from aqelyn.inventory import AssetRecord, DiscoverySource
+from aqelyn.inventory import AssetRecord, DiscoverySource, InventoryReport
 from aqelyn.ispm.models import (
     ControlFact,
     IdentityAccessEdgeDescriptor,
@@ -56,6 +56,8 @@ class IdentityInventoryOwner(Protocol):
         source: DiscoverySource,
         tenant_id: str | None,
     ) -> list[AssetRecord]: ...
+
+    async def inventory(self, *, tenant_id: str | None) -> InventoryReport: ...
 
 
 class IdentityObjectStore(Protocol):

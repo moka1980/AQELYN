@@ -18,10 +18,13 @@ from aqelyn.ispm.models import (
     IdentityBaseline,
     IdentityDriftSnapshot,
     IdentityPostureScore,
+    ISPMAssessment,
     NormalizedIdentity,
     NormalizedIdentityKind,
 )
 from aqelyn.ispm.store import (
+    validate_assessment,
+    validate_assessment_id,
     validate_baseline,
     validate_baseline_id,
     validate_cursor,
@@ -375,6 +378,51 @@ class PostgresISPMStore:
             )
         return None if row is None else _drift_from_payload(row["record"])
 
+    async def put_assessment(self, assessment: ISPMAssessment) -> ISPMAssessment:
+        stored = validate_assessment(assessment)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        payload = stored.model_dump(mode="json")
+        async with self._pool.acquire() as conn:
+            current = await conn.fetchrow(
+                "SELECT record FROM aq_ispm_assessment WHERE id=$1",
+                stored.id,
+            )
+            if current is not None:
+                existing = _assessment_from_payload(current["record"])
+                if existing.model_dump(mode="json") != payload:
+                    raise OptimisticConcurrencyConflict("ISPM assessments are append-only")
+                return existing
+            try:
+                await conn.execute(
+                    "INSERT INTO aq_ispm_assessment "
+                    "(id, tenant_id, status, record) VALUES ($1,$2,$3,$4)",
+                    stored.id,
+                    stored.tenant_id,
+                    stored.status,
+                    json.dumps(payload),
+                )
+            except asyncpg.UniqueViolationError as exc:
+                raise OptimisticConcurrencyConflict("ISPM assessments are append-only") from exc
+        return stored.model_copy(deep=True)
+
+    async def get_assessment(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> ISPMAssessment | None:
+        selected_id = validate_assessment_id(assessment_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        args: list[Any] = [selected_id]
+        clauses = ["id=$1"]
+        self._tenant_clauses(clauses, args, selected_tenant)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT record FROM aq_ispm_assessment WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        return None if row is None else _assessment_from_payload(row["record"])
+
     def _tenant_clauses(
         self,
         clauses: list[str],
@@ -410,3 +458,9 @@ def _drift_from_payload(payload: object) -> IdentityDriftSnapshot:
     if isinstance(payload, str):
         payload = json.loads(payload)
     return IdentityDriftSnapshot.model_validate(payload)
+
+
+def _assessment_from_payload(payload: object) -> ISPMAssessment:
+    if isinstance(payload, str):
+        payload = json.loads(payload)
+    return ISPMAssessment.model_validate(payload)

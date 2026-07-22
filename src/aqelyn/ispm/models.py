@@ -648,6 +648,7 @@ class ISPMAssessment(BaseModel):
     scope: dict[str, Any] = Field(default_factory=dict)
     identities_evaluated: int = 0
     scored: int = 0
+    score_ids: list[str] = Field(default_factory=list)
     unknown_controls: int = 0
     drift_snapshot_id: str | None = None
     status: AssessmentStatus = "pending"
@@ -669,6 +670,14 @@ class ISPMAssessment(BaseModel):
     @classmethod
     def _counts(cls, value: object) -> int:
         return _nonnegative_int(value, field="ISPM assessment count")
+
+    @field_validator("score_ids")
+    @classmethod
+    def _score_ids(cls, values: list[str]) -> list[str]:
+        selected = [require_typed_id(value, "ips", field="score_ids") for value in values]
+        if len(selected) != len(set(selected)):
+            raise ISPMConfigInvalid("score_ids must not contain duplicates")
+        return selected
 
     @field_validator("drift_snapshot_id")
     @classmethod
@@ -694,6 +703,7 @@ class ISPMAssessment(BaseModel):
         result_fields = (
             self.identities_evaluated,
             self.scored,
+            bool(self.score_ids),
             self.unknown_controls,
             self.drift_snapshot_id is not None,
         )
@@ -704,6 +714,8 @@ class ISPMAssessment(BaseModel):
             raise ISPMConfigInvalid("computed or truncated assessment requires evidence_id")
         if self.scored > self.identities_evaluated:
             raise ISPMConfigInvalid("scored cannot exceed identities_evaluated")
+        if self.scored != len(self.score_ids):
+            raise ISPMConfigInvalid("scored must equal the number of score_ids")
         if self.unknown_controls > self.identities_evaluated * 3:
             raise ISPMConfigInvalid("unknown_controls cannot exceed three per identity")
         return self

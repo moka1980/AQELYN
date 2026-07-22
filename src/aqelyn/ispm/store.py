@@ -11,6 +11,7 @@ from aqelyn.ispm.models import (
     IdentityBaseline,
     IdentityDriftSnapshot,
     IdentityPostureScore,
+    ISPMAssessment,
     NormalizedIdentity,
     NormalizedIdentityKind,
 )
@@ -72,6 +73,15 @@ class ISPMStore(Protocol):
         tenant_id: str | None,
     ) -> IdentityDriftSnapshot | None: ...
 
+    async def put_assessment(self, assessment: ISPMAssessment) -> ISPMAssessment: ...
+
+    async def get_assessment(
+        self,
+        assessment_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> ISPMAssessment | None: ...
+
 
 def validate_identity(identity: NormalizedIdentity) -> NormalizedIdentity:
     return NormalizedIdentity.model_validate(identity.model_dump(mode="json"))
@@ -89,6 +99,10 @@ def validate_drift(snapshot: IdentityDriftSnapshot) -> IdentityDriftSnapshot:
     return IdentityDriftSnapshot.model_validate(snapshot.model_dump(mode="json"))
 
 
+def validate_assessment(assessment: ISPMAssessment) -> ISPMAssessment:
+    return ISPMAssessment.model_validate(assessment.model_dump(mode="json"))
+
+
 def validate_object_id(value: str, *, field: str = "object_id") -> str:
     return require_typed_id(value, "obj", field=field)
 
@@ -103,6 +117,10 @@ def validate_baseline_id(value: str) -> str:
 
 def validate_drift_id(value: str) -> str:
     return require_typed_id(value, "idr", field="drift_id")
+
+
+def validate_assessment_id(value: str) -> str:
+    return require_typed_id(value, "ipa", field="assessment_id")
 
 
 def validate_provider(value: str | None) -> str | None:

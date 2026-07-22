@@ -254,14 +254,15 @@ class IdentityAccessGovernanceEngine:
         *,
         by: ActorRef,
         prioritize: bool = True,
+        tenant_id: str | None = None,
     ) -> list[str]:
         if self._findings is None:
             raise StoreUnavailable("risks_to_findings requires a FindingStore")
         findings: list[Finding] = []
         for risk in sorted(report.risks, key=_risk_sort_key):
-            evidence = await self._record_risk_evidence(risk, by=by)
+            evidence = await self._record_risk_evidence(risk, by=by, tenant_id=tenant_id)
             finding = await self._findings.raise_finding(
-                _finding_for_risk(risk, evidence_id=evidence.id)
+                _finding_for_risk(risk, evidence_id=evidence.id, tenant_id=tenant_id)
             )
             findings.append(finding)
         if prioritize and self._mission is not None and findings:
@@ -350,11 +351,17 @@ class IdentityAccessGovernanceEngine:
         )
         return await self._evidence.add(record)
 
-    async def _record_risk_evidence(self, risk: AccessRisk, *, by: ActorRef) -> EvidenceRecord:
+    async def _record_risk_evidence(
+        self,
+        risk: AccessRisk,
+        *,
+        by: ActorRef,
+        tenant_id: str | None = None,
+    ) -> EvidenceRecord:
         now = utc_now()
         record = EvidenceRecord(
             id="",
-            tenant_id=None,
+            tenant_id=tenant_id,
             evidence_type="iag.access_risk",
             schema_version=1,
             subject=Subject(object_ids=_affected_object_ids_for_risk(risk)),
@@ -487,12 +494,17 @@ def _risk_sort_key(risk: AccessRisk) -> tuple[str, str, str, str]:
     )
 
 
-def _finding_for_risk(risk: AccessRisk, *, evidence_id: str) -> Finding:
+def _finding_for_risk(
+    risk: AccessRisk,
+    *,
+    evidence_id: str,
+    tenant_id: str | None = None,
+) -> Finding:
     now = utc_now()
     affected_ids = _affected_object_ids_for_risk(risk)
     return Finding(
         id="",
-        tenant_id=None,
+        tenant_id=tenant_id,
         finding_type=f"iag.{risk.kind}",
         schema_version=1,
         dedup_key=_risk_dedup_key(risk),
