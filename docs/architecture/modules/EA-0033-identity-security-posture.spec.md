@@ -5,6 +5,7 @@
 **Consumed by:** EA-0011 (`analyze_risk` reads the identities this engine normalizes), EA-0023 (identity exposure), EA-0013 (findings path), the ISPM UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
 **Build milestone:** C-030 (see `C-030_Task_Bundle.md`)
+**Enhanced by:** C-031 H2 (evidence-backed ownership handoff to EA-0025)
 **Change control:** ECR-0049, ECR-0050, ECR-0051, ECR-0052
 **Definition of Ready:** see §12
 
@@ -189,13 +190,23 @@ IdentityDescriptor = { source_id: str, provider: str, external_id: str,
                        attributes: dict, controls: dict,          # mfa/lifecycle/last_activity raw
                        accounts: list[IdentityAccountDescriptor],
                        access_edges: list[IdentityAccessEdgeDescriptor],
+                       ownership: IdentityOwnershipClaim | null,
                        observed_at: datetime, evidence_id: str | null }   # handed in (§0.2)
+
+IdentityOwnershipClaim = { business_owner: str | null,
+                           technical_owner: str | null, custodian: str | null,
+                           rationale: str, source_id: str,
+                           observed_at: datetime, evidence_id: str }
+IdentityOwnershipState = { inventory_ref: str, status: "known" | "unknown",
+                           source_id: str | null, evidence_id: str | null,
+                           observed_at: datetime | null, reason: str }
 
 NormalizedIdentity = { object_id: str, tenant_id: str, external_id: str,
                        provider: str, identity_kind: IdentityKind | "unknown",
                        account_object_ids: list[str], relationship_ids: list[str],
                        controls: { mfa: ControlFact, lifecycle: ControlFact,
                                    last_activity: ControlFact },
+                       ownership: IdentityOwnershipState | null,
                        field_provenance: dict, conflicts: list[dict],
                        flagged: bool,
                        evidence_id: str }                 # EA-0011 graph intake, not a second identity shape (S3)
@@ -332,7 +343,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 ### Functional (testable)
 
 - **FR-1** `ingest_identities` SHALL accept handed-in descriptors only; the module SHALL open no socket, hold no credential, poll nothing, and expose no connector/enumerate method (§0.2, rule 13).
-- **FR-2** Identities SHALL be normalized into **EA-0011's shipped EA-0002 graph intake** and registered via **EA-0025 `ingest(reports=, source=, tenant_id=)`**: identity and account `AQObject`s, an evidence-backed `has_account` relation for every supplied account, and only explicitly claimed/evidence-backed access edges. An unmatched `identity_kind="unknown"` SHALL require `flagged=true` on the normalized record itself (ECR-0051), not only on an owner-store label. The module SHALL NOT define a new identity shape, relationship vocabulary, graph engine, or inventory (§2.3/D1).
+- **FR-2** Identities SHALL be normalized into **EA-0011's shipped EA-0002 graph intake** and registered via **EA-0025 `ingest(reports=, source=, tenant_id=)`**: identity and account `AQObject`s, an evidence-backed `has_account` relation for every supplied account, and only explicitly claimed/evidence-backed access edges. Optional ownership claims SHALL be verified before any owner write, routed through EA-0025 reconciliation, and persisted as an explicit known-or-unknown state pinning the exact inventory and winning evidence refs (C-031 H2). An omitted ownership claim is unknown and SHALL NOT erase an evidence-backed claim from another source. An unmatched `identity_kind="unknown"` SHALL require `flagged=true` on the normalized record itself (ECR-0051), not only on an owner-store label. The module SHALL NOT define a new identity shape, relationship vocabulary, graph engine, inventory, or ownership store (§2.3/D1).
 - **FR-3** Orphaned, dormant, over-privileged, SoD, and privileged-unreviewed risks SHALL be read from **EA-0011 `analyze_risk`** and pinned as the actual `AccessRisk` records (the shipped type has no id); the module SHALL NOT re-derive any of them (§0.1). A real normalization → `IdentityAccessGovernanceEngine.analyze_risk` → posture-score round trip SHALL prove that a normalized identity/account graph produces the expected non-empty risk and that the score cites that exact owner record; a spy or call assertion alone is insufficient.
 - **FR-4** Access paths SHALL come from **EA-0011 `access_paths`**; certification SHALL be **EA-0011 `open_certification`/`decide_item`/`complete_certification`**; the module SHALL NOT create a parallel certification model or `cert` prefix (§0.1, false friends).
 - **FR-5** Control facts (`mfa`, `lifecycle`, `last_activity`) SHALL be tri-state `present|absent|unknown` defaulting to `unknown`, each carrying the evidence or the reason it is unknown (D2).
@@ -388,6 +399,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 | AC-20 | Invalid config rejected | `test_ispm_config_invalid` |
 | AC-21 | Store passes one suite on both backends | `test_ispm_store_contract[inmemory]` / `[postgres]` |
 | AC-22 | Health tenant-scoped, both tenant modes | `test_ispm_service_health[local]` / `[enterprise]` |
+| AC-23 | Ownership claim verifies before writes; real EA-0025 reconciliation pins known/unknown provenance on both stores | `test_nhi_ownership_*` |
 
 ## 9. Error taxonomy (contributions)
 
@@ -458,6 +470,9 @@ EA-0033 does not fix ECR-0034; **it must not deepen it.**
 - **Handed-in descriptors** (§0.2) — provider connectors are a later EA-0008-gated
   action; the descriptor is the seam that keeps this engine unchanged when they
   land.
+- **C-031 H2 ownership handoff** — EA-0033 accepts a value-free, evidence-backed
+  owner claim but delegates ownership precedence and history to EA-0025. Missing
+  ownership is explicit unknown, never a favourable control fact.
 - **ECR-0049 (Accepted) — `identity_sensitivity` `ExposureImpactKind` widening.**
   `ExposureImpactKind` is currently `data_sensitivity | credential_sensitivity`
   (ECR-0041/0044). Feeding identity sensitivity into EA-0023 needs the same

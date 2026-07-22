@@ -116,6 +116,19 @@ EA-0033, EA-0025 resolves by EA-0006 reliability, equal reliability remains an
 unresolved conflict, and `InventoryIntelligenceEngine.ownership(...)` returns
 the selected value or explicit unknown. No NHI ownership store is permitted.
 
+**C-031 H2 implementation proof:** the handed-in `IdentityOwnershipClaim` is
+verified with the full descriptor batch before EA-0002, EA-0025, or ISPM writes.
+The real EA-0025 engine resolves conflicting claims by EA-0006 reliability,
+retains the winning evidence and inventory refs in `IdentityOwnershipState`,
+and surfaces equal-reliability disagreement as `unknown`. A higher-reliability
+source that supplies no owner does not erase an evidence-backed owner claim.
+`test_nhi_ownership_*` runs this contract against both persistence backends;
+missing, tampered, and retriable evidence failures leave every owner store empty.
+Observed on live Postgres 16 + Redis 7: **1,251 passed / 1 skipped** across
+1,252 collected tests; Ruff, format, and `mypy --strict src tests` were green
+across 478 files, and the structural ownership-state test also passed under
+`python -O`.
+
 ### H3 - bind identities to credentials and workloads through EA-0002
 
 EA-0033 currently permits only the access-edge vocabulary needed by EA-0011,
