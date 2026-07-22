@@ -137,13 +137,23 @@ id cannot later reproduce the records it used unless the assessment durably stor
 Persist the owner refs at computation time, validate them on read, and route those records forward.
 Re-running the owner engine against today's estate is silent historical drift, not reconstruction.
 
+### 18. A test double that stops conforming to its Protocol stops testing that contract
+ECR-0052 additively made `IdentityGovernanceOwner.risks_to_findings` tenant-scoped, but the C-030 G3
+spy retained the old signature. The implementation was correct and `mypy --strict src` was green;
+`mypy --strict src tests` failed because the test double no longer represented the owner interface.
+A stale spy can leave assertions green while silently testing a different call shape. Whenever a
+Protocol changes, sweep every implementation and test double, statically check the full `src tests`
+surface, and assert forwarding of the new argument or result. A spy proves delegation only while it
+continues to satisfy the Protocol it doubles.
+
 ---
 
 ## Part 2 — Current handover: IS-034 / EA-0034 (Machine Identity & NHI Governance)
 
-**Repository state:** `main @496f0e8`, green (ruff, format, mypy --strict,
+**Repository state:** `main @e6b49ce`, green (ruff, format, mypy --strict,
 1237 passed / 3 skipped on live PG16 + Redis 7).
-**Next free ECR:** **0053** (the log ends at ECR-0052; re-read it before assigning).
+**Next free ECR:** **0054** (ECR-0053 now records the IS-034 conformance decision;
+re-read the log before assigning).
 **Archive verified:** `archive/EA-0034/EA-0034_Master.md` is IS-034, Machine Identity &
 Non-Human Identity Governance. Its continuation to IS-035 was checked against the actual
 `archive/EA-0035/EA-0035_Master.md`, whose title is Secrets, Keys & Certificate Lifecycle
