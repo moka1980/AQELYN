@@ -38,6 +38,20 @@ DriftStatus = Literal["pass", "fail", "unknown"]
 AssessmentStatus = Literal["computed", "truncated", "pending"]
 OwnershipStatus = Literal["known", "unknown"]
 AccessRelationType = Literal["has_role", "grants_entitlement", "member_of"]
+IdentityBindingTargetType = Literal[
+    "secret_asset",
+    "cryptographic_key",
+    "x509_certificate",
+    "workload",
+]
+IdentityBindingRelationType = Literal[
+    "uses",
+    "signs",
+    "authenticates_to",
+    "runs_on",
+    "associated_with",
+    "invokes",
+]
 
 VALID_IDENTITY_KINDS: Final[frozenset[str]] = frozenset(
     ("human", "service", "machine", "application", "federated", "temporary")
@@ -47,6 +61,18 @@ VALID_ASSESSMENT_STATUSES: Final[frozenset[str]] = frozenset(("computed", "trunc
 VALID_ACCESS_RELATION_TYPES: Final[frozenset[str]] = frozenset(
     ("has_role", "grants_entitlement", "member_of")
 )
+VALID_BINDING_TARGET_TYPES: Final[frozenset[str]] = frozenset(
+    ("secret_asset", "cryptographic_key", "x509_certificate", "workload")
+)
+VALID_BINDING_RELATION_TYPES: Final[frozenset[str]] = frozenset(
+    ("uses", "signs", "authenticates_to", "runs_on", "associated_with", "invokes")
+)
+BINDING_RELATIONS_BY_TARGET: Final[dict[str, frozenset[str]]] = {
+    "secret_asset": frozenset(("uses",)),
+    "cryptographic_key": frozenset(("uses", "signs")),
+    "x509_certificate": frozenset(("uses",)),
+    "workload": frozenset(("authenticates_to", "runs_on", "associated_with", "invokes")),
+}
 ISPM_EVENTS: Final[dict[str, int]] = {
     "aqelyn.ispm.identity_normalized": 1,
     "aqelyn.ispm.posture_scored": 1,
@@ -211,6 +237,40 @@ class IdentityAccessEdgeDescriptor(BaseModel):
         return require_typed_id(value, "evd", field="access edge evidence_id")
 
 
+class IdentityBindingDescriptor(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_external_id: str
+    target_object_id: str
+    target_type: IdentityBindingTargetType
+    relation_type: IdentityBindingRelationType
+    observed_at: datetime
+    evidence_id: str
+
+    @field_validator("from_external_id")
+    @classmethod
+    def _from_external_id(cls, value: str) -> str:
+        return _nonempty(value, field="binding from_external_id")
+
+    @field_validator("target_object_id")
+    @classmethod
+    def _target_object_id(cls, value: str) -> str:
+        return require_typed_id(value, "obj", field="binding target_object_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="binding evidence_id")
+
+    @model_validator(mode="after")
+    def _relation_matches_target(self) -> IdentityBindingDescriptor:
+        if self.relation_type not in BINDING_RELATIONS_BY_TARGET[self.target_type]:
+            raise ISPMConfigInvalid(
+                f"relation {self.relation_type!r} is not valid for {self.target_type!r}"
+            )
+        return self
+
+
 class IdentityOwnershipClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -302,6 +362,7 @@ class IdentityDescriptor(BaseModel):
     controls: dict[str, Any] = Field(default_factory=dict)
     accounts: list[IdentityAccountDescriptor] = Field(default_factory=list)
     access_edges: list[IdentityAccessEdgeDescriptor] = Field(default_factory=list)
+    bindings: list[IdentityBindingDescriptor] = Field(default_factory=list)
     ownership: IdentityOwnershipClaim | None = None
     observed_at: datetime
     evidence_id: str | None = None
@@ -343,6 +404,21 @@ class IdentityDescriptor(BaseModel):
             edge_keys.append((edge.from_external_id, edge.to_object_id, edge.relation_type))
         if len(edge_keys) != len(set(edge_keys)):
             raise ISPMConfigInvalid("access edge claims must not contain duplicates")
+        binding_keys: list[tuple[str, str, str]] = []
+        for binding in self.bindings:
+            if binding.from_external_id not in local_refs:
+                raise ISPMConfigInvalid(
+                    "binding from_external_id must name the identity or a supplied account"
+                )
+            binding_keys.append(
+                (
+                    binding.from_external_id,
+                    binding.target_object_id,
+                    binding.relation_type,
+                )
+            )
+        if len(binding_keys) != len(set(binding_keys)):
+            raise ISPMConfigInvalid("binding claims must not contain duplicates")
         return self
 
 
