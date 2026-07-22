@@ -42,7 +42,8 @@ EA-0028 → `src/aqelyn/cspm/` + `tests/cspm/`;
 EA-0029 → `src/aqelyn/sspm/` + `tests/sspm/`;
 EA-0030 → `src/aqelyn/supplychain/` + `tests/supplychain/`;
 EA-0031 → `src/aqelyn/dspm/` + `tests/dspm/`;
-EA-0032 → `src/aqelyn/secrets/` + `tests/secrets/`.
+EA-0032 → `src/aqelyn/secrets/` + `tests/secrets/`;
+EA-0033 → `src/aqelyn/ispm/` + `tests/ispm/`.
 
 ## Rules for AI agents and developers
 
@@ -87,6 +88,7 @@ EA-0032 → `src/aqelyn/secrets/` + `tests/secrets/`.
 | [EA-0030 Software Supply Chain & SBOM](EA-0030-software-supply-chain-sbom.spec.md) | EA-0030 | EA-0005, EA-0024, EA-0025, EA-0004, EA-0010, EA-0013 | [C-027](C-027_Task_Bundle.md) | Accepted |
 | [EA-0031 Data Security Posture Management](EA-0031-data-security-posture.spec.md) | EA-0031 | EA-0019, EA-0025, EA-0023, EA-0011, EA-0010, EA-0013, EA-0006, EA-0004, EA-0008 | [C-028](C-028_Task_Bundle.md) | Accepted (ECR-0041, ECR-0042; ECR-0032 Proposed) |
 | [EA-0032 Secrets Security & Cryptographic Asset Intelligence](EA-0032-secrets-cryptographic-asset.spec.md) | EA-0032 | EA-0025, EA-0023, EA-0010, EA-0013, EA-0019, EA-0006, EA-0004, EA-0008 | [C-029](C-029_Task_Bundle.md) | Accepted (ECR-0043 through ECR-0048) |
+| [EA-0033 Identity Security Posture Management](EA-0033-identity-security-posture.spec.md) | EA-0033 | **EA-0011**, EA-0013, EA-0007, EA-0006, EA-0020, EA-0012, EA-0025, EA-0023 | [C-030](C-030_Task_Bundle.md) | Accepted (ECR-0049 Proposed) |
 
 Spec authoring: [SPEC_AUTHOR_NOTES.md](SPEC_AUTHOR_NOTES.md) carries the reviewer's standing
 rules and the current per-module handover for whoever drafts the next spec.
@@ -97,7 +99,7 @@ amendments to module specifications.
 ## Next
 
 The four core engines (EA-0006-0009) plus the Knowledge Graph are specified.
-EA-0033 (Identity Security Posture Management) onward: each gets a code-ready spec pass (owner + planning) before Codex
+EA-0034 onward: each gets a code-ready spec pass (owner + planning) before Codex
 builds it, because the archive masters are still placeholders. With the Policy
 Engine, the safety spine is complete: EA-0008 enforces, EA-0009 decides, and
 neither can loosen the other's floor (EA-0009 S3).

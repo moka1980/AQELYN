@@ -36,7 +36,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 | ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
-| ECR-0032 | EA-0028 + EA-0029 + EA-0031 | Proposed | DSPM is the third normalize/route posture module and triggers the planned shared-base revisit after C-028 is green; no extraction belongs in C-028. |
+| ECR-0032 | EA-0028 + EA-0029 + EA-0031 + EA-0033 | Proposed | ISPM is the fourth normalize/route posture module; decide on a shared base only after C-030 is green, never within C-030. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
 | ECR-0034 | EA-0025 (+ EA-0023, EA-0024, EA-0030) | Proposed | `InventoryIntelligenceEngine.inventory()` reads `store.query(limit=10_000)` and returns `degraded=False` unconditionally; `AssetStore.query` has no cursor and no more-remaining signal. A tenant above 10 000 assets gets its first 10 000 reported as the complete inventory. That report is EA-0023's known-surface denominator and EA-0024's coverage base (`unscanned = inventory − scanned`), and both of their fail-closed gates are keyed on the `degraded` flag that is hardcoded `False` — so a silent cap shrinks the attack surface, under-reports unscanned assets, and cannot trip either refusal. EA-0030 now ingests SBOM components into the same store, making the cap reachable in ordinary operation. |
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
@@ -53,6 +53,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0046 | EA-0032 | Accepted | Bind descriptor evidence and certificate-authenticity results to the exact crypto fingerprint and basis evidence before any known lifecycle state can be recorded. |
 | ECR-0047 | EA-0032 | Accepted | Keep single-asset missing-evidence refusal, but make batch assessment continue with that asset explicitly unknown and counted instead of denying all tenant posture. |
 | ECR-0048 | EA-0023 + EA-0032 | Accepted | Add an atomic persisted analyze-and-score owner path plus tenant-scoped exposure read so crypto findings cite the real replayable EA-0023 record without a second scorer. |
+| ECR-0049 | EA-0023 + EA-0033 | Proposed | Add semantic `identity_sensitivity` exposure impact while preserving the existing `data_sensitivity` default; land it with C-030 G5's first identity context. |
 
 ---
 
@@ -1479,10 +1480,10 @@ the repeated full-result sort/copy that made the measured paging cost superlinea
 
 ---
 
-## ECR-0032 — Consider a shared posture-normalization base (CSPM + SSPM + DSPM)
+## ECR-0032 — Consider a shared posture-normalization base (CSPM + SSPM + DSPM + ISPM)
 
 **Raised by:** planning (IS-029 spec pass).
-**Status:** Proposed — owner decision; **not** part of C-026.
+**Status:** Proposed — owner decision; **not** part of C-030.
 **Numbering note:** first drafted as ECR-0017 in error — that number was already
 Accepted (EA-0027 S3 confidence-floor value, PR #141). Corrected to ECR-0032, the
 next free number after the log's ECR-0031. The floor decision is untouched.
@@ -1490,11 +1491,12 @@ next free number after the log's ECR-0031. The floor decision is untouched.
 **Observation.** EA-0028 (CSPM) and EA-0029 (SSPM) share an identical shape:
 `normalize(handed-in descriptor) -> AQObject + field_provenance + recorded
 conflicts -> route to owners`, differing only in provider vocabulary and
-`type_map`. EA-0031 (DSPM) is now the **third** instance and adds a
-metadata-only classification step between normalization and routing. The
-revisit condition in this ECR has therefore been met.
+`type_map`. EA-0031 (DSPM) is the **third** instance and adds a metadata-only
+classification step between normalization and routing. EA-0033 (ISPM) is the
+**fourth** and adds deterministic account-control scoring while routing identity
+governance back to EA-0011. The revisit condition in this ECR is well past met.
 
-**Proposal.** After C-028 is merged and green, consider extracting a
+**Proposal.** After C-030 is merged and green, consider extracting a
 `posture_normalization` base (the descriptor→object→provenance→route
 machinery + the pending-not-safe routing discipline) that each specialises with
 its vocabulary. The design must accommodate DSPM's classify step without moving
@@ -1502,16 +1504,16 @@ classification ownership or weakening any module's typed envelope.
 
 **Guardrails.**
 - **Do not build the base speculatively** and do not fold it into C-025, C-026,
-  or C-028 —
+  C-028, or C-030 —
   each engine ships on its own footing first (avoids a premature abstraction that
   two slightly-divergent callers then fight).
 - Extraction is a **behaviour-preserving refactor**: the shared base must pass
-  all three engines' existing suites unchanged (ECR-0007 — behavioural proof).
-- The third poster-child now exists. That makes a review warranted, not an
+  all four engines' existing suites unchanged (ECR-0007 — behavioural proof).
+- The fourth implementation now exists. That makes a review warranted, not an
   extraction mandatory.
 
-**Recommendation.** Hold as Proposed. Decide after C-028 is green, against all
-three real implementations. Any extraction remains a separate,
+**Recommendation.** Hold as Proposed. Decide after C-030 is green, against all
+four real implementations. Any extraction remains a separate,
 behaviour-preserving refactor whose existing suites pass unchanged.
 
 ---
@@ -2247,3 +2249,34 @@ to EA-0023.
 EA-0023 already persists `impact_context` and derivation. C-029 W4 proves the
 record round-trips on both stores, omitted-context v1 scoring remains unchanged,
 and the finding path uses no new `SignalKind` or crypto-local scorer.
+
+---
+
+## ECR-0049 - distinguish identity sensitivity from other exposure impact
+
+**Raised by:** EA-0033 pre-implementation verification against the shipped
+EA-0023 exposure-impact contract and spec-author rule 15.
+**Status:** Proposed - implementation belongs to C-030 G5, not an earlier
+types ticket.
+**Severity:** blocking within G5 - the Accepted identity exposure handoff cannot
+name its semantic input using the currently shipped impact kinds.
+
+**Problem.** EA-0023 currently accepts `data_sensitivity` and
+`credential_sensitivity`. EA-0033 needs to express the sensitivity of an
+identity account's control state. Relabelling that input as either existing kind
+would make the handoff constructible by recording a false provenance label.
+Because EA-0023 pins the complete `ExposureImpactContext` into its replayable
+derivation, the false label would become a durable audit fact.
+
+**Resolution.** EA-0023 additively accepts `identity_sensitivity` while keeping
+`data_sensitivity` as the omitted-kind default. EA-0033 MUST pass
+`kind="identity_sensitivity"` explicitly, and EA-0023 MUST replay-pin the kind,
+factor, source, evidence, and reason together. Per spec-author rule 15, the
+widening lands in C-030 G5, the same ticket that first constructs an identity
+impact context; no earlier C-030 type may depend on it.
+
+**Impact.** Additive Literal expansion only. Existing DSPM and crypto callers
+retain their current default and explicit kinds. `impact_context` is already a
+JSONB field without a database kind constraint, so no DDL migration is needed.
+G5 proves the existing default remains unchanged and that identity sensitivity
+survives owner scoring, persistence, and derivation replay.
