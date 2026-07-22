@@ -145,6 +145,22 @@ credential (ECR-0039). Any authenticity claim needs an owner-specific typed
 verifier; C-031 does not synthesize one from `verify().ok`. Missing or tampered
 evidence writes neither the edge nor a favourable posture result.
 
+**C-031 H3 implementation proof:** `IdentityBindingDescriptor` is a strict,
+value-free relation claim with a target-specific relation matrix. The full
+descriptor batch verifies binding evidence through EA-0004 and derives
+confidence through EA-0006 before any owner write; missing, tampered, and
+retriably unavailable evidence leave the ISPM identity, inventory row, and
+relationship absent. A real EA-0032 `cryptographic_key` object is connected by
+one idempotent EA-0002 relationship whose `rel_` id is retained on the normalized
+identity, then reached through the real EA-0005 `paths` API under explicit
+depth/path/work bounds. The relationship copies no crypto metadata and records
+`authenticity="unknown"`; even healthy integrity cannot construct a `valid`
+authenticity claim. `test_nhi_binding_*` proves the path on both ISPM
+persistence backends, cross-tenant refusal, optimized-Python value gates, and
+the updated owner Protocol witness. Observed on live Postgres 16 + Redis 7:
+**1,262 passed / 1 skipped** across 1,263 collected tests; Ruff, format, and
+`mypy --strict src tests` were green across 479 files.
+
 ### H4 - map lifecycle ownership before adding history
 
 The archive lists `requested`, `approved`, `provisioned`, `active`,

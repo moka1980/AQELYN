@@ -1,11 +1,11 @@
 # EA-0033 — Identity Security Posture Management (ISPM) — Implementation Specification
 
 **Realizes:** EA-0033 / IS-033 (supersedes the placeholder `archive/EA-0033/EA-0033_Master.md` for implementation)
-**Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0011 (IAG — owns identity governance; routed to, never reimplemented)**, **EA-0013 / EA-0007 / EA-0006 (score composition)**, **EA-0020 (`Derivation` — replay)**, **EA-0012 (drift shape)**, EA-0002 (identity objects), EA-0025 (inventory registration), EA-0023 (exposure), EA-0010 (compliance), EA-0004 (evidence), EA-0008 (remediation gated)
+**Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0011 (IAG — owns identity governance; routed to, never reimplemented)**, **EA-0013 / EA-0007 / EA-0006 (score composition)**, **EA-0020 (`Derivation` — replay)**, **EA-0012 (drift shape)**, EA-0002 (identity objects and relationships), EA-0005 (bounded traversal), EA-0025 (inventory registration), EA-0023 (exposure), EA-0032 (value-free crypto objects), EA-0010 (compliance), EA-0004 (evidence), EA-0008 (remediation gated)
 **Consumed by:** EA-0011 (`analyze_risk` reads the identities this engine normalizes), EA-0023 (identity exposure), EA-0013 (findings path), the ISPM UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
 **Build milestone:** C-030 (see `C-030_Task_Bundle.md`)
-**Enhanced by:** C-031 H2 (evidence-backed ownership handoff to EA-0025)
+**Enhanced by:** C-031 H2 (evidence-backed ownership handoff to EA-0025), C-031 H3 (value-free identity-to-credential/workload bindings)
 **Change control:** ECR-0049, ECR-0050, ECR-0051, ECR-0052
 **Definition of Ready:** see §12
 
@@ -168,6 +168,16 @@ scope.** A new identity shape or relationship vocabulary SHALL NOT be invented.
 - **D7 — Registered as an `AQService`;** stores in-memory + Postgres; health
   probe **tenant-scoped and exercised in both `local` and `enterprise` modes**
   (rule 11).
+- **D8 — Non-human identity bindings are value-free EA-0002 relationships.** A
+  strict handed-in claim may connect a supplied identity/account to an existing
+  EA-0032 crypto object or workload. The claim evidence is verified and EA-0006
+  confidence derived before any write; traversal remains EA-0005's. EA-0004
+  integrity never becomes credential authenticity, which remains explicitly
+  `unknown` without a typed owner verifier. The allowed matrix is
+  `secret_asset→uses`, `cryptographic_key→uses|signs`,
+  `x509_certificate→uses`, and
+  `workload→authenticates_to|runs_on|associated_with|invokes`; every other
+  pairing is unconstructible (C-031 H3, ECR-0039).
 
 ## 4. Types
 
@@ -185,11 +195,19 @@ IdentityAccessEdgeDescriptor = { from_external_id: str, to_object_id: str,
                                  relation_type: "has_role" | "grants_entitlement" | "member_of",
                                  observed_at: datetime, evidence_id: str }
                                  # explicit claim; target is an existing EA-0002 role/entitlement
+IdentityBindingDescriptor = { from_external_id: str, target_object_id: str,
+                              target_type: "secret_asset" | "cryptographic_key" |
+                                           "x509_certificate" | "workload",
+                              relation_type: "uses" | "signs" | "authenticates_to" |
+                                             "runs_on" | "associated_with" | "invokes",
+                              observed_at: datetime, evidence_id: str }
+                              # strict relation/target matrix; value-free; no authenticity claim
 IdentityDescriptor = { source_id: str, provider: str, external_id: str,
                        identity_kind: IdentityKind | null,
                        attributes: dict, controls: dict,          # mfa/lifecycle/last_activity raw
                        accounts: list[IdentityAccountDescriptor],
                        access_edges: list[IdentityAccessEdgeDescriptor],
+                       bindings: list[IdentityBindingDescriptor],
                        ownership: IdentityOwnershipClaim | null,
                        observed_at: datetime, evidence_id: str | null }   # handed in (§0.2)
 
@@ -314,6 +332,14 @@ with reason); conflicts across sources resolved by **EA-0006** reliability and
 **recorded** (EA-0025 pattern); register via **EA-0025** `ingest(...)`;
 evidence-recorded.
 
+Explicit `IdentityBindingDescriptor`s are validated as one evidence-first batch
+before owner writes, then emitted as value-free EA-0002 relationships to an
+existing, tenant-matched EA-0032 crypto object or workload. The relationship
+retains its `rel_` id, source evidence, EA-0006 confidence, target type, and
+`authenticity="unknown"`; it copies no credential metadata. Re-ingest is
+idempotent. Consumers traverse it only through EA-0005 with explicit
+`max_depth`, `max_paths`, and `max_work` bounds.
+
 **Score.** Gather: EA-0011 `analyze_risk` risks for the linked identity/account
 (**pinned as the actual `AccessRisk` owner records, not re-derived or assigned
 invented ids**), control facts, EA-0007 mission weight of what it reaches, EA-0006
@@ -363,6 +389,15 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 - **FR-19** All operations SHALL be tenant-scoped; invalid config (weights not summing to 1 ± 1e-6, `stale_activity_days ≤ 0`, `batch_size ≤ 0`, `page_budget ≤ 0`, unknown baseline id) SHALL raise `ISPMConfigInvalid`.
 - **FR-20** `ISPMStore` in-memory and Postgres implementations SHALL pass one contract suite; any new persisted field SHALL be checked against the target table's shape before being called additive (rule 9).
 - **FR-21** `ISPMService` SHALL register as an `AQService` with a **tenant-scoped** health probe, exercised in **both `local` and `enterprise`** tenant modes (rule 11).
+- **FR-22** A non-human identity binding SHALL be a strict, value-free,
+  evidence-backed EA-0002 relationship from a supplied identity/account to an
+  existing tenant-matched `secret_asset`, `cryptographic_key`,
+  `x509_certificate`, or `workload` object. Unknown relation/target types,
+  invalid relation/target combinations, duplicates, and cross-tenant targets
+  SHALL be refused before any owner write. Claim confidence SHALL come only
+  from EA-0006; EA-0004 integrity SHALL NOT establish authenticity, which stays
+  `unknown` absent a typed owner verifier. Re-ingest SHALL be idempotent and
+  traversal SHALL delegate to bounded EA-0005 (C-031 H3, ECR-0039).
 
 ### Non-functional
 
@@ -372,6 +407,9 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 - **NFR-4 (no collection)** socket spy proves zero outbound; no connector method.
 - **NFR-5 (replayable)** every stored score replays to its value.
 - **NFR-6 (bounded & typed)** paged under budget; both backends pass one suite; `mypy --strict` + `ruff` clean.
+- **NFR-7 (value-free bindings)** no ISPM binding type or relationship carries
+  secret/credential value material; healthy integrity alone still yields
+  `authenticity="unknown"`.
 
 ## 8. Acceptance Criteria ↔ Tests (Definition of Ready)
 
@@ -400,6 +438,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 | AC-21 | Store passes one suite on both backends | `test_ispm_store_contract[inmemory]` / `[postgres]` |
 | AC-22 | Health tenant-scoped, both tenant modes | `test_ispm_service_health[local]` / `[enterprise]` |
 | AC-23 | Ownership claim verifies before writes; real EA-0025 reconciliation pins known/unknown provenance on both stores | `test_nhi_ownership_*` |
+| AC-24 | Real EA-0032 object → evidence-backed EA-0002 binding → bounded EA-0005 traversal; value-free, tenant-safe, idempotent, and integrity is not authenticity | `test_nhi_binding_*` |
 
 ## 9. Error taxonomy (contributions)
 
@@ -433,6 +472,9 @@ event) — via `register_ispm_events()` (EA-0003 §7). **The module SHALL NOT em
   (ECR-0040).
 - Proposal failure → the finding stands, the delegation failure is surfaced, and
   **no identity provider is touched** (§0.2).
+- Binding evidence missing/tampered or a target absent/cross-tenant/type-mismatched
+  → refuse before identity, inventory, or relationship writes. A verified
+  integrity record still records binding authenticity as `unknown` (FR-22).
 
 ## 12. Dependencies & consumers
 
@@ -440,10 +482,11 @@ event) — via `register_ispm_events()` (EA-0003 §7). **The module SHALL NOT em
   `analyze_risk`, `access_paths`, `open_certification`/`decide_item`/
   `complete_certification`, `risks_to_findings`); **EA-0013 / EA-0007 / EA-0006**
   (score composition); **EA-0020** (`Derivation`); **EA-0012** (drift shape);
-  **EA-0002** (identity objects); **EA-0025** (`ingest`); **EA-0023**
+  **EA-0002** (identity objects and relationships); **EA-0005** (bounded
+  traversal); **EA-0025** (`ingest`); **EA-0023**
   (`KnownSurfaceSource`/`KnownSurfaceRecord`, `AssetRef.kind="identity"`);
-  **EA-0010** (`assess`); EA-0004 (evidence); **EA-0008** (`propose`, gated);
-  EA-0001 `AQService`.
+  **EA-0032** (value-free crypto objects); **EA-0010** (`assess`); EA-0004
+  (evidence); **EA-0008** (`propose`, gated); EA-0001 `AQService`.
 - **Consumed by:** **EA-0011** (`analyze_risk` reads identities this engine
   normalizes); **EA-0023** (identity exposure); **EA-0013** (findings); the ISPM
   UI (**WCAG 2.2 AA**).
@@ -473,6 +516,11 @@ EA-0033 does not fix ECR-0034; **it must not deepen it.**
 - **C-031 H2 ownership handoff** — EA-0033 accepts a value-free, evidence-backed
   owner claim but delegates ownership precedence and history to EA-0025. Missing
   ownership is explicit unknown, never a favourable control fact.
+- **C-031 H3 credential/workload binding** — EA-0033 accepts a value-free,
+  evidence-backed relation claim but delegates object ownership to EA-0032/
+  EA-0002 and traversal to EA-0005. EA-0004 integrity cannot establish
+  authenticity; absent a typed verifier, the persisted relation says
+  `authenticity="unknown"`.
 - **ECR-0049 (Accepted) — `identity_sensitivity` `ExposureImpactKind` widening.**
   `ExposureImpactKind` is currently `data_sensitivity | credential_sensitivity`
   (ECR-0041/0044). Feeding identity sensitivity into EA-0023 needs the same

@@ -20,6 +20,7 @@ from aqelyn.ispm.models import (
     ControlFact,
     IdentityAccessEdgeDescriptor,
     IdentityAccountDescriptor,
+    IdentityBindingDescriptor,
     IdentityControls,
     IdentityDescriptor,
     IdentityOwnershipClaim,
@@ -96,6 +97,8 @@ class PreparedIdentity:
     account_confidence: dict[str, float]
     edge_evidence: dict[tuple[str, str, str], EvidenceRecord]
     edge_confidence: dict[tuple[str, str, str], float]
+    binding_evidence: dict[tuple[str, str, str], EvidenceRecord]
+    binding_confidence: dict[tuple[str, str, str], float]
 
 
 @dataclass(frozen=True)
@@ -181,6 +184,25 @@ async def prepare_identity(
         )
         edge_evidence[key] = record
         edge_confidence[key] = score
+    binding_evidence: dict[tuple[str, str, str], EvidenceRecord] = {}
+    binding_confidence: dict[tuple[str, str, str], float] = {}
+    for binding in descriptor.bindings:
+        key = binding_key(binding)
+        record, score = await _verified_evidence(
+            binding.evidence_id,
+            source_id=descriptor.source_id,
+            subject_ref=(
+                f"identity-binding:{binding.from_external_id}:"
+                f"{binding.relation_type}:{binding.target_object_id}"
+            ),
+            observed_at=binding.observed_at,
+            evidence_store=evidence_store,
+            trust=trust,
+            actor=actor,
+            tenant_id=tenant_id,
+        )
+        binding_evidence[key] = record
+        binding_confidence[key] = score
     return PreparedIdentity(
         descriptor=descriptor,
         evidence=evidence,
@@ -191,6 +213,8 @@ async def prepare_identity(
         account_confidence=account_confidence,
         edge_evidence=edge_evidence,
         edge_confidence=edge_confidence,
+        binding_evidence=binding_evidence,
+        binding_confidence=binding_confidence,
     )
 
 
@@ -395,15 +419,19 @@ def relationship(
     confidence: float,
     actor: ActorRef,
     observed_at: datetime,
+    attributes: Mapping[str, Any] | None = None,
 ) -> AQRelationship:
     now = utc_now()
+    selected_attributes: dict[str, Any] = {"module": "EA-0033"}
+    if attributes is not None:
+        selected_attributes.update(attributes)
     return AQRelationship(
         id="",
         tenant_id=tenant_id,
         from_id=from_id,
         to_id=to_id,
         relation_type=relation_type,
-        attributes={"module": "EA-0033"},
+        attributes=selected_attributes,
         sources=[
             SourceRef(
                 source_id=source.source_id,
@@ -500,6 +528,14 @@ def validate_edge_target(edge: IdentityAccessEdgeDescriptor, target: AQObject) -
         expected = ", ".join(sorted(allowed))
         raise ISPMConfigInvalid(
             f"{edge.relation_type} target must be one of [{expected}], got {target.object_type!r}"
+        )
+
+
+def validate_binding_target(binding: IdentityBindingDescriptor, target: AQObject) -> None:
+    if target.object_type != binding.target_type:
+        raise ISPMConfigInvalid(
+            "identity binding target type does not match the declared target_type: "
+            f"expected {binding.target_type!r}, got {target.object_type!r}"
         )
 
 
@@ -631,3 +667,7 @@ def _conflict_candidate(
 
 def _edge_key(edge: IdentityAccessEdgeDescriptor) -> tuple[str, str, str]:
     return edge.from_external_id, edge.to_object_id, edge.relation_type
+
+
+def binding_key(binding: IdentityBindingDescriptor) -> tuple[str, str, str]:
+    return binding.from_external_id, binding.target_object_id, binding.relation_type

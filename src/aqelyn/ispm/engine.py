@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, utc_now
@@ -56,6 +56,7 @@ from aqelyn.ispm.normalize import (
     PreparedIdentity,
     TrustAssessor,
     account_object,
+    binding_key,
     ensure_identity_object_types,
     identity_object,
     inventory_ownership,
@@ -65,6 +66,7 @@ from aqelyn.ispm.normalize import (
     prepare_identity,
     reconcile_identity,
     relationship,
+    validate_binding_target,
     validate_edge_target,
 )
 from aqelyn.ispm.scoring import IdentityMissionOwner, compose_posture, validate_replayable_score
@@ -923,6 +925,35 @@ class ISPMEngine:
             )
             relationship_ids.add(rel.id)
 
+        for binding in descriptor.bindings:
+            source_object = local_objects[binding.from_external_id]
+            target = await self.object_store.get(
+                binding.target_object_id,
+                resolve_merged=False,
+            )
+            if target is None:
+                raise ISPMConfigInvalid(
+                    f"identity binding target does not exist: {binding.target_object_id}"
+                )
+            if target.tenant_id != tenant_id:
+                raise CrossTenantReference("ISPM identity binding target belongs to another tenant")
+            validate_binding_target(binding, target)
+            binding_evidence_key = binding_key(binding)
+            rel = await self._ensure_relationship(
+                from_id=source_object.id,
+                to_id=target.id,
+                relation_type=binding.relation_type,
+                tenant_id=tenant_id,
+                source=prepared.binding_evidence[binding_evidence_key],
+                confidence=prepared.binding_confidence[binding_evidence_key],
+                observed_at=binding.observed_at,
+                attributes={
+                    "binding_target_type": binding.target_type,
+                    "authenticity": "unknown",
+                },
+            )
+            relationship_ids.add(rel.id)
+
         inventory_assets = []
         for report, source in inventory_requests:
             inventory_assets.extend(
@@ -983,6 +1014,20 @@ class ISPMEngine:
                 if target.tenant_id != tenant_id:
                     raise CrossTenantReference("ISPM access edge target belongs to another tenant")
                 validate_edge_target(edge, target)
+            for binding in item.descriptor.bindings:
+                target = await self.object_store.get(
+                    binding.target_object_id,
+                    resolve_merged=False,
+                )
+                if target is None:
+                    raise ISPMConfigInvalid(
+                        f"identity binding target does not exist: {binding.target_object_id}"
+                    )
+                if target.tenant_id != tenant_id:
+                    raise CrossTenantReference(
+                        "ISPM identity binding target belongs to another tenant"
+                    )
+                validate_binding_target(binding, target)
 
     async def _reconcile_account(
         self,
@@ -1098,6 +1143,7 @@ class ISPMEngine:
         source: EvidenceRecord,
         confidence: float,
         observed_at: datetime,
+        attributes: Mapping[str, object] | None = None,
     ) -> AQRelationship:
         existing = await self.object_store.relationships(
             from_id,
@@ -1117,6 +1163,7 @@ class ISPMEngine:
                 confidence=confidence,
                 actor=self.actor,
                 observed_at=observed_at,
+                attributes=attributes,
             )
         )
 
