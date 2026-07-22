@@ -148,265 +148,113 @@ continues to satisfy the Protocol it doubles.
 
 ---
 
-## Part 2 — Current handover: IS-034 / EA-0034 (Machine Identity & NHI Governance)
 
-**Repository state:** `main @e6b49ce`, green (ruff, format, mypy --strict,
-1237 passed / 3 skipped on live PG16 + Redis 7).
-**Next free ECR:** **0054** (ECR-0053 now records the IS-034 conformance decision;
-re-read the log before assigning).
-**Archive verified:** `archive/EA-0034/EA-0034_Master.md` is IS-034, Machine Identity &
-Non-Human Identity Governance. Its continuation to IS-035 was checked against the actual
-`archive/EA-0035/EA-0035_Master.md`, whose title is Secrets, Keys & Certificate Lifecycle
-Governance — a likely EA-0032 restatement to inspect at that later turn.
+## Part 2 — Current handover: IS-035 / EA-0035 (Secrets, Keys & Certificate Lifecycle Governance)
 
-### ECR-0015 result — do not build a second identity module
+**Repository state:** `main @6edfba8`, green (ruff, format, `mypy --strict src tests` 479 files,
+1260 passed / 3 skipped live PG16+Redis7).
+**Next free ECR:** **0054** (log ends at ECR-0053; re-read `ECR-LOG.md` before assigning).
+**Archive verified:** `archive/EA-0035/EA-0035_Master.md` is IS-035, *Secrets, Keys & Certificate
+Lifecycle Governance Engine*.
+**Layout:** there is NO new package. Enhancements land in **`src/aqelyn/secrets/`** (EA-0032).
 
-The master's exact PascalCase event/type names have no literal shipped collision, but the
-capabilities and semantic events do. This is the IS-026 result distributed across several existing
-owners rather than concentrated in one package.
+### ECR-0015 result — this is EA-0032, again. Do not build a second secrets engine.
+
+Run by the reviewer against shipped `src/`:
 
 ```
-17 declared master events: 0 exact matches in src/aqelyn
-machine_identity 0 · non_human 0 · workload_identity 0 · service_account 0
-
-Master machine/NHI categories       -> EA-0033 IdentityKind already includes
-                                       service|machine|application|federated|temporary
-discovery + normalization + score   -> aqelyn.ispm.identity_normalized / posture_scored
-governance drift                    -> aqelyn.ispm.posture_drift_detected
-credential/certificate lifecycle    -> aqelyn.crypto.* + EA-0032 stores and assessment
-orphan/dormant/privilege/certify    -> aqelyn.iag.* + EA-0011 analysis/certification
-asset ownership + lifecycle         -> aqelyn.inventory.* + EA-0025 Ownership/lifecycle
-recommendation/workflow             -> aqelyn.decision.* / aqelyn.workflow.*
+secret_asset / cryptographic_key / x509_certificate object types : 5 each  (EA-0032 owns)
+rotation 28 · revocation 19 · expiry 17 · propose_rotation 3              (EA-0032 lifecycle)
+sct / cky / x509 prefixes : 8 each · cas                                  (EA-0032 PREFIXES)
+secrets_engine 16 · aqelyn.crypto.* 4 events                              (EA-0032 service/events)
+renewal 0 · kms 0 · certificate.*lifecycle 0                             <- net-new *vocabulary* only
 ```
 
-**Decision for the spec pass:** machine identity is a scope over EA-0033's identity capability, not
-a new capability owner. Do not create `src/aqelyn/machine_identity/`, a second identity repository,
-a second posture score, or a `machine_identity_engine` service. Propose ECR-0053 as an IS-034
-conformance decision and realize only the genuine gaps as small enhancements to their existing
-owners. If a task bundle says a new package or service is required, the reconciliation has gone
-wrong.
+**IS-035 is the third distributed-conformance case (after IS-026 and IS-034).** EA-0035 renames
+EA-0032's shipped capability — secrets, keys, certificates, their lifecycle (expiry/strength/rotation/
+chain/revocation/integrity/authenticity), rotation proposals, exposure, compliance, findings, and the
+value-free no-plaintext guarantee — under a "governance" label plus a provider list (Vault, CyberArk,
+Azure Key Vault, AWS Secrets Manager, KMS, PKI, HSM). Building the archive literally would create a
+second secrets store, a second crypto object model, duplicate lifecycle logic, duplicate `sct`/`cky`/
+`x509` prefixes, a second `secrets_engine`, and a renamed `aqelyn.crypto.*` namespace.
 
-### Capability ownership — verified against shipped code
+**Propose ECR-0054 as an IS-035 conformance decision.** There SHALL be no `src/aqelyn/secrets2/` (or
+`credential_governance/`), no second secrets store, no second crypto asset/score model, no duplicate
+prefix, no second `*_engine` service, and no new event namespace. If the drafted bundle calls for a new
+package or service, the reconciliation has gone wrong. First verify conformance against shipped code,
+then realize only the genuine gaps as additive, owner-scoped enhancements to **EA-0032**.
 
-| Archive capability | Shipped owner / exact seam |
-|---|---|
-| handed-in discovery + normalization | EA-0033 `ISPMEngine.ingest_identities(descriptors, *, tenant_id)` |
-| canonical identity/account objects | EA-0033 writes EA-0002 `AQObject`s and `has_account` relationships |
-| service/machine/application identity kinds | EA-0033 `IdentityKind` — already in the persisted model |
-| identity posture and coverage | EA-0033 `score_identity`, `assess`; exact scores pinned in `ISPMAssessment.score_ids` |
-| governance drift | EA-0033 `detect_drift` using the EA-0012 comparator shape |
-| access paths, orphan/dormant/privilege/SoD | EA-0011 `access_paths`, `analyze_risk` |
-| access certification | EA-0011 `open_certification` / `decide_item` / `complete_certification` |
-| ownership and asset lifecycle | EA-0025 `InventoryIntelligenceEngine.ingest`, `ownership`, `mark_unreported`, `decommission` |
-| secrets, keys, certificates, rotation/expiry | EA-0032 `ingest_crypto_assets`, `assess_key`, `assess_certificate`, `propose_rotation` |
-| relationship storage / traversal | EA-0002 `ObjectStore.relate`; EA-0005 graph paths/subgraphs |
-| trust | EA-0006 `TrustEngine.assess` |
-| policy | EA-0009 `PolicyEngine`; do not add a machine-identity rule language |
-| findings | EA-0011 `risks_to_findings` / EA-0013 finding path; no new `SignalKind` |
-| recommendation | EA-0020 replayable advisory `Recommendation`; no prose-only recommendation engine |
-| remediation | EA-0008 `WorkflowEngine.propose(..., source_finding=finding)` |
-| reporting | EA-0022 figures/briefings; no machine-identity report engine |
+### What EA-0032 already owns — route/reuse, never re-derive
 
-### The genuine remainder — enhancements, not a module
+Verified present in shipped `src/aqelyn/secrets/`:
+- `SecretsIntelligenceEngine.ingest_secrets`, `ingest_crypto_assets` (handed-in descriptors, value-free)
+- `assess_key`, `assess_certificate`, `assess` — tri-state lifecycle (`valid|invalid|unknown`),
+  two-stage cert verification (EA-0004 integrity ≠ authenticity, ECR-0039/0046)
+- `analyze_exposure` (EA-0023 seam, `credential_sensitivity` ECR-0044), `propose_rotation` (EA-0008
+  gated, `source_finding`-bound, never executes)
+- object types `secret_asset`/`cryptographic_key`/`x509_certificate`; prefixes `sct`/`cky`/`x509`/`cas`
+- **value-free by construction** — `_ValueFreeModel`, `extra="forbid"`, no raw-value/content field;
+  the master's "no plaintext" boundary is ALREADY structural. Do not re-implement it.
 
-1. **Ownership handoff is not connected.** EA-0025 already owns `Ownership` and reconciles it by
-   source reliability, but EA-0033's `IdentityDescriptor` has no owner claim and
-   `ispm.normalize.inventory_report()` omits `owner`. Add an evidence-backed ownership input and
-   prove a real ISPM ingest produces the same owner through `InventoryIntelligenceEngine.ownership`.
-   Do not create an NHI ownership store.
-2. **Identity-to-credential/workload bindings are not represented.** EA-0033 currently accepts only
-   `has_role|grants_entitlement|member_of` access edges (plus its required `has_account` edge).
-   EA-0032 stores secret/key/certificate objects, but no shipped seam binds them to the non-human
-   identity that uses them. Add a narrow, typed, evidence-backed relationship input to EA-0033 and
-   persist it with EA-0002 `relate`; use EA-0005 for traversal. Never copy credential metadata or
-   secret values into ISPM.
-3. **Provider lifecycle detail is collapsed.** EA-0033 normalizes lifecycle to
-   `present|absent|unknown`; values such as requested, provisioned, rotating, suspended, and revoked
-   are not retained as an append-only identity lifecycle history. First map states that genuinely
-   belong to EA-0025's asset lifecycle. If identity-only states remain, add the narrow history to
-   EA-0033 under change control — not a second lifecycle engine — and keep source silence distinct
-   from suspension/revocation.
-4. **Missing archive events belong to their owners.** A needed credential-rotation event is an
-   additive `aqelyn.crypto.*` event; an identity lifecycle event is an additive `aqelyn.ispm.*`
-   event only if EA-0025's `aqelyn.inventory.lifecycle_changed` cannot express it. Do not re-emit
-   existing ISPM, IAG, inventory, crypto, decision, or workflow events under a new NHI namespace.
+### The genuine remainders (candidate enhancements to EA-0032, owner's call)
 
-A small conformance bundle is the expected shape: shipped-code conformance first, then only the
-owner-handoff/relationship/lifecycle gaps that survive that proof. No service/factory ticket should
-exist unless an existing owner's service needs an additive method or event.
+1. **A deterministic per-credential governance SCORE (0–100).** Verified EA-0032 has *no* per-asset
+   score today — `CryptoAssessment` carries counts, not a score. This is the one genuinely-new
+   capability, and it is **the EA-0033-ISPM posture-score pattern applied to crypto**: compose EA-0032
+   lifecycle + EA-0025 ownership + EA-0023 exposure + EA-0006 trust + EA-0007 mission + EA-0010
+   compliance into a replayable **EA-0020 `Derivation`**. It MUST follow the ISPM rules exactly:
+   - **No second scorer** — compose EA-0013 risk / EA-0007 / EA-0006, do not stand up a new one.
+   - **Unknown excluded from the denominator, never favourable** (rules 4/5; the ECR-0040/ISPM-G4
+     shape — an unknown control must not let a credential outscore a proven-good one, and
+     `known_only × coverage_adjustment` is the shape that avoids "unknown == present").
+   - **Replayable or unrepresentable** (S1c) — a score whose derivation does not replay is rejected at
+     `put`, driven against the real scorer per ECR-0007, not a spy.
+2. **Storage-safety governance** — EA-0032's `SecretLocation` has kinds (`repository`/`configuration`/
+   `vault_reference`/`runtime_reference`/`other`) but no approved-vs-unsafe classification. A
+   metadata-only "is this stored in an approved vault/KMS/HSM vs an unsafe location" signal is a narrow,
+   value-free addition. Never store or infer the secret itself.
+3. **Ownership handoff for credentials → EA-0025** — the C-031 H2 pattern (identity ownership → real
+   `Ownership`/`reconcile`, evidence-pinned, missing=unknown) applied to crypto assets, if wanted.
 
-### Boundaries the spec must make structural
+**Explicitly resist:** the archive's rich lifecycle STATE MACHINES
+(`Requested→Approved→…→Archived`, `Requested→Validated→Issued→…→Archived`). EA-0032's shipped reality is
+tri-state lifecycle *fields* (`valid|invalid|unknown`), which is sufficient. Do **not** build a
+lifecycle state-machine engine or a transition-event store unless a specific governance need is proven
+against shipped gaps — a 13-state credential machine is archive over-specification.
 
-- **Handed-in descriptors only.** The master repeatedly asks for connector orchestration and
-  continuous discovery. IS-034 opens no provider/Kubernetes/vault connection, holds no credential,
-  and schedules nothing. Connectors remain future EA-0008-gated actions; scheduling remains a
-  platform capability.
-- **No credential values.** Reuse EA-0032's value-free descriptors/records. A machine-identity link
-  carries ids, fingerprints where already permitted, evidence, and provenance — never a key, token,
-  password, certificate private material, or provider payload.
-- **Absence is not revocation or safety.** A source going quiet maps through EA-0025's `unreported`
-  rule; it never suspends, revokes, archives, or deletes an identity. Missing ownership, lifecycle,
-  or credential binding is `unknown`/flagged and cannot improve posture.
-- **One score owner.** Any machine-identity posture result extends EA-0033's replayable score and
-  pinned owner inputs. It must not introduce `MachineIdentityRiskScore`, `GovernanceScore`, or a
-  second scorer merely because the subject is non-human.
-- **No action.** Suspend, revoke, rotate, renew, or alter privileges only through an EA-0008
-  proposal bound to its source finding. Preserve the owning finding's automation contract and prove
-  the real workflow boundary per rule 16.
-- **No synthetic trust.** Confidence comes from EA-0006; EA-0004 integrity does not prove provider,
-  workload, certificate, or event authenticity.
-- **No silent cap.** Every inventory-backed assessment inherits unresolved ECR-0034. It must expose
-  incomplete coverage and must not claim the first 10,000 assets are the whole NHI estate.
+### Boundaries (unchanged from the family)
 
-### Acceptance proofs to require
-
-- **Conformance, not grep alone:** construct each supported non-human `IdentityKind`, ingest it
-  through the real EA-0033 engine, and show the real EA-0011 analysis can act on its account graph.
-- **Ownership round trip:** handed-in owner evidence -> EA-0033 ingest -> real EA-0025
-  `ownership(...)`, including conflicting-source reliability and unresolved ties.
-- **Credential binding round trip:** real EA-0032 crypto object -> evidence-backed EA-0002 relation
-  from the normalized machine identity -> EA-0005 traversal; missing/tampered evidence writes
-  neither the edge nor a favourable assessment.
-- **Lifecycle contrast:** explicit revoked/suspended evidence, healthy active evidence, and source
-  silence produce three distinguishable results; silence must become unreported/unknown, never
-  revoked or clean.
-- **No duplicate computation/events:** owner spies prove delegation, then real-owner tests prove the
-  handoffs are actionable. Event registration must contain only genuinely new owner events.
-- **No values under normal Python and `python -O`; no network attempts; both backends and both tenant
-  modes.**
-
-### Existing follow-ups to preserve, not absorb
-
-- **ECR-0032 (Proposed):** the shared posture-normalization-base revisit threshold was met before
-  EA-0033. IS-034 must not become a fifth implementation while that decision remains open.
-- **ECR-0034 (Proposed):** inventory's 10,000-row cap can report a partial denominator as complete.
-- **EA-0018:** `response/metrics.py` has an unclamped negative-duration timestamp flake.
-- **EA-0027 + EA-0018:** enterprise-mode health probes remain unscoped in `idthreat_engine` and
-  `response_engine`.
-- **EA-0013:** equal-timestamp finding ordering still needs a deterministic tie-breaker.
-
-### Pasteable spec-author brief
-
-> Treat IS-034 as conformance plus targeted enhancement, not EA-0034 as a new runtime module.
-> Machine/non-human identity is already an EA-0033 `IdentityKind` scope; governance is EA-0011,
-> ownership/lifecycle EA-0025, credentials/certificates EA-0032, trust EA-0006, policy EA-0009,
-> recommendations EA-0020, and actions EA-0008. Propose ECR-0053 to forbid a second identity store,
-> score, service, or event namespace. Verify conformance against shipped code first. The honest
-> remainders are: carry evidence-backed ownership from EA-0033 into EA-0025; add narrow
-> evidence-backed identity-to-crypto/workload relationships through EA-0002/0005; and preserve any
-> genuinely identity-specific lifecycle states without conflating source silence with revocation.
-> Every handoff needs a real-owner round trip, not only a spy. Handed-in descriptors only, no secret
-> values, no direct action, no favourable unknown, no duplicate events, and no claim of exhaustive
-> inventory while ECR-0034 remains open.
-
----
-
-## Prior handover — IS-033 / EA-0033 (Identity Security Posture Management)
-
-**Repository state:** `main @97efba5`, green (ruff, format, mypy --strict over 300 files,
-1193 passed / 3 skipped on live PG16 + Redis 7).
-**Next free ECR:** **0049** (log ends at ECR-0048 — re-read `ECR-LOG.md` before use).
-**Component:** Identity Security Posture Management (ISPM) Intelligence Engine.
-**Layout:** propose `src/aqelyn/ispm/` + `tests/ispm/`; confirm against `README.md`'s mapping table.
-The archive master's "Next" pointer (ISPM) was verified against `archive/EA-0033/EA-0033_Master.md`.
-
-### ECR-0015 check — run against shipped `src/`: this is MOSTLY already owned
-
-```
-ispm 0 · identity_posture 0 · posture_score 1(unrelated, executive KPI) · federated 0
-service_account 0 · machine_identity 0 · identity-drift 0     <- genuinely net-new
-entitlement 107 · certification 154 · privilege 34 · dormant 19 · orphaned 12
-access_path 23 · sod 1        <- ALL already owned by EA-0011 (IAG)
-```
-
-**This is the DSPM/SSPM/CSPM posture pattern, FOURTH instance — and the identity-governance half
-already ships.** The master lists standalone-sounding components (Posture Assessment Engine, Risk
-Scoring Engine, Drift Detection, Recommendation Engine, Identity Classification), but EA-0011 already
-owns identity governance. The central spec question, exactly as for DSPM: **is ISPM a new capability,
-or a normalize + score + route posture layer over EA-0011?** It is the latter, plus three genuinely-new
-pieces (scoring, drift, wider-scope normalization). Do not let the master's component list become five
-new engines.
-
-### What EA-0011 (IAG) already owns — ROUTE to it, do not reimplement
-
-Verified in `src/aqelyn/iag/`:
-- `IAGEngine.access_paths(identity_id, *, tenant_id)` → `list[AccessPath]`
-- `IAGEngine.analyze_risk(*, tenant_id, scope)` → `AccessRiskReport` — internally computes **orphaned,
-  dormant, over-privileged, SoD (via Policy), privileged-unreviewed** risks. ISPM must not re-derive any
-  of these.
-- `open_certification` / `decide_item` / `complete_certification` — access-review campaigns. ISPM
-  certification **is** this; do not create a parallel certification path.
-- `risks_to_findings(*, by)` — evidence-backed findings into EA-0013. No new `SignalKind`.
-- Models to reuse, not redefine: `AccessPath`, `AccessRisk`, `AccessRiskReport`, `ReviewItem`,
-  `Certification`, `IAGConfig`.
-
-### The three genuinely-new capabilities (where ISPM earns its existence)
-
-1. **Deterministic 0–100 Identity Security Posture Score** (master REQ-FR-033-011). Compose EA-0013
-   risk scoring / EA-0007 mission / EA-0006 trust — do not stand up a second scorer. Mission-weighted,
-   deterministic, replayable (EA-0020 `Derivation`).
-2. **Identity posture drift** against approved baselines — reuse the EA-0012 drift shape
-   (`src/aqelyn/assetconfig/`, declarative baseline `(key, expected, comparator)` vs observed,
-   append-only drift snapshots), do not invent a parallel drift engine.
-3. **Wider-scope identity normalization** — classify/normalize identities from sources EA-0011 does
-   not already govern (human/service/machine/application/federated/temporary) into EA-0002 objects that
-   EA-0011's `analyze_risk` can then read. This is the DSPM parallel: same governance vocabulary, wider
-   discovery scope. Reuse EA-0011's identity object shape rather than a new one.
-
-### Boundaries to state in §0
-
-- **Handed-in descriptors, not connectors (rule 13).** The master's ARC-033-001/002 ("Identity
-  Discovery Manager", "Connector Orchestration Layer", "Provider-specific payloads") is the EA-0031 /
-  EA-0014 trap — a real §0 hazard. ISPM opens no socket to Okta/AD/AAD/PAM, holds no credential, polls
-  nothing. It accepts already-produced, versioned identity descriptors; live provider ingestion is a
-  later EA-0008-gated connector. Enforce with a no-network/grep test.
-- **Detect and propose, never act.** Master §2.2 (out of scope): "Direct modification of identity
-  provider configuration." Remediation is an EA-0008 `requires_approval=True` proposal with
-  `source_finding` bound (rule 7) — never executed.
-- **Tri-state floor (rule 4/5), sharp for identity posture.** An identity whose MFA status, lifecycle
-  state, or last-activity is *unknown* must not score as MFA-present / active / recently-reviewed.
-  Missing control facts are `unknown`, excluded from the favourable side of the score denominator
-  (the ECR-0040 shape) — never a favourable default.
+- **Handed-in descriptors, not connectors** (rule 13). The provider list (Vault/CyberArk/KMS/PKI/HSM)
+  is the EA-0031/0034 trap — live provider ingestion is a later EA-0008-gated connector; EA-0032
+  accepts handed-in descriptors and holds no credential.
+- **Detect and propose, never act** — rotation/revocation is EA-0032's `propose_rotation` (gated,
+  `source_finding`-bound, `requires_approval=True`); the master's "no unauthorized rotation" is already
+  the shipped guarantee.
+- **Value-free is structural** (rule 14) — reuse `_ValueFreeModel`; never a plaintext field.
+- **No-action boundary** proven against the OWNING finding's actual automation contract (rule 16) — for
+  EA-0032 that is eligibility-`none` (structural execute-block), verified behaviourally.
 
 ### Delegation seams, verified present in shipped code
 
 | Need | Shipped seam |
 |---|---|
-| identity governance risk | EA-0011 `analyze_risk`, `access_paths` (orphaned/dormant/over-priv/SoD) |
-| access-review certification | EA-0011 `open_certification` / `decide_item` / `complete_certification` |
-| identity objects | EA-0002 `ObjectStore.upsert` (identity/account object types EA-0011 already reads) |
-| inventory registration | EA-0025 `InventoryIntelligenceEngine.ingest(reports=, source=DiscoverySource, tenant_id=)` |
-| exposure | EA-0023 `KnownSurfaceSource → KnownSurfaceRecord`; `AssetRef.kind="identity"` already exists |
-| risk score composition | EA-0013 risk scoring · EA-0007 mission · EA-0006 trust; replay via EA-0020 `Derivation` |
-| drift pattern | EA-0012 `src/aqelyn/assetconfig/` declarative baselines + append-only snapshots |
+| secret/key/cert assets + lifecycle | EA-0032 `ingest_secrets`/`ingest_crypto_assets`/`assess_key`/`assess_certificate` |
+| rotation proposal | EA-0032 `propose_rotation` (EA-0008 gated) |
+| exposure | EA-0023 `KnownSurfaceSource`; EA-0032 `analyze_exposure` + `credential_sensitivity` |
+| ownership / storage lifecycle | EA-0025 `Ownership`/`ingest`/`reconcile`/`ownership` |
+| score composition | EA-0013 risk · EA-0007 mission · EA-0006 trust; replay EA-0020 `Derivation` |
 | compliance | EA-0010 `assess` |
-| findings | EA-0011 `risks_to_findings` / EA-0013 finding path — no new `SignalKind` |
-| remediation | EA-0008 `propose(playbook, by=, source_finding=)` |
+| findings | EA-0013 finding path — no new `SignalKind` |
+| relationships / traversal | EA-0002 `ObjectStore.relate`; EA-0005 bounded paths |
 
 ### False friends — names already taken
 
-- **`cert` prefix** = `iag_certification` (EA-0011). ISPM certification IS EA-0011's; do not mint a
-  parallel prefix or a second certification model.
-- **`aqelyn.iag.*` events already exist** (`certification_opened/completed`, `item_decided`,
-  `risk_detected`). ISPM's own events (posture-scored / drift-detected / identity-normalized) must be
-  net-new `aqelyn.ispm.*` (or similar), and must not re-emit EA-0011's.
-- **`AssetRef.kind="identity"`** already exists for EA-0023 exposure — reuse it.
+- Prefixes `sct`/`cky`/`x509`/`cas` are EA-0032's. A new governance-score record needs a *new* prefix
+  (verify collision-free against `PREFIXES` at spec stage, e.g. name it in §9 like EA-0032 did).
+- `aqelyn.crypto.*` events belong to EA-0032; a governance-score event must be net-new and not re-emit
+  them. `secrets_engine` is EA-0032's service name.
 
-### ECR-0044 shape to anticipate at the exposure step
+### Open follow-up this must not weaken
 
-If ISPM feeds identity sensitivity into EA-0023 scoring, `ExposureImpactKind` is currently
-`data_sensitivity | credential_sensitivity` (ECR-0041/0044). An identity-sensitivity factor needs the
-same additive-widening + replay-pin treatment (a new `identity_sensitivity` kind, `data_sensitivity`
-default preserved) — anticipate it in the spec rather than discovering it mid-build.
-
-### ECR-0032 — the FOURTH posture instance
-
-CSPM, SSPM, DSPM, now ISPM. The shared posture-normalization-base revisit condition is well past met.
-Keep it Proposed and after C-030 green (behaviour-preserving refactor, not this milestone), but note in
-the spec that ISPM is the fourth `normalize → score → route` instance.
-
-### Open follow-up this module must not weaken
-
-**ECR-0034** (inventory `limit=10_000` reports itself complete) remains unimplemented. If ISPM
-registers identities into EA-0025, it inherits the cap and adds to the same store — state the
-dependency; do not treat the inventory report as exhaustive.
+**ECR-0034** (inventory `limit=10_000` reports complete) remains unimplemented. If credential governance
+registers or reads crypto assets through EA-0025, it inherits the cap — keep coverage honest.
