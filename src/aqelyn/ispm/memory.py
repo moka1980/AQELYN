@@ -5,16 +5,29 @@ from __future__ import annotations
 from aqelyn.conventions.errors import (
     CrossTenantReference,
     ISPMConfigInvalid,
+    OptimisticConcurrencyConflict,
 )
-from aqelyn.ispm.models import NormalizedIdentity, NormalizedIdentityKind
+from aqelyn.ispm.models import (
+    IdentityBaseline,
+    IdentityDriftSnapshot,
+    IdentityPostureScore,
+    NormalizedIdentity,
+    NormalizedIdentityKind,
+)
 from aqelyn.ispm.store import (
+    validate_baseline,
+    validate_baseline_id,
     validate_cursor,
+    validate_drift,
+    validate_drift_id,
     validate_external_id,
     validate_identity,
     validate_identity_kind,
     validate_limit,
     validate_object_id,
     validate_provider,
+    validate_score,
+    validate_score_id,
     validate_tenant_scope,
     validate_write_tenant,
 )
@@ -25,6 +38,9 @@ class InMemoryISPMStore:
         self.mode = mode
         self._history: dict[str, list[NormalizedIdentity]] = {}
         self._identities: dict[tuple[str | None, str, str], str] = {}
+        self._scores: dict[str, IdentityPostureScore] = {}
+        self._baselines: dict[str, list[IdentityBaseline]] = {}
+        self._drifts: dict[str, IdentityDriftSnapshot] = {}
 
     async def upsert_identity(self, identity: NormalizedIdentity) -> NormalizedIdentity:
         stored = validate_identity(identity)
@@ -104,6 +120,84 @@ class InMemoryISPMStore:
         page = rows[:selected_limit]
         next_cursor = page[-1].object_id if len(rows) > selected_limit else None
         return [item.model_copy(deep=True) for item in page], next_cursor
+
+    async def put_score(self, score: IdentityPostureScore) -> IdentityPostureScore:
+        stored = validate_score(score)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        current = self._scores.get(stored.id)
+        if current is not None:
+            if current.model_dump(mode="json") != stored.model_dump(mode="json"):
+                raise OptimisticConcurrencyConflict("posture scores are append-only")
+            return current.model_copy(deep=True)
+        self._scores[stored.id] = stored.model_copy(deep=True)
+        return stored.model_copy(deep=True)
+
+    async def get_score(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityPostureScore | None:
+        selected_id = validate_score_id(score_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        stored = self._scores.get(selected_id)
+        if stored is None or not self._visible(stored.tenant_id, selected_tenant):
+            return None
+        return validate_score(stored)
+
+    async def put_baseline(self, baseline: IdentityBaseline) -> IdentityBaseline:
+        stored = validate_baseline(baseline)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        history = self._baselines.setdefault(stored.id, [])
+        if history:
+            current = history[-1]
+            if current.tenant_id != stored.tenant_id:
+                raise CrossTenantReference("identity baseline tenant_id cannot change")
+            if current.version == stored.version:
+                if current.model_dump(mode="json") != stored.model_dump(mode="json"):
+                    raise OptimisticConcurrencyConflict("identity baseline version is append-only")
+                return current.model_copy(deep=True)
+            if stored.version <= current.version:
+                raise OptimisticConcurrencyConflict("identity baseline version must increase")
+        history.append(stored.model_copy(deep=True))
+        return stored.model_copy(deep=True)
+
+    async def get_baseline(
+        self,
+        baseline_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityBaseline | None:
+        selected_id = validate_baseline_id(baseline_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        history = self._baselines.get(selected_id)
+        if not history or not self._visible(history[-1].tenant_id, selected_tenant):
+            return None
+        return validate_baseline(history[-1])
+
+    async def put_drift(self, snapshot: IdentityDriftSnapshot) -> IdentityDriftSnapshot:
+        stored = validate_drift(snapshot)
+        validate_write_tenant(stored.tenant_id, mode=self.mode)
+        current = self._drifts.get(stored.id)
+        if current is not None:
+            if current.model_dump(mode="json") != stored.model_dump(mode="json"):
+                raise OptimisticConcurrencyConflict("identity drift snapshots are append-only")
+            return current.model_copy(deep=True)
+        self._drifts[stored.id] = stored.model_copy(deep=True)
+        return stored.model_copy(deep=True)
+
+    async def get_drift(
+        self,
+        snapshot_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityDriftSnapshot | None:
+        selected_id = validate_drift_id(snapshot_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        stored = self._drifts.get(selected_id)
+        if stored is None or not self._visible(stored.tenant_id, selected_tenant):
+            return None
+        return validate_drift(stored)
 
     def _visible(self, row_tenant_id: str | None, requested_tenant_id: str | None) -> bool:
         if self.mode == "local":

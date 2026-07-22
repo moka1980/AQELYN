@@ -364,7 +364,7 @@ class PostureFactor(BaseModel):
     def _value(cls, value: object) -> float | None:
         if value is None:
             return None
-        return _finite(value, field="posture factor value")
+        return _unit(value, field="posture factor value")
 
     @field_validator("weight", mode="before")
     @classmethod
@@ -446,6 +446,26 @@ class IdentityPostureScore(BaseModel):
     @classmethod
     def _evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
+
+    @model_validator(mode="after")
+    def _score_consistent(self) -> IdentityPostureScore:
+        total_weight = sum(factor.weight for factor in self.factors)
+        if not math.isclose(total_weight, 1.0, rel_tol=0.0, abs_tol=1e-6):
+            raise ISPMConfigInvalid("posture factor weights must sum to 1 within 1e-6")
+        known = [factor for factor in self.factors if factor.status == "known"]
+        if not known:
+            raise ISPMConfigInvalid("posture score requires at least one known factor")
+        expected = round(
+            100.0
+            * sum(
+                factor.weight * (factor.value if factor.value is not None else 0.0)
+                for factor in known
+            ),
+            6,
+        )
+        if not math.isclose(self.score, expected, rel_tol=0.0, abs_tol=1e-6):
+            raise ISPMConfigInvalid("posture score does not match its known factors")
+        return self
 
 
 class IdentityBaselineEntry(BaseModel):
@@ -551,6 +571,14 @@ class IdentityDriftItem(BaseModel):
     @classmethod
     def _text(cls, value: str) -> str:
         return _nonempty(value, field="identity drift field")
+
+    @model_validator(mode="after")
+    def _status_consistency(self) -> IdentityDriftItem:
+        if self.status == "unknown" and self.observed is not None:
+            raise ISPMConfigInvalid("unknown drift item cannot carry an observed value")
+        if self.status != "unknown" and self.observed is None:
+            raise ISPMConfigInvalid("known drift item requires an observed value")
+        return self
 
 
 class IdentityDriftSnapshot(BaseModel):
@@ -708,6 +736,11 @@ class ISPMConfig(BaseModel):
                 raise ISPMConfigInvalid("factor_weights keys must be strings")
             key = _nonempty(name, field="factor weight name")
             selected[key] = _unit(weight, field=f"factor_weights[{key!r}]")
+        expected = {"iag_risk", "mfa", "lifecycle", "last_activity"}
+        if set(selected) != expected:
+            raise ISPMConfigInvalid(
+                "factor_weights must define iag_risk, mfa, lifecycle, and last_activity"
+            )
         if not math.isclose(sum(selected.values()), 1.0, rel_tol=0.0, abs_tol=1e-6):
             raise ISPMConfigInvalid("factor_weights must sum to 1 within 1e-6")
         return selected

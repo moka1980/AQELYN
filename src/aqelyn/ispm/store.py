@@ -8,9 +8,13 @@ from aqelyn.conventions import require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import ISPMConfigInvalid, TenantScopeRequired
 from aqelyn.ispm.models import (
     VALID_IDENTITY_KINDS,
+    IdentityBaseline,
+    IdentityDriftSnapshot,
+    IdentityPostureScore,
     NormalizedIdentity,
     NormalizedIdentityKind,
 )
+from aqelyn.ispm.scoring import validate_replayable_score
 
 
 class ISPMStore(Protocol):
@@ -41,13 +45,64 @@ class ISPMStore(Protocol):
         limit: int = 100,
     ) -> tuple[list[NormalizedIdentity], str | None]: ...
 
+    async def put_score(self, score: IdentityPostureScore) -> IdentityPostureScore: ...
+
+    async def get_score(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityPostureScore | None: ...
+
+    async def put_baseline(self, baseline: IdentityBaseline) -> IdentityBaseline: ...
+
+    async def get_baseline(
+        self,
+        baseline_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityBaseline | None: ...
+
+    async def put_drift(self, snapshot: IdentityDriftSnapshot) -> IdentityDriftSnapshot: ...
+
+    async def get_drift(
+        self,
+        snapshot_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> IdentityDriftSnapshot | None: ...
+
 
 def validate_identity(identity: NormalizedIdentity) -> NormalizedIdentity:
     return NormalizedIdentity.model_validate(identity.model_dump(mode="json"))
 
 
+def validate_score(score: IdentityPostureScore) -> IdentityPostureScore:
+    return validate_replayable_score(score)
+
+
+def validate_baseline(baseline: IdentityBaseline) -> IdentityBaseline:
+    return IdentityBaseline.model_validate(baseline.model_dump(mode="json"))
+
+
+def validate_drift(snapshot: IdentityDriftSnapshot) -> IdentityDriftSnapshot:
+    return IdentityDriftSnapshot.model_validate(snapshot.model_dump(mode="json"))
+
+
 def validate_object_id(value: str, *, field: str = "object_id") -> str:
     return require_typed_id(value, "obj", field=field)
+
+
+def validate_score_id(value: str) -> str:
+    return require_typed_id(value, "ips", field="score_id")
+
+
+def validate_baseline_id(value: str) -> str:
+    return require_typed_id(value, "ibl", field="baseline_id")
+
+
+def validate_drift_id(value: str) -> str:
+    return require_typed_id(value, "idr", field="drift_id")
 
 
 def validate_provider(value: str | None) -> str | None:
