@@ -146,115 +146,109 @@ Protocol changes, sweep every implementation and test double, statically check t
 surface, and assert forwarding of the new argument or result. A spy proves delegation only while it
 continues to satisfy the Protocol it doubles.
 
----
 
+## Part 2 — Current handover: IS-036 / EA-0036 (Autonomous Remediation Orchestration)
 
-## Part 2 — Current handover: IS-035 / EA-0035 (Secrets, Keys & Certificate Lifecycle Governance)
+**Repository state:** `main @c051b1f`, green (ruff, format, `mypy --strict src tests` 484 files,
+1292 passed / 3 skipped live PG16+Redis7).
+**Next free ECR:** **0055** (log ends at ECR-0054; re-read `ECR-LOG.md` before assigning).
+**Archive verified:** `archive/EA-0036/EA-0036_Master.md` is IS-036. **Two findings up front, both load-bearing.**
 
-**Repository state:** `main @6edfba8`, green (ruff, format, `mypy --strict src tests` 479 files,
-1260 passed / 3 skipped live PG16+Redis7).
-**Next free ECR:** **0054** (log ends at ECR-0053; re-read `ECR-LOG.md` before assigning).
-**Archive verified:** `archive/EA-0035/EA-0035_Master.md` is IS-035, *Secrets, Keys & Certificate
-Lifecycle Governance Engine*.
-**Layout:** there is NO new package. Enhancements land in **`src/aqelyn/secrets/`** (EA-0032).
+### Finding 1 — the archive is a near-empty TEMPLATE, not a specification
 
-### ECR-0015 result — this is EA-0032, again. Do not build a second secrets engine.
-
-Run by the reviewer against shipped `src/`:
+Unlike EA-0032/0033/0035, this master has **no real content**. Its objectives are literal placeholders:
 
 ```
-secret_asset / cryptographic_key / x509_certificate object types : 5 each  (EA-0032 owns)
-rotation 28 · revocation 19 · expiry 17 · propose_rotation 3              (EA-0032 lifecycle)
-sct / cky / x509 prefixes : 8 each · cas                                  (EA-0032 PREFIXES)
-secrets_engine 16 · aqelyn.crypto.* 4 events                              (EA-0032 service/events)
-renewal 0 · kms 0 · certificate.*lifecycle 0                             <- net-new *vocabulary* only
+OBJ-0036-001: Provide a verifiable capability boundary for aqelyn autonomous remediation
+              orchestration engine objective 1.
+... (identical through objective 12)
 ```
 
-**IS-035 is the third distributed-conformance case (after IS-026 and IS-034).** EA-0035 renames
-EA-0032's shipped capability — secrets, keys, certificates, their lifecycle (expiry/strength/rotation/
-chain/revocation/integrity/authenticity), rotation proposals, exposure, compliance, findings, and the
-value-free no-plaintext guarantee — under a "governance" label plus a provider list (Vault, CyberArk,
-Azure Key Vault, AWS Secrets Manager, KMS, PKI, HSM). Building the archive literally would create a
-second secrets store, a second crypto object model, duplicate lifecycle logic, duplicate `sct`/`cky`/
-`x509` prefixes, a second `secrets_engine`, and a renamed `aqelyn.crypto.*` namespace.
+The purpose is grammatically broken ("The engine is to coordinates safe... remediation"), and every
+section — Vision, Context, Architecture, Internal/External Interface Contracts — repeats the same
+boilerplate ("defines implementation guidance required for coding, validation, operations, and
+maintenance"). There are **no concrete components (ARC-036-*), no interfaces, no requirements (REQ-*),
+no lifecycle, no acceptance criteria.** The only substantive sentence is one paragraph: *"coordinates
+safe, policy-bound remediation actions across AQELYN engines, workflows, evidence, and trust context …
+without redesigning the fixed repository or previously approved architecture."*
 
-**Propose ECR-0054 as an IS-035 conformance decision.** There SHALL be no `src/aqelyn/secrets2/` (or
-`credential_governance/`), no second secrets store, no second crypto asset/score model, no duplicate
-prefix, no second `*_engine` service, and no new event namespace. If the drafted bundle calls for a new
-package or service, the reconciliation has gone wrong. First verify conformance against shipped code,
-then realize only the genuine gaps as additive, owner-scoped enhancements to **EA-0032**.
+**Consequence for the spec pass:** there is nothing here to reconcile a real capability against. The
+drafter cannot extract requirements that were never written. **Do not invent a spec from the template
+headings** — that manufactures scope. IS-036 must be grounded in shipped code, not in placeholder
+objectives. (EA-0036 also opens a new archive batch, index `EA-0036_EA-0050`; the rest may be similarly
+templated — treat "is this archive real content?" as the first check for each.)
 
-### What EA-0032 already owns — route/reuse, never re-derive
+### Finding 2 — the capability already ships, and "Autonomous" is a §0 landmine
 
-Verified present in shipped `src/aqelyn/secrets/`:
-- `SecretsIntelligenceEngine.ingest_secrets`, `ingest_crypto_assets` (handed-in descriptors, value-free)
-- `assess_key`, `assess_certificate`, `assess` — tri-state lifecycle (`valid|invalid|unknown`),
-  two-stage cert verification (EA-0004 integrity ≠ authenticity, ECR-0039/0046)
-- `analyze_exposure` (EA-0023 seam, `credential_sensitivity` ECR-0044), `propose_rotation` (EA-0008
-  gated, `source_finding`-bound, never executes)
-- object types `secret_asset`/`cryptographic_key`/`x509_certificate`; prefixes `sct`/`cky`/`x509`/`cas`
-- **value-free by construction** — `_ValueFreeModel`, `extra="forbid"`, no raw-value/content field;
-  the master's "no plaintext" boundary is ALREADY structural. Do not re-implement it.
+ECR-0015 run against shipped `src/`:
 
-### The genuine remainders (candidate enhancements to EA-0032, owner's call)
+```
+Playbook 202 · propose 179 · requires_approval 47 · eligibility 32 · WorkflowEngine 23   (EA-0008)
+response.*campaign 109 · aqelyn.response 40                                              (EA-0018)
+autonomous 0
+```
 
-1. **A deterministic per-credential governance SCORE (0–100).** Verified EA-0032 has *no* per-asset
-   score today — `CryptoAssessment` carries counts, not a score. This is the one genuinely-new
-   capability, and it is **the EA-0033-ISPM posture-score pattern applied to crypto**: compose EA-0032
-   lifecycle + EA-0025 ownership + EA-0023 exposure + EA-0006 trust + EA-0007 mission + EA-0010
-   compliance into a replayable **EA-0020 `Derivation`**. It MUST follow the ISPM rules exactly:
-   - **No second scorer** — compose EA-0013 risk / EA-0007 / EA-0006, do not stand up a new one.
-   - **Unknown excluded from the denominator, never favourable** (rules 4/5; the ECR-0040/ISPM-G4
-     shape — an unknown control must not let a credential outscore a proven-good one, and
-     `known_only × coverage_adjustment` is the shape that avoids "unknown == present").
-   - **Replayable or unrepresentable** (S1c) — a score whose derivation does not replay is rejected at
-     `put`, driven against the real scorer per ECR-0007, not a spy.
-2. **Storage-safety governance** — EA-0032's `SecretLocation` has kinds (`repository`/`configuration`/
-   `vault_reference`/`runtime_reference`/`other`) but no approved-vs-unsafe classification. A
-   metadata-only "is this stored in an approved vault/KMS/HSM vs an unsafe location" signal is a narrow,
-   value-free addition. Never store or infer the secret itself.
-3. **Ownership handoff for credentials → EA-0025** — the C-031 H2 pattern (identity ownership → real
-   `Ownership`/`reconcile`, evidence-pinned, missing=unknown) applied to crypto assets, if wanted.
+**Remediation orchestration already ships:** **EA-0008** `WorkflowEngine` (`propose`/`approve`/`execute`
+— the platform's ONLY actor, capability-gated, eligibility-gated, approval-gated) and **EA-0018**
+`ResponseOrchestrationEngine` (`plan_campaign`/`advance`/`propose` — multi-step, multi-phase remediation
+campaigns). Decisioning is **EA-0020**, policy **EA-0009**, evidence **EA-0004**, trust **EA-0006**,
+mission **EA-0007**. Fourth distributed-conformance case (IS-026, IS-034, IS-035, IS-036).
 
-**Explicitly resist:** the archive's rich lifecycle STATE MACHINES
-(`Requested→Approved→…→Archived`, `Requested→Validated→Issued→…→Archived`). EA-0032's shipped reality is
-tri-state lifecycle *fields* (`valid|invalid|unknown`), which is sufficient. Do **not** build a
-lifecycle state-machine engine or a transition-event store unless a specific governance need is proven
-against shipped gaps — a 13-state credential machine is archive over-specification.
+**`autonomous` = 0 hits, and that is by design.** Every module in this platform is detect-and-propose:
+EA-0031/0032/0033 remediation is `propose(playbook, by=, source_finding=finding)` with
+`requires_approval=True`, and eligibility-`none` findings are *structurally* unexecutable
+(`gating.py`). **The archive's title word "Autonomous" must NOT become autonomous action.** The only
+legitimate reading is *the orchestration/evidence/decision/sequencing flow is automated* — never
+*execution without a human*. **If the drafted spec introduces any un-gated execution, any bypass of
+`WorkflowEngine.approve`, or any finding-driven run that isn't `source_finding`-bound with
+`requires_approval=True`, that is THE defect to catch (rules 7, 16).**
 
-### Boundaries (unchanged from the family)
+### Resolution to propose — ECR-0055 (conformance, gated)
 
-- **Handed-in descriptors, not connectors** (rule 13). The provider list (Vault/CyberArk/KMS/PKI/HSM)
-  is the EA-0031/0034 trap — live provider ingestion is a later EA-0008-gated connector; EA-0032
-  accepts handed-in descriptors and holds no credential.
-- **Detect and propose, never act** — rotation/revocation is EA-0032's `propose_rotation` (gated,
-  `source_finding`-bound, `requires_approval=True`); the master's "no unauthorized rotation" is already
-  the shipped guarantee.
-- **Value-free is structural** (rule 14) — reuse `_ValueFreeModel`; never a plaintext field.
-- **No-action boundary** proven against the OWNING finding's actual automation contract (rule 16) — for
-  EA-0032 that is eligibility-`none` (structural execute-block), verified behaviourally.
+1. **Mark IS-036 conformant** — remediation orchestration is realized by **EA-0018 + EA-0008**, evidenced
+   by a conformance analysis and **real-engine** exercises (drive `plan_campaign`→`advance` and
+   `propose`→`approve`→`execute`, prove an eligibility-`none` step is refused execution), not spies/grep.
+2. **Forbid** a second orchestration engine, workflow actor, or response campaign model. There SHALL be
+   no `src/aqelyn/autonomous_remediation/` (or `remediation_orchestration/`), no second `*_engine`
+   service, no `aqelyn.autonomy.*` namespace, and — non-negotiable — **no execution path that is not
+   EA-0008-gated and human-approved.**
+3. **The archive specifies no genuine gap.** Because it is a template, the burden is on the drafter to
+   justify *any* net-new capability against shipped EA-0018/EA-0008 — and it must stay inside the
+   propose→gate→approve boundary. A plausible *narrow* candidate, if the owner wants one: a
+   **read-only remediation-orchestration VIEW/plan** that composes proposed (never executed) EA-0008 runs
+   and EA-0018 campaigns across engines into one evidence-backed, replayable plan record — additive, and
+   still emitting only `requires_approval=True` proposals. Owner-gated; do not assume it.
+
+### Boundaries (unchanged, but sharper here than anywhere)
+
+- **No autonomous action, ever** — the whole platform's §0. Orchestration proposes; EA-0008 gates; a
+  human approves; only then does anything execute. Prove it behaviourally against the **real**
+  `WorkflowEngine` (rule 16: the guarantee's shape is EA-0008's `approve` + eligibility, verified).
+- **`source_finding` binding mandatory** on any finding-driven proposal (rule 7).
+- **Handed-in / composed, not a new actor** — orchestration composes existing owners; it holds no new
+  execution capability.
 
 ### Delegation seams, verified present in shipped code
 
 | Need | Shipped seam |
 |---|---|
-| secret/key/cert assets + lifecycle | EA-0032 `ingest_secrets`/`ingest_crypto_assets`/`assess_key`/`assess_certificate` |
-| rotation proposal | EA-0032 `propose_rotation` (EA-0008 gated) |
-| exposure | EA-0023 `KnownSurfaceSource`; EA-0032 `analyze_exposure` + `credential_sensitivity` |
-| ownership / storage lifecycle | EA-0025 `Ownership`/`ingest`/`reconcile`/`ownership` |
-| score composition | EA-0013 risk · EA-0007 mission · EA-0006 trust; replay EA-0020 `Derivation` |
-| compliance | EA-0010 `assess` |
-| findings | EA-0013 finding path — no new `SignalKind` |
-| relationships / traversal | EA-0002 `ObjectStore.relate`; EA-0005 bounded paths |
+| gated remediation action (the only actor) | EA-0008 `WorkflowEngine.propose` / `approve` / `execute` (capability + eligibility + approval gates) |
+| multi-step remediation campaigns | EA-0018 `ResponseOrchestrationEngine.plan_campaign` / `advance` / `propose` |
+| decision / recommendation | EA-0020 decision engine (`recommend`), replayable `Derivation` |
+| policy authorization | EA-0009 `PolicyEngine` |
+| findings that drive remediation | EA-0013 finding path; owner `risks_to_findings` / `*_to_findings` |
+| evidence · trust · mission | EA-0004 · EA-0006 · EA-0007 |
+| relationships / traversal | EA-0002 `ObjectStore.relate` · EA-0005 bounded paths |
 
-### False friends — names already taken
+### False friends
 
-- Prefixes `sct`/`cky`/`x509`/`cas` are EA-0032's. A new governance-score record needs a *new* prefix
-  (verify collision-free against `PREFIXES` at spec stage, e.g. name it in §9 like EA-0032 did).
-- `aqelyn.crypto.*` events belong to EA-0032; a governance-score event must be net-new and not re-emit
-  them. `secrets_engine` is EA-0032's service name.
+- `aqelyn.workflow.*` (run_proposed etc.) and `aqelyn.response.*` events belong to EA-0008/EA-0018; any
+  new event must be net-new and re-emit nothing. `WorkflowEngine`/`ResponseOrchestrationEngine` are the
+  service names — do not shadow them.
+- "Orchestration" already names EA-0018 (`ResponseOrchestrationEngine`). A second orchestrator is the
+  duplication ECR-0053/0054 rejected for identity and crypto.
 
 ### Open follow-up this must not weaken
 
-**ECR-0034** (inventory `limit=10_000` reports complete) remains unimplemented. If credential governance
-registers or reads crypto assets through EA-0025, it inherits the cap — keep coverage honest.
+**ECR-0034** (inventory `limit=10_000` reports complete) remains unimplemented — keep coverage honest if
+any orchestration reads EA-0025 inventory.
