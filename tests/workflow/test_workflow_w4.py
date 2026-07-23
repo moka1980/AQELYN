@@ -33,6 +33,7 @@ from aqelyn.workflow import (
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
 SYS = ActorRef(actor_type="system", actor_id="workflow-w4-test")
+HUMAN = ActorRef(actor_type="user", actor_id="workflow-w4-reviewer")
 
 
 @dataclass
@@ -130,7 +131,7 @@ def _approval(
 ) -> Approval:
     return Approval(
         step_ids=list(step_ids),
-        approver=SYS,
+        approver=HUMAN,
         reason=reason,
         confirm_token=confirm_token,
         at=_now(),
@@ -301,7 +302,11 @@ async def test_wf_rollback(kind: str) -> None:
         await harness.engine.approve(run.id, _approval("step-2", confirm_token="CONFIRM-step-2"))
         completed = await harness.engine.execute(run.id, by=SYS)
 
-        rolled_back = await harness.engine.rollback(completed.id, by=SYS)
+        rolled_back = await harness.engine.rollback(
+            completed.id,
+            by=SYS,
+            approval=_approval("step-1", reason="Human approved the rollback."),
+        )
 
         assert rolled_back.status == "halted"
         assert reversible.rolled_back == ["rollback:step-1"]

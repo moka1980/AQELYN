@@ -151,3 +151,30 @@ module whose title contains "Autonomous" is where it would be lost.
 with real engines before conformance is accepted. And per §3, the review's first
 question is not *"does it work?"* but ***"can anything here execute without a
 human?"***
+
+## 6. C-033 K1 shipped-code verification
+
+**Result:** the campaign, finding-binding, gated execution, and
+eligibility-`none` rows hold against the real EA-0018 and EA-0008 engines. The
+first pass also found two failed safety rows in shipped EA-0008:
+
+- `WorkflowEngine.approve` accepted a non-human `ActorRef`;
+- `WorkflowEngine.rollback` invoked handlers without a fresh human approval or
+  capability preflight.
+
+ECR-0056 repairs those gaps in the existing owner. The conformance suite now
+drives:
+
+- `plan_campaign` → unapproved `advance` refusal → exact-run human approval →
+  completed `advance`, proving the campaign sequences the real workflow and
+  cannot bypass its gate;
+- `propose` → unapproved execution refusal → human `approve` → `execute`;
+- a finding-bound eligibility-`none` run through approval to structural
+  execution refusal, including in a `python -O` subprocess;
+- rollback refusal without a fresh human approval, refusal of a system actor and
+  stale execution approval, then one successful rollback after the exact
+  rollback approval.
+
+Every exercise runs on in-memory and Postgres stores in local and enterprise
+tenant modes. No EA-0036 package, service, campaign model, event namespace, or
+second actor was introduced; K2 remains unbuilt.

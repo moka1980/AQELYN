@@ -31,6 +31,7 @@ from aqelyn.workflow import (
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
 SYS = ActorRef(actor_type="system", actor_id="workflow-w3-test")
+HUMAN = ActorRef(actor_type="user", actor_id="workflow-w3-reviewer")
 
 
 @dataclass
@@ -111,7 +112,7 @@ def _approval(
 ) -> Approval:
     return Approval(
         step_ids=list(step_ids),
-        approver=SYS,
+        approver=HUMAN,
         reason=reason,
         confirm_token=confirm_token,
         at=_now(),
@@ -205,7 +206,7 @@ async def test_wf_approval_recorded(kind: str) -> None:
 
         assert approved.status == "approved"
         assert len(approved.approvals) == 1
-        assert approved.approvals[0].approver == SYS
+        assert approved.approvals[0].approver == HUMAN
         assert approved.approvals[0].step_ids == ["step-1"]
         assert approved.approvals[0].reason == "Reviewed blast radius"
         assert [event.event_type for event in harness.bus.log] == [

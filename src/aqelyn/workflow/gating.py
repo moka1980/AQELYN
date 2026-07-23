@@ -107,7 +107,11 @@ def _eligibility(finding: Finding) -> str:
 
 
 def _matching_approvals(step_id: str, approvals: Sequence[Approval]) -> list[Approval]:
-    return [approval for approval in approvals if step_id in approval.step_ids]
+    matching = [approval for approval in approvals if step_id in approval.step_ids]
+    for approval in matching:
+        if approval.approver.actor_type != "user":
+            raise UnauthorizedAction("workflow approval must be granted by a human user")
+    return matching
 
 
 def _has_confirm_token(approvals: Sequence[Approval]) -> bool:

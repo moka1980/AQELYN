@@ -25,6 +25,7 @@ from aqelyn.workflow import ActionEffect, ActionSpec, Approval, Playbook, Step
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
 SYS = ActorRef(actor_type="system", actor_id="policy-p4-test")
+HUMAN = ActorRef(actor_type="user", actor_id="policy-p4-reviewer")
 
 
 @dataclass
@@ -130,7 +131,7 @@ def _playbook(action_type: str, *, step_id: str) -> Playbook:
 def _approval(step_id: str) -> Approval:
     return Approval(
         step_ids=[step_id],
-        approver=SYS,
+        approver=HUMAN,
         reason="Approved by policy P4 test",
         at=datetime.now(UTC),
     )
