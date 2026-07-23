@@ -44,6 +44,7 @@ from aqelyn.secrets.ingest import (
     crypto_asset_kind,
     crypto_object,
     ensure_crypto_object_types,
+    inventory_ownership,
     inventory_report,
     new_asset,
     prepare_descriptor,
@@ -1022,18 +1023,51 @@ class SecretsIntelligenceEngine:
         if existing is not None and saved_object.id != existing.object_id:
             raise StoreUnavailable("EA-0002 crypto identity changed across ingest")
         selected = with_owner_identity(selected, saved_object.id)
+        ownership_claim = prepared.descriptor.ownership
+        if ownership_claim is None:
+            owner = None
+            inventory_evidence_id = selected.evidence_id
+            inventory_source_id = selected.source_id
+            inventory_confidence = selected.claim_confidence
+            inventory_observed_at = asset_observed_at(selected)
+        else:
+            if prepared.ownership_evidence is None or prepared.ownership_confidence is None:
+                raise StoreUnavailable(
+                    "prepared credential ownership claim is missing verified provenance"
+                )
+            owner = inventory_ownership(ownership_claim)
+            inventory_evidence_id = prepared.ownership_evidence.id
+            inventory_source_id = prepared.ownership_evidence.source_id
+            inventory_confidence = prepared.ownership_confidence
+            inventory_observed_at = ownership_claim.observed_at
         inventory_rows = await self.inventory.ingest(
-            reports=[inventory_report(selected)],
+            reports=[
+                inventory_report(
+                    selected,
+                    evidence_id=inventory_evidence_id,
+                    owner=owner,
+                )
+            ],
             source=DiscoverySource(
-                source_id=selected.source_id,
-                reliability=selected.claim_confidence,
+                source_id=inventory_source_id,
+                reliability=inventory_confidence,
                 health="ok",
-                as_of=asset_observed_at(selected),
+                as_of=inventory_observed_at,
             ),
             tenant_id=tenant_id,
         )
         if len(inventory_rows) != 1 or inventory_rows[0].id != selected.inventory_ref:
             raise StoreUnavailable("EA-0025 inventory did not accept the crypto asset")
+        reconciled = await self.inventory.reconcile(
+            selected.inventory_ref,
+            tenant_id=tenant_id,
+        )
+        selected_owner = await self.inventory.ownership(
+            selected.inventory_ref,
+            tenant_id=tenant_id,
+        )
+        if selected_owner != reconciled.owner:
+            raise StoreUnavailable("EA-0025 ownership read disagrees with reconciled asset")
         return await self.store.put_asset(selected)
 
     async def _bounded_assets(
