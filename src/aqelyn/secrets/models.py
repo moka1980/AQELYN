@@ -290,6 +290,44 @@ class SecretLocation(_ValueFreeModel):
         return _positive_int(value, field="line")
 
 
+class CredentialOwnershipClaim(_ValueFreeModel):
+    business_owner: str | None = None
+    technical_owner: str | None = None
+    custodian: str | None = None
+    rationale: str
+    source_id: str
+    observed_at: datetime
+    evidence_id: str
+
+    @field_validator("business_owner", "technical_owner", "custodian")
+    @classmethod
+    def _owner_ref(cls, value: str | None) -> str | None:
+        return _optional_nonempty(value, field="credential ownership reference")
+
+    @field_validator("rationale")
+    @classmethod
+    def _rationale(cls, value: str) -> str:
+        return _nonempty(value, field="credential ownership rationale")
+
+    @field_validator("source_id")
+    @classmethod
+    def _source_id(cls, value: str) -> str:
+        return require_typed_id(value, "src", field="credential ownership source_id")
+
+    @field_validator("evidence_id")
+    @classmethod
+    def _evidence_id(cls, value: str) -> str:
+        return require_typed_id(value, "evd", field="credential ownership evidence_id")
+
+    @model_validator(mode="after")
+    def _at_least_one_owner(self) -> CredentialOwnershipClaim:
+        if not any((self.business_owner, self.technical_owner, self.custodian)):
+            raise CryptoConfigInvalid(
+                "credential ownership claim requires at least one owner reference"
+            )
+        return self
+
+
 class StorageSafetyClassification(_ValueFreeModel):
     asset_id: str
     status: StorageSafetyStatus = "unknown"
@@ -367,6 +405,7 @@ class SecretScanDescriptor(_ValueFreeModel):
     source_id: str
     observed_at: datetime
     evidence_id: str
+    ownership: CredentialOwnershipClaim | None = None
 
     @field_validator("tenant_id")
     @classmethod
@@ -400,6 +439,7 @@ class CryptographicKeyDescriptor(_ValueFreeModel):
     source_id: str
     observed_at: datetime
     evidence_id: str
+    ownership: CredentialOwnershipClaim | None = None
 
     @field_validator("tenant_id")
     @classmethod
@@ -456,6 +496,7 @@ class CertificateDescriptor(_ValueFreeModel):
     source_id: str
     observed_at: datetime
     evidence_id: str
+    ownership: CredentialOwnershipClaim | None = None
 
     @field_validator("tenant_id")
     @classmethod

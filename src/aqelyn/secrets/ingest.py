@@ -16,13 +16,14 @@ from aqelyn.conventions.errors import (
     StoreUnavailable,
 )
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
-from aqelyn.inventory import AssetRecord, DiscoverySource
+from aqelyn.inventory import AssetRecord, DiscoverySource, Ownership
 from aqelyn.objects import AQObject, NaturalKey, SourceRef
 from aqelyn.objects.registry import ObjectTypeRegistry
 from aqelyn.secrets.models import (
     CertificateAsset,
     CertificateClaim,
     CertificateDescriptor,
+    CredentialOwnershipClaim,
     CryptoAsset,
     CryptoAssetKind,
     CryptoClaim,
@@ -65,6 +66,15 @@ class CryptoInventoryOwner(Protocol):
         tenant_id: str | None,
     ) -> list[AssetRecord]: ...
 
+    async def reconcile(self, asset_id: str, *, tenant_id: str | None) -> AssetRecord: ...
+
+    async def ownership(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> Ownership | None: ...
+
 
 class _ObjectStoreRegistry(Protocol):
     registry: ObjectTypeRegistry
@@ -75,6 +85,8 @@ class PreparedDescriptor:
     descriptor: SecretScanDescriptor | CryptographicKeyDescriptor | CertificateDescriptor
     evidence: EvidenceRecord
     confidence: float
+    ownership_evidence: EvidenceRecord | None
+    ownership_confidence: float | None
 
 
 def ensure_crypto_object_types(object_store: object) -> None:
@@ -123,10 +135,50 @@ async def prepare_descriptor(
         [evidence],
         now=descriptor.observed_at,
     )
+    ownership_evidence: EvidenceRecord | None = None
+    ownership_confidence: float | None = None
+    if descriptor.ownership is not None:
+        ownership_evidence = await evidence_store.get(
+            descriptor.ownership.evidence_id,
+            actor=actor,
+        )
+        ownership_verification = await evidence_store.verify(descriptor.ownership.evidence_id)
+        if ownership_evidence.tenant_id != tenant_id:
+            raise CrossTenantReference(
+                "credential ownership evidence tenant does not match descriptor"
+            )
+        if ownership_evidence.source_id != descriptor.ownership.source_id:
+            raise CryptoConfigInvalid(
+                "credential ownership evidence source does not match the claim"
+            )
+        if not ownership_verification.ok:
+            detail = ownership_verification.detail or "integrity verification failed"
+            raise EvidenceTampered(
+                f"credential ownership evidence failed integrity verification: {detail}",
+                details={
+                    "evidence_id": descriptor.ownership.evidence_id,
+                    "verification_detail": detail,
+                },
+            )
+        if (
+            ownership_evidence.content is None
+            or ownership_evidence.content.get("fingerprint") != descriptor.fingerprint
+        ):
+            raise CryptoConfigInvalid(
+                "credential ownership evidence fingerprint does not match the descriptor"
+            )
+        ownership_assessment = await trust.assess(
+            f"crypto-ownership:{descriptor.fingerprint}",
+            [ownership_evidence],
+            now=descriptor.ownership.observed_at,
+        )
+        ownership_confidence = ownership_assessment.score
     return PreparedDescriptor(
         descriptor=descriptor,
         evidence=evidence,
         confidence=assessment.score,
+        ownership_evidence=ownership_evidence,
+        ownership_confidence=ownership_confidence,
     )
 
 
@@ -304,15 +356,35 @@ def crypto_object(asset: CryptoAsset, *, actor: ActorRef) -> AQObject:
     )
 
 
-def inventory_report(asset: CryptoAsset) -> dict[str, object]:
-    return {
+def inventory_report(
+    asset: CryptoAsset,
+    *,
+    evidence_id: str,
+    owner: Ownership | None = None,
+) -> dict[str, object]:
+    report: dict[str, object] = {
         "id": asset.inventory_ref,
         "asset_type": CRYPTO_OBJECT_TYPES[crypto_asset_kind(asset)],
         "classification": "secret" if isinstance(asset, SecretAsset) else "cryptographic",
         "lifecycle_state": "active",
-        "evidence_id": asset.evidence_id,
+        "evidence_id": evidence_id,
         "ref": f"secrets:{crypto_asset_kind(asset)}:{asset.fingerprint}",
     }
+    if owner is not None:
+        report["owner"] = owner.model_dump(mode="json")
+    return report
+
+
+def inventory_ownership(claim: CredentialOwnershipClaim) -> Ownership:
+    return Ownership(
+        business_owner=claim.business_owner,
+        technical_owner=claim.technical_owner,
+        custodian=claim.custodian,
+        rationale=claim.rationale,
+        source_id=claim.source_id,
+        evidence_id=claim.evidence_id,
+        observed_at=claim.observed_at,
+    )
 
 
 def inventory_ref(object_id: str) -> str:
