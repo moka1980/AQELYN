@@ -59,6 +59,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0052 | EA-0033 + EA-0011 | Accepted | Make assessment-to-finding routing durable and tenant-correct: assessments pin exact posture-score ids, both stores persist them append-only, and EA-0011's finding path accepts an optional tenant scope while preserving local callers. |
 | ECR-0053 | IS-034 / EA-0033 + EA-0011 + EA-0025 + EA-0032 | Proposed | IS-034 is a distributed restatement, not a new machine-identity module. Verify conformance, then close only ownership, typed credential/workload binding, and lifecycle-mapping gaps in their existing owners (C-031). |
 | ECR-0054 | IS-035 / EA-0032 | Proposed | IS-035 renames EA-0032; conformance + additive governance score, **no second secrets engine**. |
+| ECR-0055 | IS-036 / EA-0018+EA-0008 | Proposed | Archive is a template; capability ships. Conformance only, **no second orchestrator, no un-gated execution**. |
 
 ---
 
@@ -2501,3 +2502,73 @@ credential):
 **Impact.** No new package or service; EA-0032 extended additively only. IS-035's
 intent is met at IS-035's turn without forking the platform's credential
 authority.
+
+## ECR-0055 - IS-036: template archive; conformance via EA-0018 + EA-0008; no autonomous execution
+
+**Raised by:** planning (IS-036 spec pass), on the reviewer's verified handover.
+**Status:** Proposed - owner decision.
+**Severity:** safety-critical - a plausible-sounding spec here could breach the
+platform's foundational boundary.
+
+**Finding A - the archive master is a near-empty template.** Twelve placeholder
+objectives (*"...objective 1"* through *"...objective 12"*), a grammatically
+broken purpose sentence, boilerplate sections, and **no components, interfaces,
+requirements, lifecycle, or acceptance criteria.** There is nothing to reconcile a
+capability against.
+
+*Consequence:* for a real master, silence about a boundary is ambiguous; for a
+template, **there is no specification at all**, and any requirement written from
+its headings is **invented by the drafter wearing the archive's authority.**
+Nothing in the IS-036 analysis is derived from the template - the conformance is
+grounded in shipped code alone. EA-0036 also opens a new archive batch
+(`EA-0036_EA-0050`); **"is this archive real content?" is now the first check per
+module**, before the ECR-0015 capability check.
+
+**Finding B - the capability ships.** `Playbook 202 · propose 179 ·
+requires_approval 47 · eligibility 32 · WorkflowEngine 23` (EA-0008);
+`response.*campaign 109 · aqelyn.response 40` (EA-0018). Remediation orchestration
+is **EA-0018 `ResponseOrchestrationEngine`** over **EA-0008 `WorkflowEngine`**, the
+platform's only actor. Fourth distributed-conformance case (IS-026/034/035/036).
+
+**Finding C - "Autonomous" is a landmine, not a feature request.** `autonomous` = 0
+hits in `src/` **by design**: every engine is detect-and-propose, and
+eligibility-`none` findings are structurally unexecutable in `gating.py`. The only
+legitimate reading of the title word is *the orchestration/evidence/decision flow
+is automated* - **never execution without a human approving via
+`WorkflowEngine.approve`.**
+
+The risk is not an obviously-wrong spec but a **reasonable-sounding** one. Six
+mechanisms are named and forbidden in the analysis (§3.1): policy auto-approval
+(EA-0009 authorizes, it does not approve); pre-approved/standing approval;
+a non-human approver; break-glass bypass; batch approval; and `advance()`
+executing a phase without its own gates. Plus: a **rollback is an action**, and a
+**"dry run" that touches real systems is not a dry run**. Note also that bounded
+autonomy **already exists and is already gated** - EA-0018's
+`max_effect: read_only|reversible` - so no new mechanism is needed, and a new one
+would sit outside the gate that makes the existing one safe.
+
+**Resolution proposed.**
+1. Mark **IS-036 conformant** via EA-0018 + EA-0008, evidenced by **real-engine**
+   exercises: `plan_campaign`->`advance` sequences proposals without executing;
+   `propose`->`approve`->`execute` executes only after approval; an
+   eligibility-`none` run is **refused**, including under `python -O`.
+2. **Forbid** a second orchestration engine, workflow actor, or campaign model -
+   no `autonomous_remediation/` or `remediation_orchestration/` package, no second
+   `*_engine` service, no `aqelyn.autonomy.*` namespace, and **no execution path
+   that is not EA-0008-gated and human-approved.**
+3. **Claim no gap.** The archive specifies none and none was invented. The burden
+   is on any future proposal to justify net-new capability against shipped code.
+4. **One owner-gated candidate, not assumed:** a read-only remediation-plan view
+   composing *proposed* (never executed) runs and campaigns into an
+   evidence-backed replayable record. **Do not build without an explicit owner
+   decision** (C-033 K2).
+
+**Why duplication here is worse than IS-034/IS-035.** Those would have produced
+**disagreement**; this would produce **action**. A second orchestration path is the
+likeliest place for an un-gated execution route to appear, because orchestration is
+exactly where *"just advance the campaign"* feels like coordination rather than
+acting. **EA-0008's status as the platform's only actor is AQELYN's foundational
+safety property**, and a module titled "Autonomous" is where it would be lost.
+
+**Expected outcome.** C-033 delivering a conformance record and **no production
+code** is the correct result, not an under-delivery.
