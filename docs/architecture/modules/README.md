@@ -42,6 +42,7 @@ EA-0028 → `src/aqelyn/cspm/` + `tests/cspm/`;
 EA-0029 → `src/aqelyn/sspm/` + `tests/sspm/`;
 EA-0030 → `src/aqelyn/supplychain/` + `tests/supplychain/`;
 EA-0031 → `src/aqelyn/dspm/` + `tests/dspm/`;
+GC-001 → `tests/guarantees/` **only** (no `src/` package).
 EA-0032 → `src/aqelyn/secrets/` + `tests/secrets/`;
 EA-0033 → `src/aqelyn/ispm/` + `tests/ispm/`;
 IS-034 → no new package — distributed conformance over EA-0033, EA-0011,
@@ -94,6 +95,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | IS-034 Machine Identity & NHI Governance — **distributed conformance, no new module** ([conformance](IS-034_Conformance_Analysis.md)) | EA-0033 + EA-0011 + EA-0025 + EA-0032 | EA-0002, EA-0005, EA-0006, EA-0008, EA-0009 | [C-031](C-031_Task_Bundle.md) | ECR-0053 Proposed: do not build a second authority |
 | [IS-035 — conformant via EA-0032](IS-035_Conformance_Analysis.md) | EA-0035 | *(no new module — see ECR-0054)* | [C-032](C-032_Task_Bundle.md) | Analysis |
 | [IS-036 — conformant via EA-0018+EA-0008](IS-036_Conformance_Analysis.md) | EA-0036 | *(no new module; template archive — see ECR-0055)* | [C-033](C-033_Task_Bundle.md) | Analysis |
+| [GC-001 §0 Guarantee-Conformance Suite](GC-001-guarantee-conformance-suite.spec.md) | *(GC track)* | *test-only; no runtime surface — see ECR-0057* | [GC-001](GC-001_Task_Bundle.md) | Accepted |
 
 Spec authoring: [SPEC_AUTHOR_NOTES.md](SPEC_AUTHOR_NOTES.md) carries the reviewer's standing
 rules and the current per-module handover for whoever drafts the next spec.

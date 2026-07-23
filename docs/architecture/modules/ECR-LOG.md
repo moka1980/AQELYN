@@ -61,6 +61,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0054 | IS-035 / EA-0032 | Proposed | IS-035 renames EA-0032; conformance + additive governance score, **no second secrets engine**. |
 | ECR-0055 | IS-036 / EA-0018+EA-0008 | Proposed | Archive is a template; capability ships. Conformance only, **no second orchestrator, no un-gated execution**. |
 | ECR-0056 | EA-0008 / IS-036 | Proposed | K1 found two shipped gate gaps: non-human approvals were accepted and rollback invoked handlers without a fresh human/capability gate. |
+| ECR-0057 | GC-001 (cross-cutting) | Proposed | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
 
 ---
 
@@ -2613,3 +2614,75 @@ event namespace, or execution path is added. EA-0008's approval and rollback
 contracts are amended. Existing serialized approvals remain readable because the
 human requirement is enforced at authorization time rather than by making the
 historical data model unparseable.
+
+## ECR-0057 - GC-001: a central §0 guarantee-conformance suite
+
+**Raised by:** planning, on the reviewer's guarantee-coverage audit
+(`GUARANTEE_COVERAGE_READ.md`, main @a5696bf, 157 test files).
+**Status:** Proposed - owner decision (owner has sequenced GC-001 before IS-037).
+
+**Finding.** The hypothesis that §0 guarantees were "stated everywhere, enforced
+nowhere" is **too strong**. Refusal tests mostly exist: ~16 engines cover
+detect-and-propose; unknown-never-favourable is covered on every scorer that
+actually models unknowns; integrity != authenticity has five independent
+refusals; no-person-score and no-secret-value are **structural in the types**,
+which is stronger than any test. **ECR-0056 (the workflow human gate) was the one
+genuine enforced-nowhere case, and it is now fixed.**
+
+**The real gap is decentralization.** Every guarantee is enforced by a test the
+author of that module wrote. **Nothing fails when a future module omits one** -
+the omission leaves no trace. So the suite's value is **future-proofing**, not
+back-filling, and it is scoped accordingly: `SignalKind` closure is the thinnest
+real gap (2 touchpoints against two closed literals); engine-no-execute is the
+highest-value guard because its breach causes **action**, not disagreement;
+integrity/no-person/no-secret stay out because they are already structural.
+
+**Resolution proposed.** One **test-only** module, **no runtime surface**
+(no package under `src/aqelyn/`, no service, event, capability, `SignalKind`, or
+namespace; helpers live in `tests/`, not `conventions`), with three ACs:
+
+1. **Engine-no-execute registry** - EA-0008 is the only production actor.
+2. **`SignalKind` closure** - membership frozen **and** out-of-set kinds rejected
+   at runtime.
+3. **Scorer unknown-never-favourable registry** - guards future composition
+   scorers using an orientation-aware assertion that unknown is strictly less
+   favourable than known-good/safe; `risk/scoring.py::score_risk` is excluded
+   because it is a bounded max/impact combinator with no unknown lever.
+
+**Three design decisions that make it durable:**
+
+- **Discovery, never declaration.** A hand-maintained registry would
+  **reintroduce the exact gap the suite closes** - a module omitted from a list is
+  silently unguarded. Enumeration walks the package tree; exemptions are an
+  explicit allow-list with a reason per entry, because *adding* to an allow-list
+  is reviewable while *omission* from a registry is invisible.
+- **Invocation authority, not names or references.** AC-1 cannot grep for
+  `apply`/`execute` or treat `ActionSpec` construction as execution. Five shipped
+  benign sites use those method names (`cspm`/`sspm` baselines + routing delegate
+  to EA-0012/EA-0025; `lake/retention.py::apply` is EA-0019's own storage
+  lifecycle), and `exposure/models.py::active_reachability_action_spec` safely
+  constructs a proposal-only `ActionSpec`. The test keys on a two-part
+  conjunction: **direct handler invocation or alternate registry dispatch
+  outside EA-0008**, and an effect on a **customer asset**. All six pass **by that
+  definition, not by exemption**, while a real alternate actor fails on arrival.
+- **Weakest form that catches the defect.** A central assertion stronger than
+  what correct code guarantees produces **false failures**, and a suite that
+  cries wolf gets disabled - leaving the *appearance* of coverage, which is
+  worse than none. The scorer invariant is semantic and orientation-aware:
+  unknown is less favourable than known-good/safe; its relation to known-bad
+  remains a per-scorer assertion.
+
+**Every AC ships a negative control that must FAIL** (rule 19): an alternate
+registry that invokes its handler, an unregistered kind reaching the runtime
+path, and a stub scorer that maps unknown to the favourable known result. A
+guarantee test that only passes when the guarantee holds is untested - and per
+rule 19 the control must *perform* the forbidden action, not assert about it.
+
+**One note carried into AC-2:** a `Literal` is a **static** guarantee that `mypy`
+enforces at authoring time. Data from Postgres, JSON, or a handed-in descriptor is
+not type-checked, so runtime rejection is a **separate and necessary** assertion,
+driven through the real ingestion path.
+
+**Impact.** No runtime change; CI gains a suite that fails when a future module
+omits a boundary. Existing per-module refusal tests remain the owners of their
+local guarantees and are neither weakened nor duplicated.
