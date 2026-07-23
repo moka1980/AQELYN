@@ -146,6 +146,11 @@ Protocol changes, sweep every implementation and test double, statically check t
 surface, and assert forwarding of the new argument or result. A spy proves delegation only while it
 continues to satisfy the Protocol it doubles.
 
+### 19. A fixture that performs a forbidden action to reach its assertion has normalized that action
+Same shape as rule 18 (stale spy passing while testing the wrong call): the test infrastructure,
+not the assertion, carried the defect — some workflow/policy fixtures approved as system and passed.
+Audit what fixtures DO to reach a state, not only what tests ASSERT. Corollary: a §0 guarantee tested
+only on happy paths where it holds is untested; each needs a test that fails on the refusal.
 
 ## Part 2 — Current handover: IS-036 / EA-0036 (Autonomous Remediation Orchestration)
 
