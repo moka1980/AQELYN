@@ -6,6 +6,7 @@
 **Status:** Accepted
 **Build milestone:** C-005 (see `C-005_Task_Bundle.md`)
 **Definition of Ready:** see §12
+**Change control:** ECR-0056 (human-only approvals and fresh rollback gate)
 
 ---
 
@@ -36,8 +37,9 @@ and everything it does can be traced and (where possible) undone.
   (`none` → propose only, no execution; `assisted` → execute only with approval;
   `automatic` → may execute without per-run human approval **only** for
   non-destructive actions, and only if `requires_approval` is false).
-- **S4 — Approvals are explicit, attributed, and recorded.** An approval names
-  the approver (`ActorRef`), the exact step(s) approved, a reason, and a time.
+- **S4 — Approvals are explicit, human, attributed, and recorded.** An approval
+  names a human `ActorRef(actor_type="user")`, the exact step(s) approved, a
+  reason, and a time. System, connector, and agent actors cannot approve.
   Approval of a run does not implicitly approve later-added steps.
 - **S5 — Dry-run first.** Every playbook supports `simulate()` that produces the
   planned actions and predicted effects **without executing**. Callers can
@@ -51,7 +53,10 @@ and everything it does can be traced and (where possible) undone.
 - **S8 — Rollback & halt.** A run can be halted at any step; reversible actions
   record a `rollback_ref`; on failure the engine stops (does not blindly
   continue) and surfaces the partial state. Destructive actions that cannot be
-  rolled back are flagged as such **before** approval.
+  rolled back are flagged as such **before** approval. Rollback is itself an
+  action: before any handler is called, the exact reversible steps require a
+  fresh human approval granted after the run's latest action result and the original capability
+  authorization must still pass.
 - **S9 — Bounded & tenant-scoped.** Runs are tenant-scoped; a run never touches
   objects in another tenant; step counts and durations are bounded.
 
@@ -139,7 +144,13 @@ class WorkflowEngine(Protocol):
     async def approve(self, run_id: str, approval: Approval) -> Run: ...            # S4
     async def execute(self, run_id: str, *, by: ActorRef) -> Run: ...              # S1/S2/S6/S7/S8
     async def halt(self, run_id: str, *, by: ActorRef, reason: str) -> Run: ...    # S8
-    async def rollback(self, run_id: str, *, by: ActorRef) -> Run: ...             # reverse reversible steps
+    async def rollback(
+        self,
+        run_id: str,
+        *,
+        by: ActorRef,
+        approval: Approval | None = None,
+    ) -> Run: ...  # fresh human approval + capability gate, then reverse
     async def get(self, run_id: str) -> Run | None: ...
 ```
 
@@ -172,12 +183,19 @@ propose ─► simulated ─►(gated steps?)─► awaiting_approval ─► app
 - **FR-1** No step SHALL execute unless its action is registered, its capability granted, and (if gated) approved — deny by default (S1). Unknown action → `UnknownAction`.
 - **FR-2** Action `effect` SHALL determine gating: `read_only` may run ungated; `reversible`/`destructive` SHALL require approval; `destructive` SHALL additionally require a `confirm_token` and SHALL never be auto-approved (S2).
 - **FR-3** A run derived from a finding SHALL NOT exceed `finding.automation.eligibility`; `none` → no execution (propose/simulate only); `assisted` → execution only with approval; `automatic` → ungated execution only for non-destructive actions with `requires_approval == False` (S3).
-- **FR-4** `approve` SHALL record approver, exact `step_ids`, reason, and time; approval SHALL NOT cover steps added after it (S4).
+- **FR-4** `approve` SHALL accept only a human `ActorRef(actor_type="user")` and
+  record that approver, exact `step_ids`, reason, and time; approval SHALL NOT
+  cover steps added after it. Non-human approvals SHALL be refused (S4).
 - **FR-5** `simulate` SHALL produce planned actions + predicted effects and SHALL execute nothing; `safe_to_execute` reflects gating readiness (S5).
 - **FR-6** Re-execution of an already-succeeded step (same `idempotency_key`) SHALL be a no-op, not a re-apply (S6).
 - **FR-7** Every executed **and** simulated action SHALL write an `EvidenceRecord` (EA-0004) and every run state change SHALL emit a workflow event (EA-0003) (S7).
 - **FR-8** On step failure the run SHALL stop (`failed`), never silently continue, and SHALL surface partial `results` (S8).
-- **FR-9** `rollback` SHALL reverse reversible steps via their `rollback_ref`; steps flagged non-reversible SHALL be reported as such and left untouched (S8).
+- **FR-9** `rollback` SHALL reverse reversible steps via their `rollback_ref`;
+  steps flagged non-reversible SHALL be reported as such and left untouched.
+  Before any rollback handler is called, the engine SHALL require a fresh human
+  approval, newer than the run's latest action result, naming exactly the
+  reversible steps and SHALL re-run the original
+  capability authorization (S8).
 - **FR-10** Runs SHALL be tenant-scoped; a run SHALL NOT reference or affect another tenant's objects (S9).
 - **FR-11** Run state changes SHALL use optimistic `version` (conflict → `OptimisticConcurrencyConflict`), consistent with the foundation stores.
 - **FR-12** Playbooks SHALL be declarative data (versioned); the engine SHALL reject a run whose playbook references an unregistered `action_type` at `propose`.
@@ -200,13 +218,13 @@ propose ─► simulated ─►(gated steps?)─► awaiting_approval ─► app
 | AC-4 | eligibility=none blocks execution | `test_wf_eligibility_none_no_exec` |
 | AC-5 | eligibility=assisted needs approval | `test_wf_eligibility_assisted` |
 | AC-6 | eligibility=automatic ungated only if non-destructive | `test_wf_eligibility_automatic_scope` |
-| AC-7 | approval records approver/steps/reason | `test_wf_approval_recorded` |
+| AC-7 | approval records a human approver/steps/reason; non-human refused | `test_wf_approval_recorded`, `test_is036_conformance_gated_execution_after_approval` |
 | AC-8 | approval doesn't cover later-added steps | `test_wf_approval_scope` |
 | AC-9 | simulate executes nothing | `test_wf_simulate_no_effect` |
 | AC-10 | idempotent step re-run is no-op | `test_wf_idempotent_step` |
 | AC-11 | every action writes evidence + emits event | `test_wf_action_evidenced` |
 | AC-12 | failure stops run, surfaces partial | `test_wf_failure_stops` |
-| AC-13 | rollback reverses reversible steps | `test_wf_rollback` |
+| AC-13 | rollback reverses only after fresh human approval + capability gate | `test_wf_rollback`, `test_is036_conformance_rollback_requires_fresh_human_gate` |
 | AC-14 | tenant isolation on runs | `test_wf_tenant_isolation` |
 | AC-15 | optimistic concurrency on run updates | `test_wf_optimistic_conflict` |
 | AC-16 | unregistered action_type rejected at propose | `test_wf_unknown_action_at_propose` |

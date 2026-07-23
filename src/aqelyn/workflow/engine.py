@@ -14,6 +14,7 @@ from aqelyn.conventions.errors import (
     CrossTenantReference,
     RunNotFound,
     SchemaValidationError,
+    UnauthorizedAction,
 )
 from aqelyn.events import Event, EventBus, Subject
 from aqelyn.events.registry import EventTypeRegistry
@@ -187,6 +188,7 @@ class WorkflowEngine:
     async def approve(self, run_id: str, approval: Approval) -> Run:
         run = await self._require_run(run_id)
         playbook = self._require_playbook(run.id)
+        self._validate_human_approval(approval)
         self._validate_approval_scope(playbook, approval)
         approvals = [*run.approvals, approval]
         updated = await self._store.update(
@@ -309,18 +311,79 @@ class WorkflowEngine:
         )
         return halted
 
-    async def rollback(self, run_id: str, *, by: ActorRef) -> Run:
+    async def rollback(
+        self,
+        run_id: str,
+        *,
+        by: ActorRef,
+        approval: Approval | None = None,
+    ) -> Run:
         run = await self._require_run(run_id)
         playbook = self._require_playbook(run.id)
         steps_by_id = {step.id: step for step in playbook.steps}
+        rollback_steps = [
+            steps_by_id[result.step_id]
+            for result in reversed(run.results)
+            if result.status == "succeeded"
+            and result.step_id in steps_by_id
+            and self._registry.get(steps_by_id[result.step_id].action_type).spec.reversible
+            and result.rollback_ref is not None
+        ]
+        if approval is None:
+            raise ApprovalRequired("fresh human approval required for rollback")
+        self._validate_human_approval(approval)
+        self._validate_approval_scope(playbook, approval)
+        rollback_step_ids = {step.id for step in rollback_steps}
+        if set(approval.step_ids) != rollback_step_ids:
+            raise SchemaValidationError(
+                "rollback approval must name exactly the reversible steps being rolled back"
+            )
+        if approval.at <= run.updated_at:
+            raise ApprovalRequired(
+                "rollback approval must be granted after the run's latest action result"
+            )
+
+        approved_run = run.model_copy(
+            update={"approvals": [*run.approvals, approval]},
+            deep=True,
+        )
+        source_finding = self._source_findings.get(run.id)
+        for step in rollback_steps:
+            handler = self._registry.get(step.action_type)
+            granted_capabilities = await self._granted_capabilities_for_step(
+                step,
+                handler.spec,
+                approved_run,
+                by=by,
+                source_finding=source_finding,
+            )
+            ensure_step_may_execute(
+                step,
+                self._registry,
+                granted_capabilities=granted_capabilities,
+                approvals=[approval],
+                source_finding=source_finding,
+            )
+
+        run = await self._store.update(approved_run, expected_version=run.version)
+        await self._emit(
+            "aqelyn.workflow.approval_granted",
+            run,
+            approval.approver,
+            {
+                "step_ids": list(approval.step_ids),
+                "purpose": "rollback",
+                "status": run.status,
+            },
+        )
         rollback_results: list[StepResult] = []
         for result in reversed(run.results):
             if result.status != "succeeded":
                 continue
-            step = steps_by_id.get(result.step_id)
-            if step is None:
+            rollback_step = steps_by_id.get(result.step_id)
+            if rollback_step is None:
                 continue
-            handler = self._registry.get(step.action_type)
+            handler = self._registry.get(rollback_step.action_type)
             spec = handler.spec
             if spec.reversible and result.rollback_ref is not None:
                 try:
@@ -335,7 +398,7 @@ class WorkflowEngine:
                 error = "step is not reversible or has no rollback_ref"
             evidence = await self._record_action_evidence(
                 run=run,
-                step=step,
+                step=rollback_step,
                 actor=by,
                 method="workflow.rollback/v1",
                 status=status,
@@ -345,7 +408,7 @@ class WorkflowEngine:
             )
             rollback_results.append(
                 StepResult(
-                    step_id=step.id,
+                    step_id=rollback_step.id,
                     status=status,
                     outcome={"source_evidence_id": result.evidence_id},
                     evidence_id=evidence.id,
@@ -431,6 +494,8 @@ class WorkflowEngine:
         for approval in approvals:
             if step.id not in approval.step_ids:
                 continue
+            if approval.approver.actor_type != "user":
+                continue
             spec = self._registry.get(step.action_type).spec
             if spec.effect == "destructive" and not _has_confirm_token(approval):
                 continue
@@ -480,6 +545,10 @@ class WorkflowEngine:
                 raise ConfirmationRequired(
                     f"confirm_token required for destructive step: {step.id!r}"
                 )
+
+    def _validate_human_approval(self, approval: Approval) -> None:
+        if approval.approver.actor_type != "user":
+            raise UnauthorizedAction("workflow approval must be granted by a human user")
 
     async def _fail_step(self, run: Run, step: Step, *, by: ActorRef, error: str) -> Run:
         evidence = await self._record_action_evidence(

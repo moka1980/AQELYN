@@ -51,6 +51,13 @@ Required exercises:
 
 Any row of §2 that fails becomes a ticket here — **not** a reason to build a
 module.
+
+**K1 owner repair:** real-engine verification found that EA-0008 accepted
+non-human approvers and invoked rollback handlers without a fresh
+human/capability gate. ECR-0056 amends the existing owner; K1 must prove those
+refusals as part of conformance. This is not an EA-0036 module or a second
+execution path.
+
 **Acceptance:** `test_is036_conformance_campaign_sequences_not_executes`,
 `test_is036_conformance_gated_execution_after_approval`,
 `test_is036_conformance_eligibility_none_refused`,

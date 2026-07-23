@@ -31,6 +31,7 @@ from aqelyn.workflow import (
 )
 
 SYS = ActorRef(actor_type="system", actor_id="workflow-test")
+HUMAN = ActorRef(actor_type="user", actor_id="workflow-reviewer")
 
 
 class _StaticHandler:
@@ -84,7 +85,7 @@ def _approval(
 ) -> Approval:
     return Approval(
         step_ids=list(step_ids),
-        approver=SYS,
+        approver=HUMAN,
         reason=reason,
         confirm_token=confirm_token,
         at=_now(),

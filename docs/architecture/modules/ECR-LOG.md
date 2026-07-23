@@ -60,6 +60,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0053 | IS-034 / EA-0033 + EA-0011 + EA-0025 + EA-0032 | Proposed | IS-034 is a distributed restatement, not a new machine-identity module. Verify conformance, then close only ownership, typed credential/workload binding, and lifecycle-mapping gaps in their existing owners (C-031). |
 | ECR-0054 | IS-035 / EA-0032 | Proposed | IS-035 renames EA-0032; conformance + additive governance score, **no second secrets engine**. |
 | ECR-0055 | IS-036 / EA-0018+EA-0008 | Proposed | Archive is a template; capability ships. Conformance only, **no second orchestrator, no un-gated execution**. |
+| ECR-0056 | EA-0008 / IS-036 | Proposed | K1 found two shipped gate gaps: non-human approvals were accepted and rollback invoked handlers without a fresh human/capability gate. |
 
 ---
 
@@ -2572,3 +2573,43 @@ safety property**, and a module titled "Autonomous" is where it would be lost.
 
 **Expected outcome.** C-033 delivering a conformance record and **no production
 code** is the correct result, not an under-delivery.
+
+## ECR-0056 - K1 closes non-human approval and ungated rollback in EA-0008
+
+**Raised by:** Codex during C-033 K1 real-engine conformance verification.
+**Status:** Proposed - owner decision.
+**Severity:** safety-critical - two states forbidden by ECR-0055 were constructible
+through the platform's only action engine.
+
+**Finding.** K1 did not initially prove the ECR-0055 human gate:
+
+1. `Approval.approver` accepts every canonical `ActorRef` type, and
+   `WorkflowEngine.approve` accepted `system`, `connector`, and `agent` actors.
+   The approval was run-scoped and attributed, but it did not establish a human
+   decision.
+2. `WorkflowEngine.rollback` called `ActionHandler.rollback` directly. It wrote
+   evidence after the call, but required neither a fresh approval for the undo
+   nor the action's capability authorization. A rollback is still an external
+   action; audit after execution is not an execution gate.
+
+These are failed conformance rows, not permission to build a second
+orchestrator. They belong to EA-0008, the existing owner.
+
+**Resolution proposed.**
+
+1. `WorkflowEngine.approve` and the shared execution gate refuse any matching
+   approval whose approver is not `ActorRef(actor_type="user")`. Historical
+   records remain parseable; a non-human record simply cannot authorize new
+   execution.
+2. `rollback(..., approval=...)` requires a human approval naming exactly the
+   reversible steps, granted after the run's latest action result. Before
+   recording that approval or invoking any handler, the engine preflights every
+   rollback step through the original capability authorizer and shared gate.
+3. K1 proves both refusals against the real engine on both stores and tenant
+   modes, including the eligibility-`none` boundary under `python -O`.
+
+**Impact.** One existing owner is narrowed; no package, service, campaign model,
+event namespace, or execution path is added. EA-0008's approval and rollback
+contracts are amended. Existing serialized approvals remain readable because the
+human requirement is enforced at authorization time rather than by making the
+historical data model unparseable.

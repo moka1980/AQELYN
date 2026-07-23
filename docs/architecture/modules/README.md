@@ -65,7 +65,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | [EA-0005 Knowledge Graph](EA-0005-knowledge-graph.spec.md) | EA-0005 | EA-0002, EA-0001 | [C-002](C-002_Task_Bundle.md) | Accepted |
 | [EA-0006 Trust Engine](EA-0006-trust-engine.spec.md) | EA-0006 | EA-0004, EA-0001 | [C-003](C-003_Task_Bundle.md) | Accepted |
 | [EA-0007 Mission Engine](EA-0007-mission-engine.spec.md) | EA-0007 | EA-0005, EA-0006, EA-0002 | [C-004](C-004_Task_Bundle.md) | Accepted |
-| [EA-0008 Workflow Engine](EA-0008-workflow-engine.spec.md) | EA-0008 | EA-0004, Finding, EA-0001 | [C-005](C-005_Task_Bundle.md) | Accepted |
+| [EA-0008 Workflow Engine](EA-0008-workflow-engine.spec.md) | EA-0008 | EA-0004, Finding, EA-0001 | [C-005](C-005_Task_Bundle.md) | Accepted (see ECR-0056) |
 | [EA-0009 Policy Engine](EA-0009-policy-engine.spec.md) | EA-0009 | EA-0002, EA-0008, EA-0001 | [C-006](C-006_Task_Bundle.md) | Accepted |
 | [EA-0010 Compliance & Governance](EA-0010-compliance-governance-engine.spec.md) | EA-0010 | EA-0009, EA-0007, EA-0002, EA-0004 | [C-007](C-007_Task_Bundle.md) | Accepted |
 | [EA-0011 Identity & Access Governance](EA-0011-identity-access-governance.spec.md) | EA-0011 | EA-0005, EA-0009, EA-0008, EA-0002 | [C-008](C-008_Task_Bundle.md) | Accepted |
