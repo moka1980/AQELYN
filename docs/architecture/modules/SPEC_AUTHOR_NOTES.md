@@ -153,108 +153,196 @@ fixtures approved as system and passed.
 Audit what fixtures DO to reach a state, not only what tests ASSERT. Corollary: a §0 guarantee tested
 only on happy paths where it holds is untested; each needs a test that fails on the refusal.
 
-## Part 2 — Current handover: IS-036 / EA-0036 (Autonomous Remediation Orchestration)
+## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
-**Repository state:** `main @c051b1f`, green (ruff, format, `mypy --strict src tests` 484 files,
-1292 passed / 3 skipped live PG16+Redis7).
-**Next free ECR:** **0055** (log ends at ECR-0054; re-read `ECR-LOG.md` before assigning).
-**Archive verified:** `archive/EA-0036/EA-0036_Master.md` is IS-036. **Two findings up front, both load-bearing.**
+**Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
+494 files; reviewer full-suite confirmation was still finishing when this handover was written).
+**Next free ECR:** **0058** (log ends at ECR-0057; re-read `ECR-LOG.md` before assigning).
+**Archive verified:** `archive/EA-0037/EA-0037_Master.md` declares itself the master Markdown and
+IS-037 source of truth. Its copy inside `releases/EA-0037_FULL_COMPLETE.zip` is byte-identical
+(SHA-256 `610c801a4c2d0485358f8de48916b866a56f9ffc2e3f520dd808cd8cec1c2be7`).
 
-### Finding 1 — the archive is a near-empty TEMPLATE, not a specification
+### Finding 1 - this is another generated TEMPLATE
 
-Unlike EA-0032/0033/0035, this master has **no real content**. Its objectives are literal placeholders:
+EA-0037 has the same 424-line scaffold as template EA-0036. After normalizing the module number and
+title, **401 of 424 lines are identical**. Twelve objectives are literal placeholders:
 
 ```
-OBJ-0036-001: Provide a verifiable capability boundary for aqelyn autonomous remediation
-              orchestration engine objective 1.
+OBJ-0037-001: Provide a verifiable capability boundary for aqelyn cyber asset exposure
+              management engine objective 1.
 ... (identical through objective 12)
 ```
 
-The purpose is grammatically broken ("The engine is to coordinates safe... remediation"), and every
-section — Vision, Context, Architecture, Internal/External Interface Contracts — repeats the same
-boilerplate ("defines implementation guidance required for coding, validation, operations, and
-maintenance"). There are **no concrete components (ARC-036-*), no interfaces, no requirements (REQ-*),
-no lifecycle, no acceptance criteria.** The only substantive sentence is one paragraph: *"coordinates
-safe, policy-bound remediation actions across AQELYN engines, workflows, evidence, and trust context …
-without redesigning the fixed repository or previously approved architecture."*
+The architecture, lifecycle, security, testing, and acceptance sections repeat generic prose. The
+requirements matrix says only "Discovery and Intake", "Normalization", "Inventory", "Assessment",
+and similarly generic capability labels. It supplies no concrete object schema, interface signature,
+algorithm, lifecycle transition, failure rule, or acceptance case.
 
-**Consequence for the spec pass:** there is nothing here to reconcile a real capability against. The
-drafter cannot extract requirements that were never written. **Do not invent a spec from the template
-headings** — that manufactures scope. IS-036 must be grounded in shipped code, not in placeholder
-objectives. (EA-0036 also opens a new archive batch, index `EA-0036_EA-0050`; the rest may be similarly
-templated — treat "is this archive real content?" as the first check for each.)
+The only usable intent is the executive-summary sentence:
 
-### Finding 2 — the capability already ships, and "Autonomous" is a §0 landmine
+> discovers assets, measures exposure, maps attack surface relationships, and prioritizes reduction
+> of exploitable exposure.
 
-ECR-0015 run against shipped `src/`:
+Do not manufacture requirements from the other headings. A reasonable-sounding CAEM specification
+written from this template would be drafter-authored scope wearing archive authority.
 
-```
-Playbook 202 · propose 179 · requires_approval 47 · eligibility 32 · WorkflowEngine 23   (EA-0008)
-response.*campaign 109 · aqelyn.response 40                                              (EA-0018)
-autonomous 0
-```
+### Finding 2 - "037" identifies three incompatible artifacts
 
-**Remediation orchestration already ships:** **EA-0008** `WorkflowEngine` (`propose`/`approve`/`execute`
-— the platform's ONLY actor, capability-gated, eligibility-gated, approval-gated) and **EA-0018**
-`ResponseOrchestrationEngine` (`plan_campaign`/`advance`/`propose` — multi-step, multi-phase remediation
-campaigns). Decisioning is **EA-0020**, policy **EA-0009**, evidence **EA-0004**, trust **EA-0006**,
-mission **EA-0007**. Fourth distributed-conformance case (IS-026, IS-034, IS-035, IS-036).
+Number alone is unsafe in this archive:
 
-**`autonomous` = 0 hits, and that is by design.** Every module in this platform is detect-and-propose:
-EA-0031/0032/0033 remediation is `propose(playbook, by=, source_finding=finding)` with
-`requires_approval=True`, and eligibility-`none` findings are *structurally* unexecutable
-(`gating.py`). **The archive's title word "Autonomous" must NOT become autonomous action.** The only
-legitimate reading is *the orchestration/evidence/decision/sequencing flow is automated* — never
-*execution without a human*. **If the drafted spec introduces any un-gated execution, any bypass of
-`WorkflowEngine.approve`, or any finding-driven run that isn't `source_finding`-bound with
-`requires_approval=True`, that is THE defect to catch (rules 7, 16).**
-
-### Resolution to propose — ECR-0055 (conformance, gated)
-
-1. **Mark IS-036 conformant** — remediation orchestration is realized by **EA-0018 + EA-0008**, evidenced
-   by a conformance analysis and **real-engine** exercises (drive `plan_campaign`→`advance` and
-   `propose`→`approve`→`execute`, prove an eligibility-`none` step is refused execution), not spies/grep.
-2. **Forbid** a second orchestration engine, workflow actor, or response campaign model. There SHALL be
-   no `src/aqelyn/autonomous_remediation/` (or `remediation_orchestration/`), no second `*_engine`
-   service, no `aqelyn.autonomy.*` namespace, and — non-negotiable — **no execution path that is not
-   EA-0008-gated and human-approved.**
-3. **The archive specifies no genuine gap.** Because it is a template, the burden is on the drafter to
-   justify *any* net-new capability against shipped EA-0018/EA-0008 — and it must stay inside the
-   propose→gate→approve boundary. A plausible *narrow* candidate, if the owner wants one: a
-   **read-only remediation-orchestration VIEW/plan** that composes proposed (never executed) EA-0008 runs
-   and EA-0018 campaigns across engines into one evidence-backed, replayable plan record — additive, and
-   still emitting only `requires_approval=True` proposals. Owner-gated; do not assume it.
-
-### Boundaries (unchanged, but sharper here than anywhere)
-
-- **No autonomous action, ever** — the whole platform's §0. Orchestration proposes; EA-0008 gates; a
-  human approves; only then does anything execute. Prove it behaviourally against the **real**
-  `WorkflowEngine` (rule 16: the guarantee's shape is EA-0008's `approve` + eligibility, verified).
-- **`source_finding` binding mandatory** on any finding-driven proposal (rule 7).
-- **Handed-in / composed, not a new actor** — orchestration composes existing owners; it holds no new
-  execution capability.
-
-### Delegation seams, verified present in shipped code
-
-| Need | Shipped seam |
+| Artifact | What it calls 037 |
 |---|---|
-| gated remediation action (the only actor) | EA-0008 `WorkflowEngine.propose` / `approve` / `execute` (capability + eligibility + approval gates) |
-| multi-step remediation campaigns | EA-0018 `ResponseOrchestrationEngine.plan_campaign` / `advance` / `propose` |
-| decision / recommendation | EA-0020 decision engine (`recommend`), replayable `Derivation` |
-| policy authorization | EA-0009 `PolicyEngine` |
-| findings that drive remediation | EA-0013 finding path; owner `risks_to_findings` / `*_to_findings` |
-| evidence · trust · mission | EA-0004 · EA-0006 · EA-0007 |
-| relationships / traversal | EA-0002 `ObjectStore.relate` · EA-0005 bounded paths |
+| `archive/EA-0037/EA-0037_Master.md` + batch index | **Cyber Asset Exposure Management Engine / IS-037** |
+| `docs/supporting_materials/.../Volume_037_AQELYN_Distributed_Scan_Engine.md` | **Distributed Scan Engine** |
+| `docs/AQELYN_Master_Index_EA-0001_EA-0057.md` | **Pre-Coding Baseline Engine EA-0037** |
 
-### False friends
+The first is authoritative for this turn: the master declares its own source-of-truth status, its
+release ZIP matches it, and `archive/AQELYN_Master_Index_EA-0036_EA-0050.md` agrees. The broad index
+needs a documentation correction. The Blueprint Volume 037 belongs to a different numbering family
+and is **not an IS-037 requirement source**.
 
-- `aqelyn.workflow.*` (run_proposed etc.) and `aqelyn.response.*` events belong to EA-0008/EA-0018; any
-  new event must be net-new and re-emit nothing. `WorkflowEngine`/`ResponseOrchestrationEngine` are the
-  service names — do not shadow them.
-- "Orchestration" already names EA-0018 (`ResponseOrchestrationEngine`). A second orchestrator is the
-  duplication ECR-0053/0054 rejected for identity and crypto.
+This distinction is safety-critical. Importing the Distributed Scan Engine's workers, credentials,
+scheduler, or live collection into IS-037 would reverse EA-0023's shipped boundary. Active scanning
+remains an EA-0008-gated connector action; this analytical turn opens no socket and holds no
+credential.
 
-### Open follow-up this must not weaken
+**Candidate standing rule from this round:** when an EA number appears in multiple archive families,
+verify the source family, title, and declared source of truth. A matching number does not transfer
+scope.
 
-**ECR-0034** (inventory `limit=10_000` reports complete) remains unimplemented — keep coverage honest if
-any orchestration reads EA-0025 inventory.
+### Finding 3 - the named capability already ships across four owners
+
+ECR-0015 event/type/capability check against shipped `src/`:
+
+```
+CyberDiscovered / CyberUpdated / CyberAssessmentCompleted / CyberRiskDetected : 0 each
+CyberPolicyViolationDetected / CyberRecommendationGenerated                  : 0 each
+CyberWorkflowRequested / CyberEvidenceLinked / CyberArchived                  : 0 each
+Cyber Asset Exposure Management / cyber_asset_exposure / caem                 : 0 each
+
+AttackSurfaceAsset 6 · ExposureRecord 81 · InventoryReport 11 · VulnPriority 22
+derive_surface 3 · analyze_exposure 13 · prioritize 47 · paths 156
+```
+
+The zero-hit generic `Cyber*` events are template placeholders, not a net-new event namespace. The
+capabilities behind them are already owned:
+
+1. **Discovers assets / authoritative denominator:** EA-0025
+   `InventoryIntelligenceEngine.ingest`, `reconcile`, `inventory`, and `infer_relationships`.
+   Discovery reports are handed in; absence becomes `unreported`, never decommissioned.
+2. **Measures exposure / attack surface:** EA-0023 `KnownDataExposureEngine.derive_surface`,
+   `analyze_exposure`, `score_exposure`, and `raise_exposure_finding`. Unknown reachability stays
+   `unknown` and flagged; no active probe occurs.
+3. **Maps relationships:** EA-0002 owns relationship persistence and EA-0005 `KnowledgeGraph.paths`
+   owns bounded traversal. EA-0023 delegates paths rather than walking a second graph.
+4. **Prioritizes exploitable exposure:** EA-0024 `VulnerabilityIntelligenceEngine.prioritize` composes
+   EA-0023 reachability through `ExposureStoreReachabilityProvider` into a replayable priority.
+
+The runtime wiring already joins the owners in both factories:
+
+- `InventoryKnownSurfaceSource(inventory_engine)` is the base of the composed EA-0023 source.
+- `InventoryVulnerabilityCoverageProvider(inventory_engine, vuln_store)` supplies EA-0024's
+  denominator.
+- `ExposureStoreReachabilityProvider(exposure_store)` supplies EA-0024's exposure factor.
+- `KnownDataExposureEngine(..., graph=knowledge_graph)` delegates attack paths to EA-0005.
+
+Existing real-engine tests prove the joins, not only the calls:
+`test_inv_seams_wired`, `test_exp_unknown_not_internal`,
+`test_exp_paths_delegate_kg`, `test_exp_score_composes_trust_mission_risk_derivation`, and
+`test_vuln_priority_replayable`. The targeted in-memory set was re-run for this handover: 8 passed.
+
+### Resolution to propose - ECR-0058 (distributed conformance, no CAEM module)
+
+1. Mark IS-037 a **distributed restatement** realized by EA-0025 + EA-0023 + EA-0002/0005 + EA-0024.
+   There SHALL be no `src/aqelyn/caem/`, `cyber_asset_exposure/`, second inventory/exposure store,
+   second graph, second prioritizer, `caem_engine`, or generic `aqelyn.cyber.*` event namespace.
+2. Deliver a conformance analysis and one real-runtime proof that drives the whole owner chain:
+   handed-in inventory -> known surface -> exposure/path -> vulnerability priority, with replay,
+   no-network, tenant isolation, and unknown-not-safe controls. A spy or event-name grep is
+   insufficient.
+3. Correct the broad master-index row so EA-0037 no longer points readers at "Pre-Coding Baseline".
+   Preserve the Blueprint Volume 037 as supporting material, but state explicitly that it is not the
+   IS-037 master.
+4. Do not invent a feature gap from the template. The one genuine repair directly under this
+   capability is already recorded as **ECR-0034** and should be closed in this turn if the owner
+   approves (below).
+
+### ECR-0034 is now on the critical path, not a distant follow-up
+
+`InventoryIntelligenceEngine.inventory()` and `sweep_unreported()` still query
+`AssetStore.query(limit=10_000)` once. `AssetStore.query` has no cursor, and `inventory()` hardcodes
+`degraded=False`. The verified result for 10,050 assets is:
+
+```
+actual assets                         10050
+InventoryReport.total                 10000
+InventoryReport.degraded              False
+EA-0023 known-surface records         10000
+EA-0024 coverage denominator          10000
+assets neither scanned nor unscanned     50
+```
+
+That is the exact failure IS-037's title makes load-bearing: a smaller world looks fully inventoried,
+fully surfaced, and better covered. The fail-closed gates in `InventoryKnownSurfaceSource` and
+`InventoryVulnerabilityCoverageProvider` key on `report.degraded`; the hardcoded `False` makes those
+gates unreachable for store truncation.
+
+Recommended C-034 shape:
+
+- **L1 - conformance record and source-family correction:** docs + real-owner chain, zero production
+  namespace.
+- **L2 - implement existing ECR-0034 in EA-0025:** D8 cursor contract on both AssetStore backends;
+  stable id order, filters before limit, `next_cursor` exactly when another matching row exists;
+  bounded paging or refusal for `inventory()` and `sweep_unreported`; over-cap regression proving
+  EA-0023/EA-0024 either see the full estate or refuse. Do not trade the silent cap for unbounded
+  request work (ECR-0031).
+- C-034 is not complete while the conformance record claims an exhaustive asset denominator and
+  ECR-0034 remains reproducible. If the owner does not approve L2, record the residual
+  non-conformance explicitly rather than calling the capability fully green.
+
+### Delegation seams verified in shipped code
+
+| Need | Shipped owner and exact seam |
+|---|---|
+| handed-in asset discovery and reconciliation | EA-0025 `InventoryIntelligenceEngine.ingest(*, reports, source, tenant_id)` / `reconcile(asset_id, *, tenant_id)` |
+| authoritative inventory | EA-0025 `inventory(*, tenant_id) -> InventoryReport` |
+| inventory -> exposure | `InventoryKnownSurfaceSource.list_known_surface(*, tenant_id)` |
+| known-data surface and exposure | EA-0023 `derive_surface(*, tenant_id)` / `analyze_exposure(*, asset_ref, tenant_id)` |
+| exposure scoring and finding | EA-0023 `score_exposure(exposure, *, impact_context=None)` / `raise_exposure_finding` |
+| relationship persistence and traversal | EA-0002 `ObjectStore.relate`; EA-0005 `KnowledgeGraph.paths(..., max_depth, max_paths, max_work)` |
+| vulnerability prioritization | EA-0024 `prioritize(vulnerability_id, *, tenant_id)` |
+| exposure -> vulnerability factor | `ExposureStoreReachabilityProvider.reachability_factor(vulnerability)` |
+| inventory -> vulnerability coverage | `InventoryVulnerabilityCoverageProvider.coverage(*, tenant_id)` |
+| evidence / trust / mission / findings | EA-0004 / EA-0006 / EA-0007 / EA-0013 |
+| any future active collection | EA-0008-gated `ActionSpec`; never an analytical-engine method |
+
+### Review protocol for the drafted decision
+
+1. **Template first:** no requirement may be attributed to a placeholder objective or generic section.
+2. **Source family:** the draft must name Cyber Asset Exposure Management, not Distributed Scan or
+   Pre-Coding Baseline. Trace every imported statement to the correct artifact.
+3. **No second owner:** no CAEM package/service/store/graph/scorer/event namespace.
+4. **Real chain, with a negative control:** removing the inventory->surface seam must change the real
+   exposure result; removing the exposure record must change the real EA-0024 factor. Calls alone are
+   insufficient.
+5. **No scan surface:** socket spy plus callable-surface check. The only active path is an EA-0008
+   action specification, never `scan`/`probe`/`connect` on the analytical engine.
+6. **Unknown is not safe:** inventory reachability `None` becomes exposure `unknown`, never internal
+   or unreachable; degraded inventory makes surface and coverage refuse.
+7. **ECR-0034:** 10,050 assets either enumerate fully under a bounded contract or raise
+   `InventoryUnavailable`; never return 10,000 with `degraded=False`. Prove both backends and both
+   downstream adapters.
+8. **D8 pagination:** adversarial ordering, filter before limit, exclusive cursor, no phantom page,
+   both backends. `sweep_unreported` must reach assets beyond the former cap.
+9. **Events stay with owners:** generic `Cyber*` placeholders remain absent; existing
+   `aqelyn.inventory.*`, `aqelyn.exposure.*`, and `aqelyn.vuln.*` events are not re-emitted.
+10. **Standing gates:** `ruff`, format, `mypy --strict src tests`, worktree pytest with
+    `PYTHONPATH=$PWD/src`, live Postgres/Redis, both tenant modes, and `gh pr checks` confirmed green.
+
+### Other tracked follow-ups this turn must not absorb
+
+- EA-0018 `response/metrics.py` unclamped-duration flake.
+- EA-0027 / EA-0018 enterprise health-probe gaps.
+- EA-0013 equal-timestamp ordering tie-breaker.
+
+They remain real, but they are not evidence for a CAEM module and do not belong in C-034.
