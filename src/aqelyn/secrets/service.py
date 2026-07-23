@@ -28,6 +28,7 @@ from aqelyn.secrets.models import (
     CryptoScope,
     SecretAsset,
     SecretScanDescriptor,
+    StorageSafetyClassification,
     _reject_value_keys,
 )
 from aqelyn.secrets.store import CryptoStore
@@ -258,6 +259,14 @@ class SecretsIntelligenceService:
         tenant_id: str | None,
     ) -> CredentialGovernanceScore:
         return await self.engine.score_credential(asset_id, tenant_id=tenant_id)
+
+    async def classify_storage(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> StorageSafetyClassification:
+        return await self.engine.classify_storage(asset_id, tenant_id=tenant_id)
 
     async def propose_rotation(
         self,

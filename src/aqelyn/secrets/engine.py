@@ -75,8 +75,10 @@ from aqelyn.secrets.models import (
     Lifecycle,
     SecretAsset,
     SecretScanDescriptor,
+    StorageSafetyClassification,
 )
 from aqelyn.secrets.scoring import compose_credential_governance
+from aqelyn.secrets.storage import classify_storage_safety
 from aqelyn.secrets.store import CryptoStore
 from aqelyn.workflow import Playbook, Run, Step
 
@@ -354,6 +356,21 @@ class SecretsIntelligenceEngine:
         else:
             selected = asset.model_copy(deep=True)
         return await self._score_asset(selected, tenant_id=selected_tenant)
+
+    async def classify_storage(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> StorageSafetyClassification:
+        selected_tenant = require_tenant_id(tenant_id)
+        asset = await self.store.get_asset(asset_id, tenant_id=selected_tenant)
+        if asset is None:
+            raise CryptoAssetNotFound(asset_id)
+        return classify_storage_safety(
+            asset,
+            approved_location_prefixes=self.config.approved_storage_location_prefixes,
+        )
 
     async def analyze_exposure(
         self,
@@ -874,6 +891,10 @@ class SecretsIntelligenceEngine:
             ),
         )
         computed_at = utc_now()
+        storage_safety = classify_storage_safety(
+            asset,
+            approved_location_prefixes=self.config.approved_storage_location_prefixes,
+        )
         composed = compose_credential_governance(
             asset,
             ownership=ownership,
@@ -882,6 +903,7 @@ class SecretsIntelligenceEngine:
             trust=trust,
             mission=mission,
             compliance=compliance,
+            storage_safety=storage_safety,
             factor_weights=self.config.governance_factor_weights,
             computed_at=computed_at,
             risk_config=self.risk_config,
@@ -898,7 +920,7 @@ class SecretsIntelligenceEngine:
                 recorded_at=computed_at,
                 collector=self.actor,
                 source_id=self.source_id,
-                method="secrets.score_credential/v1",
+                method="secrets.score_credential/v2",
                 content={
                     "score_id": score_id,
                     "asset_id": asset.id,

@@ -44,6 +44,9 @@ from aqelyn.secrets.models import (
     SecretLocation,
     SecretLocationKind,
     SecretScanDescriptor,
+    StorageLocationKind,
+    StorageSafetyClassification,
+    StorageSafetyStatus,
 )
 from aqelyn.secrets.postgres import PostgresCryptoStore
 from aqelyn.secrets.scoring import (
@@ -58,6 +61,7 @@ from aqelyn.secrets.service import (
     SecretsIntelligenceService,
     register_crypto_events,
 )
+from aqelyn.secrets.storage import classify_storage_safety
 from aqelyn.secrets.store import CryptoStore
 
 __all__ = [
@@ -109,6 +113,10 @@ __all__ = [
     "SecretScanDescriptor",
     "SecretsIntelligenceEngine",
     "SecretsIntelligenceService",
+    "StorageLocationKind",
+    "StorageSafetyClassification",
+    "StorageSafetyStatus",
+    "classify_storage_safety",
     "compose_credential_governance",
     "governance_operation_registry",
     "governance_score_result",

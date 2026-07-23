@@ -407,6 +407,7 @@ def _runtime_crypto_config(config: AQELYNConfig) -> CryptoConfig:
         max_key_age_days=config.secrets_max_key_age_days,
         batch_size=config.secrets_batch_size,
         max_work=config.secrets_max_work,
+        approved_storage_location_prefixes=(config.secrets_approved_storage_location_prefixes),
         governance_factor_weights=config.secrets_governance_factor_weights,
     )
 
