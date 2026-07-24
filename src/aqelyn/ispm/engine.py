@@ -651,10 +651,18 @@ class ISPMEngine:
             if exc.retriable:
                 return f"EA-0025 inventory unavailable: {exc.message}"
             raise
+        if report.degraded:
+            # ECR-0034 (C-034): the cap is now reported rather than assumed. This consumer
+            # produces a note, not a gate, so it flags rather than refuses -- but it must
+            # read the flag, or it is a truthful field nobody acts on.
+            return (
+                "EA-0025 reported "
+                f"{report.total} assets over a truncated read (ECR-0034 row cap reached); "
+                "the inventory is not exhaustive."
+            )
         return (
-            "EA-0025 reported "
-            f"{report.total} assets, but ECR-0034's 10,000-row cap is unresolved; "
-            "the inventory is not claimed exhaustive."
+            f"EA-0025 reported {report.total} assets within ECR-0034's row cap; "
+            "ISPM does not claim the inventory exhaustive."
         )
 
     async def _identity_for_account(

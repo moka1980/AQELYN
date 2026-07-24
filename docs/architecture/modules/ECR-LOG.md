@@ -38,7 +38,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
 | ECR-0032 | EA-0028 + EA-0029 + EA-0031 + EA-0033 | Proposed | ISPM is the fourth normalize/route posture module; decide on a shared base only after C-030 is green, never within C-030. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
-| ECR-0034 | EA-0025 (+ EA-0023, EA-0024, EA-0030) | Proposed | `InventoryIntelligenceEngine.inventory()` reads `store.query(limit=10_000)` and returns `degraded=False` unconditionally; `AssetStore.query` has no cursor and no more-remaining signal. A tenant above 10 000 assets gets its first 10 000 reported as the complete inventory. That report is EA-0023's known-surface denominator and EA-0024's coverage base (`unscanned = inventory − scanned`), and both of their fail-closed gates are keyed on the `degraded` flag that is hardcoded `False` — so a silent cap shrinks the attack surface, under-reports unscanned assets, and cannot trip either refusal. EA-0030 now ingests SBOM components into the same store, making the cap reachable in ordinary operation. |
+| ECR-0034 | EA-0025 (+ EA-0023, EA-0024, EA-0030) | Resolved (C-034; silent truncation only — cursor pagination still open) | `InventoryIntelligenceEngine.inventory()` read `store.query(limit=10_000)` and returns `degraded=False` unconditionally; `AssetStore.query` has no cursor and no more-remaining signal. A tenant above 10 000 assets gets its first 10 000 reported as the complete inventory. That report is EA-0023's known-surface denominator and EA-0024's coverage base (`unscanned = inventory − scanned`), and both of their fail-closed gates are keyed on the `degraded` flag that is hardcoded `False` — so a silent cap shrinks the attack surface, under-reports unscanned assets, and cannot trip either refusal. EA-0030 now ingests SBOM components into the same store, making the cap reachable in ordinary operation. |
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
 | ECR-0036 | EA-0029 | Accepted | Make Z3's owner references and blast-radius read tenant-correct: `SaaSRoutingResult.inventory_ref` is an EA-0025 `ast_` id (not an EA-0002 `obj_` id), and `integration_blast_radius` requires explicit `tenant_id` so it cannot read the tenant-scoped integration store through an unscoped interface. |
 | ECR-0037 | EA-0030 | Accepted | Make Q2's Trust reconciliation durable and its store pagination honest: components pin the winning source/time and retain every conflict candidate, malformed documents persist as flagged quarantine records, and `SBOMStore.query` adopts EA-0002 D8 cursor semantics. |
@@ -1682,6 +1682,50 @@ structurally impossible for the absence case and remains reachable through the p
 **Impact.** Amends EA-0025's store contract, `inventory()`, and `sweep_unreported`; adds
 pagination ACs on both backends. EA-0023/EA-0024/EA-0030 need no change beyond re-verification.
 Implementation is Codex's.
+
+### Resolution — C-034 (ECR-0059), route (A): the honest flag, not the cursor
+
+C-034 could not certify IS-037 over this denominator, so it took the fix rather than
+recording a bounded residual. The bound was already routinely exceeded: EA-0030 ingests
+one `AssetRecord` per parsed SBOM component (`supplychain/engine.py:212`), so
+*"conformant for ≤ 10 000 assets/tenant"* would have certified a configuration the
+platform does not run in.
+
+**What landed.** `AssetStore.query` is unchanged — no protocol change, so no test double
+or backend implementer had to move (rule 18). The engine reads one row past the cap
+(`_ASSET_QUERY_PROBE = _ASSET_QUERY_CAP + 1`) and treats a full result as proof that more
+exists:
+
+- `inventory()` truncates to the cap and returns `degraded=True` instead of `False`.
+- `sweep_unreported()` refuses. It has no report to flag, and a half-sweep would leave the
+  unread rows still looking currently-reported — a stale posture they have not earned.
+- `ISPMEngine._inventory_note` now reads the flag rather than asserting the cap is
+  unresolved in prose.
+
+**What did not land.** `limit + 1` says *more exists*; it does not deliver the rest.
+Completeness is cursor pagination under a work budget (EA-0002 D8 / rule 10) and remains
+a separate change — items 1–3 of the plan above are only partly discharged. `AssetStore`
+still has no cursor. **This resolution closes the silent-truncation defect, not the
+pagination gap.**
+
+`inventory_complete` on `ISPMAssessment` stays hardcoded `False`. Deriving it from
+`degraded` would newly claim exhaustiveness below the cap, which is a wider claim than
+this change earns.
+
+**Consumers, enumerated and asserted.** An honest flag nobody reads is the ECR-0013
+shape, so all four consumers of `inventory()` are proven to act on it by driving a real
+engine past the cap with 10 001 real records:
+`InventoryKnownSurfaceSource.list_known_surface` refuses (`InventoryUnavailable`, and
+`derive_surface` inherits it), `InventoryVulnerabilityCoverageProvider.coverage` refuses
+(`CoverageUnavailable`), `ISPMEngine._inventory_note` flags, and
+`InventoryIntelligenceService.inventory` passes the flag through intact.
+
+**Behavioural change (the ECR-0040 situation again).** Deployments above 10 000 assets
+will see these gates begin refusing where they previously proceeded. That is a correction
+surfacing a pre-existing wrong answer, not a regression: those deployments were already
+being told an attack surface was exhaustive when it was not.
+
+**Status:** Resolved for silent truncation; the cursor half is carried forward.
 
 ---
 

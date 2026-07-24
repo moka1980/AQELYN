@@ -98,6 +98,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | [IS-036 — conformant via EA-0018+EA-0008](IS-036_Conformance_Analysis.md) | EA-0036 | *(no new module; template archive — see ECR-0055)* | [C-033](C-033_Task_Bundle.md) | Analysis |
 | [GC-001 §0 Guarantee-Conformance Suite](GC-001-guarantee-conformance-suite.spec.md) | *(GC track)* | *test-only; no runtime surface — see ECR-0057* | [GC-001](GC-001_Task_Bundle.md) | Accepted |
 | [GC-002 Event-Namespace Closure Guard](GC-002-event-namespace-closure.spec.md) | *(GC track)* | *test-only; no runtime surface — see ECR-0058* | [GC-002](GC-002_Task_Bundle.md) | Accepted |
+| [IS-037 — conformant via EA-0023+0024+0025+0005](IS-037_Conformance_Analysis.md) | EA-0037 | *(no new module; no `Cyber*` namespace — see ECR-0059)* | [C-034](C-034_Task_Bundle.md) | Analysis |
 
 Spec authoring: [SPEC_AUTHOR_NOTES.md](SPEC_AUTHOR_NOTES.md) carries the reviewer's standing
 rules and the current per-module handover for whoever drafts the next spec.
