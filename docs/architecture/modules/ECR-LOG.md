@@ -62,6 +62,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0055 | IS-036 / EA-0018+EA-0008 | Proposed | Archive is a template; capability ships. Conformance only, **no second orchestrator, no un-gated execution**. |
 | ECR-0056 | EA-0008 / IS-036 | Proposed | K1 found two shipped gate gaps: non-human approvals were accepted and rollback invoked handlers without a fresh human/capability gate. |
 | ECR-0057 | GC-001 (cross-cutting) | Proposed | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
+| ECR-0058 | GC-002 (cross-cutting) | Proposed | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
+| ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Proposed | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
 
 ---
 
@@ -2686,3 +2688,135 @@ driven through the real ingestion path.
 **Impact.** No runtime change; CI gains a suite that fails when a future module
 omits a boundary. Existing per-module refusal tests remain the owners of their
 local guarantees and are neither weakened nor duplicated.
+
+## ECR-0058 - GC-002: event-namespace closure guard
+
+**Raised by:** planning (IS-037 pass exposed the gap); owner sequenced GC-002
+before C-034.
+**Status:** Proposed - owner decision.
+
+**The gap.** GC-001's three ACs are engine-no-execute, `SignalKind` closure, and
+the scorer registry. **None asserts anything about event namespaces.** With **51**
+`register_*_events` owner sites and ~31 live `aqelyn.<owner>.*` prefixes, minting
+`aqelyn.cyber.*` for IS-037's 9 placeholder events would **pass CI silently**.
+
+**Why this defect is worse than a duplicate engine.** Events are a **published
+contract**: a duplicate engine can be deleted before release, but a **duplicate
+event namespace is permanent once consumers depend on it** - and EA-0013
+aggregation plus EA-0022 reporting would **double-count** one real occurrence
+arriving under two vocabularies.
+
+**Resolution proposed.** One **test-only** module in `tests/guarantees/`, mirroring
+GC-001's shape and inheriting its three principles (discovery-never-declaration,
+weakest-form, negative-control-per-AC), with:
+
+- **AC-1 registered event-type closure** - enumerate from a **constructed
+  runtime's** `EventTypeRegistry`; assert the set equals a **frozen golden set**.
+- **AC-2 prefix ownership** - every `aqelyn.<owner>.` maps to a real shipped
+  package via a derived map plus a reasoned allow-list; an unowned prefix fails.
+- **AC-3** - both backends, both tenant modes, negative controls under `python -O`
+  with `UnknownEventType`/`GuaranteeViolation` raised explicitly.
+
+**Four design decisions beyond the brief.**
+
+1. **AC-1 and AC-2 catch different defects and neither is redundant.** A *new
+   prefix* (`aqelyn.cyber.exposure_detected`) is caught by **AC-2**; a *new event
+   under an existing prefix* (`aqelyn.exposure.cyber_discovered`) is caught by
+   **AC-1**. **Only AC-2 catches the actual IS-037 case**; AC-1 catches the subtler
+   variant a future author reaches for once AC-2 blocks the obvious route.
+2. **The golden set must be grouped by owner, not flat.** GC-001 froze eight
+   `SignalKind` members; GC-002 freezes hundreds of event types. At that size a
+   one-line addition to a flat list is **invisible in review**, the deliberate
+   edit becomes a rubber stamp, and the guard degrades into a formality that still
+   passes CI. Grouped, a diff reads *"`exposure` gained an event"* and keeps the
+   reviewable question - *why does this owner need a new event?* - in front of the
+   reviewer. **The structure is the review affordance.**
+3. **Ownership is many-to-one, and derived from evidence.** The brief's two
+   unresolved prefixes resolve from shipped spec evidence: **`compliance` ->
+   `governance`** (EA-0010) and **`telemetry` -> `lake`** (EA-0019). The second
+   carries a consequence: **EA-0019 owns two prefixes** (`aqelyn.lake.*` and
+   `aqelyn.telemetry.*`), as does `objects` (`object.*`, `relationship.*`). A data
+   structure assuming one prefix per package breaks on day one. `CORE_EVENTS`-
+   seeded prefixes need allow-list entries recording registry-seeding as their
+   reason.
+4. **An orphaned prefix is a finding, never an exemption.** If AC-2 fails on
+   arrival because a shipped prefix has no derivable owner, that is GC-002
+   **working**. The correct response is to derive the true owner and record the
+   reason, or record a real defect - **not** to add a bare exemption to go green,
+   which converts a discovered defect into a permanent blind spot. Ambiguous
+   ownership **fails rather than guesses**.
+
+**Out of scope, flagged not assumed.** The registry's `validate` raises
+`UnknownEventType` for an unregistered type; whether an engine can *emit* a string
+that never reaches `validate` is an **emit-path** question rather than a
+registration-set one, and GC-002 does not address it. For the reviewer to judge
+against shipped code.
+
+**Impact.** No runtime change. CI gains the **fourth** enforced §0 guarantee, and
+**C-034 (IS-037 conformance, ECR-0059) lands mechanically protected** against
+event-minting rather than reviewer-protected.
+
+## ECR-0059 - IS-037: template stub; CAASM ships distributed; no `Cyber*` event namespace
+
+**Raised by:** planning (IS-037 pass), on the reviewer's verified handover.
+**Status:** Proposed - owner decision.
+
+**Finding A - template stub, second consecutive.** `archive/EA-0037/EA-0037_Master.md`
+is 424 lines of the generic 40-section template: §012-032 **byte-identical
+boilerplate**, §033 the **identical generic 12-capability matrix** every EA-0036+
+archive carries, **zero module-specific requirement text**. Only the title and 9
+event names are distinctive. Per the IS-036 finding, any requirement written from
+these headings is **invented by the drafter wearing the archive's authority**.
+
+**Finding B - the capability ships, distributed.** "Cyber Asset Exposure
+Management" decomposes onto **EA-0025** (docstring: *"Cyber Asset Discovery &
+Inventory Intelligence"*), **EA-0023** (docstring: *"Threat Exposure & Attack
+Surface Management Engine"*; ships `derive_surface`, `list_known_surface`,
+`reachable_paths`), **EA-0024** (prioritization; composes the reachability
+`PriorityFactor`), **EA-0005** (relationships), with intake via **EA-0028/0029**.
+Fifth conformance case (IS-026/034/035/036/037) and the **clearest**: two shipped
+owners carry the archive's own words in their package docstrings, and the chain
+assets -> exposure -> priority is **already composed**, not merely available.
+
+**The primary trap - a parallel EVENT namespace.** The 9 `Cyber*` events appear
+**0/9 in `src/`**. That is net-new **naming**, not capability - EA-0023/0024/0025
+already emit these events under their own vocabularies. Minting them is subtler
+than a duplicate engine and worse in one respect:
+
+1. **Double-counting** - EA-0013 aggregation and EA-0022 reporting would see one
+   real occurrence twice, inflating risk and every figure derived from it.
+2. **Two vocabularies per capability** - consumers must know both, and *which one
+   fired* becomes a question with no principled answer.
+3. **Events are a published contract** - once consumed, retiring them is a
+   breaking change. A duplicate engine can be deleted before release; **a
+   duplicate event namespace is effectively permanent.**
+4. **Appearance without substance** - it would describe work the owners already do
+   while implying a component that does not exist.
+
+**A quieter trap.** *"Prioritizes reduction of exploitable exposure"* reads as
+action, in the same class as IS-036's "Autonomous". Prioritization is EA-0024's;
+reduction is **detect-and-propose** via an EA-0008-gated action carried by a
+finding's `Automation`. §0 no-autonomy is unchanged.
+
+**Resolution proposed.**
+1. Mark **IS-037 conformant** via EA-0023 + EA-0024 + EA-0025 + EA-0005
+   (+ EA-0028/0029), verified against shipped code.
+2. **Forbid**: no package under `src/aqelyn/`, no unified CAASM engine, **no
+   `Cyber*` event namespace**, no second composer/scorer, no new `SignalKind`.
+3. **Claim no gap**; none was invented. Any future proposal must show a concrete
+   missing type/method against shipped EA-0023/EA-0025, reviewer-verified first.
+4. **Expected outcome: an analysis and no code.**
+
+**Enforcement note - and a gap this exposed.** This is the **first conformance
+decision backed by CI rather than reviewer vigilance**: with GC-001 live, a new
+package trips `test_gc_engine_discovery_complete` and a new composition scorer
+trips the scorer registry, on the day it lands. GC-002 now closes the
+event-namespace gap this pass exposed: minting `aqelyn.cyber.*` trips
+`test_gc_negative_control_unowned_prefix`, on the day it lands.
+
+**Batch note.** EA-0036 and EA-0037 are both stubs from the same generator. Two is
+not thirteen, but it changes the default expectation for EA-0038-EA-0050. If
+IS-038/039 come back identical, the honest question is whether the remainder
+warrants **one batch-level decision** rather than thirteen passes - and whether the
+archive has stopped being a source of requirements, leaving the tracked follow-ups
+as the real backlog.
