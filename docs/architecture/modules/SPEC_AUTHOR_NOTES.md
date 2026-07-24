@@ -251,7 +251,11 @@ Existing real-engine tests prove the joins, not only the calls:
 `test_exp_paths_delegate_kg`, `test_exp_score_composes_trust_mission_risk_derivation`, and
 `test_vuln_priority_replayable`. The targeted in-memory set was re-run for this handover: 8 passed.
 
-### Resolution to propose - ECR-0058 (distributed conformance, no CAEM module)
+### Resolution to propose - ECR-0059 (distributed conformance, no CAEM module)
+
+> **Renumbered ECR-0058 → ECR-0059.** The owner sequenced GC-002 (event-namespace
+> closure guard) ahead of C-034, so GC-002 takes ECR-0058 and IS-037/C-034
+> conformance takes ECR-0059. See `ECR-LOG.md` (0058 = GC-002, 0059 = IS-037).
 
 1. Mark IS-037 a **distributed restatement** realized by EA-0025 + EA-0023 + EA-0002/0005 + EA-0024.
    There SHALL be no `src/aqelyn/caem/`, `cyber_asset_exposure/`, second inventory/exposure store,
