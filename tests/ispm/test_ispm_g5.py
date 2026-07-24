@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -33,7 +33,13 @@ from aqelyn.iag import (
     IdentityAccessGovernanceEngine,
     InMemoryCertificationStore,
 )
-from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
+from aqelyn.inventory import (
+    AssetBasis,
+    AssetRecord,
+    InMemoryAssetStore,
+    InventoryIntelligenceEngine,
+)
+from aqelyn.inventory.engine import _ASSET_QUERY_CAP
 from aqelyn.ispm import (
     ISPM_EVENTS,
     ControlFact,
@@ -254,6 +260,38 @@ async def test_ispm_assessment_is_durable_and_inventory_not_exhaustive() -> None
     assert len(assessment.score_ids) == 1
     assert assessment.inventory_complete is False
     assert "ECR-0034" in assessment.inventory_note
+
+
+async def test_ispm_inventory_note_flags_a_truncated_read() -> None:
+    """C-034: ISPM is the third consumer of the capped denominator, and it must act.
+
+    This consumer produces a note rather than a gate, so it flags instead of refusing
+    -- but it has to read `degraded`. A note that reports the asset count without
+    saying the read was truncated is a truthful field nobody acts on (ECR-0013).
+    """
+    engine, _, _, _, _ = await _scored_engine()
+    store = InMemoryAssetStore(mode="enterprise")
+    for index in range(_ASSET_QUERY_CAP + 1):
+        seen = NOW - timedelta(days=30) + timedelta(seconds=index)
+        await store.put(
+            AssetRecord(
+                id=new_id("ast"),
+                tenant_id=TENANT,
+                asset_type="host",
+                discovery_source="c034-note",
+                confidence=1.0,
+                basis=[AssetBasis(kind="discovery", ref=f"c034:{index}", as_of=seen)],
+                first_seen_at=seen,
+                last_reported_at=seen,
+            )
+        )
+    engine.inventory = InventoryIntelligenceEngine(store)
+
+    assessment = await engine.assess(tenant_id=TENANT)
+
+    assert assessment.inventory_complete is False
+    assert "truncated read" in assessment.inventory_note
+    assert "not exhaustive" in assessment.inventory_note
 
 
 async def test_ispm_propose_binds_real_iag_finding() -> None:

@@ -35,6 +35,15 @@ _RECONCILED_FIELDS = ("asset_type", "classification", "owner")
 _INVENTORY_STATES = frozenset(("provisioned", "active", "modified", "unreported"))
 _INVENTORY_ACTOR = ActorRef(actor_type="system", actor_id="inventory_engine")
 
+# ECR-0034: the engine reads the asset store under a fixed row cap. `AssetStore.query`
+# has no cursor and no more-remaining signal, so the cap is probed by asking for one
+# row beyond it: a full `_ASSET_QUERY_CAP + 1` result proves more assets exist than the
+# read returned. This is the honest signal only -- it says *more exists*, not *here is
+# the rest*. Completeness needs cursor pagination under a work budget (EA-0002 D8) and
+# is deliberately a separate change.
+_ASSET_QUERY_CAP = 10_000
+_ASSET_QUERY_PROBE = _ASSET_QUERY_CAP + 1
+
 
 class AssetClassifier(Protocol):
     async def classify(self, asset_id: str, *, tenant_id: str | None = None) -> str: ...
@@ -166,9 +175,18 @@ class InventoryIntelligenceEngine:
             raise SourceHealthUnknown("cannot sweep unreported assets for unknown source health")
         selected_tenant = require_tenant_id(tenant_id)
         try:
-            rows = await self.store.query(tenant_id=selected_tenant, limit=10_000)
+            rows = await self.store.query(tenant_id=selected_tenant, limit=_ASSET_QUERY_PROBE)
         except Exception as exc:
             raise InventoryUnavailable("asset inventory store unavailable") from exc
+        # ECR-0034: a sweep is only sound over the whole tenant. Sweeping a truncated read
+        # would leave the unread assets still looking currently-reported -- stale rows
+        # silently keeping a fresh posture, which is unknown treated as safe. There is no
+        # report to flag here, so this refuses instead of half-sweeping.
+        if len(rows) > _ASSET_QUERY_CAP:
+            raise InventoryUnavailable(
+                "asset inventory exceeds the readable row cap; "
+                "cannot sweep unreported assets over a truncated read (ECR-0034)"
+            )
         changed: list[AssetRecord] = []
         for row in rows:
             if (
@@ -242,9 +260,16 @@ class InventoryIntelligenceEngine:
     async def inventory(self, *, tenant_id: str | None) -> InventoryReport:
         selected_tenant = require_tenant_id(tenant_id)
         try:
-            rows = await self.store.query(tenant_id=selected_tenant, limit=10_000)
+            rows = await self.store.query(tenant_id=selected_tenant, limit=_ASSET_QUERY_PROBE)
         except Exception as exc:
             raise InventoryUnavailable("asset inventory store unavailable") from exc
+        # ECR-0034: above the cap this report covers only part of the tenant. Reporting a
+        # truncated read as complete is the platform asserting an exhaustive asset set it
+        # cannot know; `degraded` is the flag EA-0023's known surface and EA-0024's
+        # coverage base already fail closed on.
+        capped = len(rows) > _ASSET_QUERY_CAP
+        if capped:
+            rows = rows[:_ASSET_QUERY_CAP]
         included = [row for row in rows if row.lifecycle_state in _INVENTORY_STATES]
         freshness = _source_freshness(included)
         as_of = min(freshness.values()) if freshness else utc_now()
@@ -253,7 +278,7 @@ class InventoryIntelligenceEngine:
             total=len(included),
             as_of=as_of,
             source_freshness=freshness,
-            degraded=False,
+            degraded=capped,
         )
 
     async def classify(self, asset_id: str, *, tenant_id: str | None) -> AssetRecord:
