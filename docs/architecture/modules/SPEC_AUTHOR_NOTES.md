@@ -153,6 +153,35 @@ fixtures approved as system and passed.
 Audit what fixtures DO to reach a state, not only what tests ASSERT. Corollary: a §0 guarantee tested
 only on happy paths where it holds is untested; each needs a test that fails on the refusal.
 
+### 20. A matching EA number transfers no scope
+Raised during IS-037 and cited by C-034's review protocol before it was ever a standing rule — the
+same number identifies incompatible artifacts across archive families. "037" names both the Cyber
+Asset Exposure Management stub and Blueprint `Volume_037_AQELYN_Distributed_Scan_Engine.md`, and
+importing the latter's active scanning would have reversed EA-0023's shipped no-scan boundary.
+When an EA number appears in multiple archive families, verify the source family, title, and declared
+source of truth before treating anything as in scope. A matching number is a collision, not a
+mandate.
+
+### 21. A guard mutation-verified only at the producer is verified for half the chain
+C-034 fixed ECR-0034 by making `inventory()` report a truncated read honestly, and the analysis that
+commissioned the fix warned in the same breath that an honest flag nobody acts on is the ECR-0013
+unwired-default shape. The warning fired inside the fix written to address it: one consumer
+(`ISPMEngine._inventory_note`) was wired to read `degraded` and a test docstring claimed coverage,
+but no test exercised it. Neutering the producer flipped the expected controls; neutering that
+consumer flipped nothing. The prose said the right thing and the code did not, and only mutation at
+the consumer end could tell them apart.
+
+Same family as rules 18 and 19 — the test infrastructure carrying the defect — but one level up:
+here the mutation discipline itself was applied at only one end of the chain. **Mutating the producer
+proves the signal is produced; only mutating each consumer proves the signal is acted on.** So:
+enumerate every consumer of a safety signal and mutate each one independently. A spec-stage warning
+does not prevent the defect it names; it only makes the defect findable, and only if the verification
+is aimed at both ends.
+
+Corollary (C-034, from the same round): proving a mechanism at a reduced scale establishes the logic,
+not that the production constant is what reaches the call sites. Pin the constant and assert the
+shipped call sites pass it, or the proof and the code can drift apart while both stay green.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
@@ -206,9 +235,9 @@ scheduler, or live collection into IS-037 would reverse EA-0023's shipped bounda
 remains an EA-0008-gated connector action; this analytical turn opens no socket and holds no
 credential.
 
-**Candidate standing rule from this round:** when an EA number appears in multiple archive families,
-verify the source family, title, and declared source of truth. A matching number does not transfer
-scope.
+**Promoted to Part 1 as rule 20** (landed by C-034): when an EA number appears in multiple archive
+families, verify the source family, title, and declared source of truth. A matching number does not
+transfer scope.
 
 ### Finding 3 - the named capability already ships across four owners
 

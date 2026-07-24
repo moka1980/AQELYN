@@ -39,7 +39,7 @@ from aqelyn.inventory import (
     InventoryVulnerabilityCoverageProvider,
     PostgresAssetStore,
 )
-from aqelyn.inventory.engine import _ASSET_QUERY_CAP
+from aqelyn.inventory.engine import _ASSET_QUERY_CAP, _ASSET_QUERY_PROBE
 from aqelyn.vuln import InMemoryVulnerabilityStore
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -180,6 +180,57 @@ def test_is037_no_cyber_namespace() -> None:
 
 
 # --- M2: ECR-0034, route (A) -----------------------------------------------------
+
+
+class _LimitRecordingAssetStore(InMemoryAssetStore):
+    """A real store that also records the `limit` each read asked for."""
+
+    def __init__(self, *, mode: str = "local") -> None:
+        super().__init__(mode=mode)
+        self.requested_limits: list[int] = []
+
+    async def query(
+        self,
+        *,
+        tenant_id: str | None,
+        lifecycle_state: str | None = None,
+        limit: int = 100,
+    ) -> list[AssetRecord]:
+        self.requested_limits.append(limit)
+        return await super().query(
+            tenant_id=tenant_id,
+            lifecycle_state=lifecycle_state,  # type: ignore[arg-type]
+            limit=limit,
+        )
+
+
+async def test_inventory_call_sites_pass_the_production_constant() -> None:
+    """The proof and the shipped call sites must not drift apart.
+
+    Proving the mechanism at small n establishes the logic, not that the real
+    constant is what reaches `store.query`. A call site that goes back to a literal,
+    or a constant edited without the proof following, would leave the cap tested at a
+    value the platform no longer uses. So: pin the constant, and assert every capped
+    read asks for exactly it.
+    """
+    assert _ASSET_QUERY_CAP == 10_000
+    assert _ASSET_QUERY_PROBE == _ASSET_QUERY_CAP + 1
+
+    store = _LimitRecordingAssetStore(mode="enterprise")
+    engine = InventoryIntelligenceEngine(store=store)
+
+    await engine.inventory(tenant_id=TENANT)
+    await engine.sweep_unreported(
+        source=DiscoverySource(
+            source_id="is037-conformance",
+            reliability=1.0,
+            health="ok",
+            as_of=utc_now(),
+        ),
+        tenant_id=TENANT,
+    )
+
+    assert store.requested_limits == [_ASSET_QUERY_PROBE, _ASSET_QUERY_PROBE]
 
 
 async def test_inventory_cap_signal_shape() -> None:
