@@ -11,6 +11,25 @@ from aqelyn.response.store import CampaignStore
 from aqelyn.workflow import Run
 
 
+def _elapsed_seconds(end: datetime, start: datetime) -> float | None:
+    """Seconds between two recorded timestamps, or ``None`` if the pair is impossible.
+
+    C-038/R1: an end before its start is not a short duration -- it is an unusable
+    measurement. Clamping it to ``0.0`` would report the *most favourable possible*
+    reading of impossible input: a campaign that responded to an incident before the
+    incident occurred would be presented as instantaneous detection. That is the
+    empty-means-safe family (ECR-0013, ECR-0040) arriving in a metric, and it also
+    makes the underlying cause permanently invisible.
+
+    These are differences between *stored* timestamps from different records, so a
+    monotonic source cannot help: the ordering has to be checked rather than
+    guaranteed. Unknown is reported as unknown, and an unknown value is excluded from
+    the mean rather than dragging it toward zero.
+    """
+    seconds = (end - start).total_seconds()
+    return None if seconds < 0.0 else seconds
+
+
 class MetricsRunReader(Protocol):
     async def get(self, run_id: str, *, tenant_id: str | None = None) -> Run | None: ...
 
@@ -43,9 +62,11 @@ async def compute_metrics(
         if campaign.updated_at >= since
     ]
     mttr_values = [
-        (campaign.updated_at - campaign.created_at).total_seconds()
+        value
         for campaign in campaigns
         if campaign.status == "completed"
+        for value in [_elapsed_seconds(campaign.updated_at, campaign.created_at)]
+        if value is not None
     ]
     containment_values = (
         []
@@ -91,7 +112,7 @@ async def _containment_seconds(
             completed.append(run.updated_at)
     if not completed:
         return None
-    return (max(completed) - campaign.created_at).total_seconds()
+    return _elapsed_seconds(max(completed), campaign.created_at)
 
 
 async def _mttd_seconds(
@@ -106,7 +127,7 @@ async def _mttd_seconds(
     )
     if incident is None:
         return None
-    return max(0.0, (campaign.created_at - incident.created_at).total_seconds())
+    return _elapsed_seconds(campaign.created_at, incident.created_at)
 
 
 def _phase(phases: Sequence[Phase], name: str) -> Phase | None:

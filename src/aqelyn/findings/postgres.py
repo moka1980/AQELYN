@@ -34,6 +34,7 @@ from aqelyn.findings.store import (
 
 _FINDING_COLS = (
     "id, tenant_id, finding_type, schema_version, dedup_key, title, severity, severity_score, "
+    "current_severity_score, "
     "status, what_happened, why_it_matters, how_determined, risk_of_inaction, expert_details, "
     "remediation, automation, confidence, source_engine, correlation_id, first_detected_at, "
     "last_detected_at, resolved_at, version"
@@ -170,7 +171,7 @@ class PostgresFindingStore:
         await conn.execute(
             f"INSERT INTO aq_finding ({_FINDING_COLS}) VALUES "
             "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,"
-            "$22,$23)",
+            "$22,$23,$24)",
             f.id,
             f.tenant_id,
             f.finding_type,
@@ -179,6 +180,7 @@ class PostgresFindingStore:
             f.title,
             f.severity,
             f.severity_score,
+            f.current_severity_score,
             f.status,
             f.what_happened,
             f.why_it_matters,
@@ -201,12 +203,15 @@ class PostgresFindingStore:
     async def _save(self, conn: asyncpg.Connection, f: Finding) -> None:
         await conn.execute(
             "UPDATE aq_finding SET status=$2, last_detected_at=$3, resolved_at=$4, "
-            "version=$5 WHERE id=$1",
+            "version=$5, current_severity_score=$6 WHERE id=$1",
             f.id,
             f.status,
             f.last_detected_at,
             f.resolved_at,
             f.version,
+            # ECR-0063: the only score that moves. `severity_score` is absent from this
+            # UPDATE by design -- it is the cursor's sort key.
+            f.current_severity_score,
         )
         await self._insert_links(conn, f)
 
@@ -251,6 +256,9 @@ class PostgresFindingStore:
                     dict.fromkeys([*result.affected_object_ids, *f.affected_object_ids])
                 )
                 result.version += 1
+                # ECR-0063: escalation follows the latest emission; `severity_score`
+                # stays write-once so ECR-0062's keyset cursor remains safe.
+                result.current_severity_score = f.severity_score
                 if result.status == "resolved":
                     result.status = "open"
                     result.resolved_at = None
@@ -268,6 +276,8 @@ class PostgresFindingStore:
                 await self._save(conn, result)
             else:
                 result = f.model_copy(deep=True)
+                if result.current_severity_score is None:
+                    result.current_severity_score = result.severity_score
                 if not result.id:
                     result.id = new_id("fnd")
                 result.version = 1

@@ -67,6 +67,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive exhausted as a requirements source. |
 | ECR-0061 | EA-0025 (+ EA-0023, EA-0024) | Accepted (C-036) | ECR-0034's second half: `AssetStore` gains cursor pagination (EA-0002 D8), the engine pages under `InventoryConfig.page_budget`. **Moves the truncation threshold; does not remove `degraded`.** Budget exhausted -> partial + flag; `sweep_unreported` -> exhaust or refuse, never partial. |
 | ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
+| ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
 
 ---
 
@@ -3235,5 +3236,107 @@ the other question.** Recorded as its own backlog item.
 store and is specified here. EA-0013's equal-timestamp item stays on the backlog - the
 hypothesis that it was a pagination precondition **did not hold**: every other
 paginating store orders on a unique key (`id` / `object_id`), so ties cannot bite.
+
+---
+
+---
+
+## ECR-0063 - C-038: the final backlog milestone
+
+**Spec:** claude.ai. **Implemented and reviewed by Claude Code (C-038)** during the Codex
+outage. Number verified free before assignment; rule 1. Four tracked items, one of which
+was a decision gate rather than a defect. **This milestone empties the tracked backlog.**
+
+### R1 - the EA-0018 flake: diagnosed, not clamped
+
+A negative duration is an **impossible value**. Clamping it to zero would present it as a
+legitimate instantaneous measurement - the empty-means-safe family (ECR-0013, ECR-0040)
+arriving in a metric - and would make the cause permanently invisible.
+
+**Diagnosed cause: mixed time bases in the fixture.** The campaign's timestamps came from
+the wall clock while the incident's came from a fixed `NOW` literal, so the *sign* of MTTD
+depended on the machine's clock relative to that literal. Not a wall-clock regression in
+production and not an ordering defect in the campaign path, so **no second ECR was
+needed**. A monotonic source would not have helped either: these are differences between
+*stored* timestamps from different records, so the ordering has to be **checked**, not
+guaranteed by the clock.
+
+**A production clamp was already shipped.** `_mttd_seconds` returned `max(0.0, ...)`, so a
+campaign that responded to an incident *before that incident occurred* was reported as
+**instantaneous detection** - the most favourable possible reading of impossible input.
+Demonstrated before removal: a -1200s pair reported `0.0`. It is removed whether or not it
+caused this flake, because it is what would hide a real ordering defect if one appeared.
+
+All three durations (MTTD, MTTR, containment) now go through `_elapsed_seconds`, which
+returns `None` - **unknown** - when the pair is impossible. An unknown value is excluded
+from the mean rather than dragging it toward zero, and `0.0` keeps meaning *measured as
+instantaneous*.
+
+### R2 - two probes, and the guarantee that makes the rule mechanical
+
+`idthreat_engine` and `response_engine` hardcoded `tenant_id=None` in their health probes.
+Both **failed enterprise startup outright** - confirmed by reverting the fix:
+`ServiceStartFailed: critical service idthreat_engine failed: query must be tenant-scoped
+in enterprise mode`. `create_inmemory_runtime()` defaults to `local`, so driving the
+factory-built runtime proved nothing about enterprise (rule 11). Both now derive a probe
+tenant from their store's mode.
+
+**GC-003 (owner-approved).** Rule 11 existed *because this was found once*, and it was
+found again - so the rule was reviewer-enforced and the next omission would have slipped
+identically. That is ECR-0057's argument verbatim. `tests/guarantees/test_service_health.py`
+now enumerates whatever the kernel has registered and asserts every service starts and
+reports ready in **both** tenant modes. Discovery-based, so a service added tomorrow is
+covered without anyone remembering; **behavioural, not structural** (ECR-0007) - it starts
+the real kernel rather than checking that a health *test* exists, since asserting a test
+exists is satisfied by a test that asserts nothing.
+
+Negative control `UnscopedHealthService` *performs* the omission (rule 19): it starts fine
+in `local`, fails in `enterprise`, and fails kernel startup when registered. Mutation-verified
+against both real defects.
+
+### R3 - EA-0013's tie-breaker was already satisfied
+
+The audit found **no un-tie-broken ordering in `src/`**. Every SQL ordering terminates in a
+unique column (`id`, `object_id`, `evidence_id`, `seq`, `source_id` PK, or the lake's unique
+`(tenant_id, name)`), and every Python sort key ends in a unique component. The item is
+closed as **already met**, not implemented.
+
+What was missing was a test that could *see* the property. `tests/conformance/test_ordering_determinism.py`
+pins it with **rows carrying identical timestamps**, inserted in reverse id order - because a
+suite with distinct timestamps passes against an un-tie-broken implementation, and one with
+ids in insertion order cannot distinguish *ordered* from *insertion-ordered* (rules 23, 24).
+Mutation-verified: removing `, record.id` turns it red.
+
+### R4 - re-scoring: **option 3**, and why the options were not equal
+
+**Owner decision.** Dedup re-emission kept the original `severity_score`, so a finding that
+recurred more severely stayed listed at its original lower severity.
+
+**The constraint that made this non-obvious:** ECR-0062's composite keyset cursor is safe
+from skip/duplicate **because `severity_score` is write-once**. Option 2 - update in place -
+would have reopened the exact hazard C-037's verification cleared, requiring an as-of bound
+or a documented snapshot caveat. **One option silently reopened closed work in another
+module**, which is why this was a gate rather than a preference.
+
+Shipped: `severity_score` stays **write-once** as the sort key; `current_severity_score`
+carries the latest emission, seeded equal on first raise. Ordering stays deterministic, the
+cursor stays safe, escalation becomes visible. Additive with an explicit
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` for deployments predating C-038 (rule 9 - the
+persisted shape decides whether a field is free).
+
+Mutation-verified: making the dedup path write `severity_score` instead - i.e. choosing
+option 2 - turns six controls red, including `test_finding_cursor_unaffected_by_escalation`,
+which pages a corpus whose current scores deliberately disagree with their sort keys.
+
+*Considered and not chosen:* a **maximum-observed** score rather than latest. Latest is
+accurate when severity genuinely falls; maximum would overstate. Recorded so the choice is
+visible if a "never let a finding look less severe than it has been" requirement appears.
+
+### Backlog
+
+**Empty.** What remains is `FIRST_DEPLOYMENT_ITEMS.md` (three items no work can close),
+**EA-0048** (recorded capability gap, unscheduled), and the two structural questions -
+live collection and the UI surfaces - which are product decisions rather than engineering
+work.
 
 ---

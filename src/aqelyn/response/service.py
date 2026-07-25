@@ -144,7 +144,7 @@ class ResponseOrchestrationService:
 
     async def _check_trigger_store(self) -> None:
         try:
-            await self.trigger_store.list(tenant_id=None, enabled_only=True)
+            await self.trigger_store.list(tenant_id=self._health_tenant(), enabled_only=True)
         except Exception as exc:
             raise StoreUnavailable(f"response trigger store unavailable: {exc}") from exc
 
@@ -173,3 +173,15 @@ class ResponseOrchestrationService:
     def _check_soc_engine(self) -> None:
         if self.incident_reader is None:
             raise StoreUnavailable("response SOC incident reader unavailable")
+
+    def _health_tenant(self) -> str | None:
+        """Rule 11: a probe issuing tenant-scoped reads must be tenant-scoped itself.
+
+        In enterprise mode an unscoped read is refused, so a probe hardcoding
+        ``tenant_id=None`` fails startup for the whole service. The probe tenant is a
+        fixed, well-formed id that no real tenant uses: it exercises the scoped path
+        without reading anyone's data.
+        """
+        if getattr(self.campaign_store, "mode", "local") == "enterprise":
+            return "018f0000-0000-7000-8000-000000180500"
+        return None

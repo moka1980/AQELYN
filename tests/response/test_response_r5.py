@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 
-from aqelyn.conventions import ActorRef, is_valid, new_id
+from aqelyn.conventions import ActorRef, is_valid, new_id, utc_now
 from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.findings import Automation, Finding, InMemoryFindingStore, Remediation
 from aqelyn.policy import Decision, DecisionRequest
@@ -308,7 +308,13 @@ async def _harness(
                 finding_store=finding_store,
                 recovery_assessor=assessor,
                 incident_reader=(
-                    _IncidentReader(_Incident(NOW - timedelta(minutes=20)))
+                    # C-038/R1: the campaign's timestamps come from the wall clock, so
+                    # the incident's must too. Anchoring this to the fixed `NOW`
+                    # literal mixed two time bases and made the sign of MTTD depend on
+                    # the machine's clock relative to that literal -- a time bomb that
+                    # `max(0.0, ...)` then hid by reporting impossible input as
+                    # instantaneous detection.
+                    _IncidentReader(_Incident(utc_now() - timedelta(minutes=20)))
                     if with_incident
                     else None
                 ),
