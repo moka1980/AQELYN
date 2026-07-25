@@ -36,7 +36,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0029 | EA-0012 + EA-0028 | Accepted | ECR-0028's `coverage_complete` is asserted over a truncated page budget. When a type's `ObjectQuery.limit` is exhausted while a `next_cursor` remains, `_asset_pages` breaks and the unseen objects are counted nowhere; the snapshot reports `coverage_complete=true` and an `objects_in_scope` that is the number of objects *looked at*, not the number in scope. `apply_cloud_baselines` with no scope materializes `ObjectQuery()` with its default `limit=100`, so any cloud estate above 100 objects reports a complete, clean assessment of its first 100. Truncation must make coverage incomplete, and an unscoped assessment must not silently impose a bound the caller never chose. |
 | ECR-0030 | EA-0002 (+ EA-0010, EA-0011, EA-0014, EA-0015) | Accepted | PR #164 silently repaired two latent `ObjectStore.query` defects while fixing EA-0012: neither backend had ever returned a `next_cursor` (every paging loop in the platform stopped after one page believing it was complete), and Postgres filtered `labels`/`natural_key` in Python *after* the SQL `LIMIT` (a label-filtered query returned 0 rows where 50 matched). The repair is correct but undisclosed: EA-0002's spec is unchanged, and the consumers are unswept — EA-0010 and EA-0011 change coverage silently, while `soc` and `threat.correlate` discard the cursor and remain capped at one page. |
 | ECR-0031 | EA-0015 + EA-0014 (+ EA-0002 in-memory store) | Accepted | ECR-0030's consumer sweep replaced "silently capped at one page" with "scan the whole estate per request". A hunt whose attribute filter matches nothing, and a `correlate()` over an all-expired indicator set, now page to exhaustion: measured 40 queries / 2000 rows / 10.1s and 21 queries / 2000 rows / 3.4s respectively, scaling quadratically. EA-0015 D7/NFR-3 still say bounded. ECR-0001's rule applies — page under a work budget, and when the budget is hit return what was found with `truncated=true`, the pattern `DriftSnapshot` already uses. `hunt` additionally has no truncation channel to say it with. |
-| ECR-0032 | EA-0028 + EA-0029 + EA-0031 + EA-0033 | Proposed | ISPM is the fourth normalize/route posture module; decide on a shared base only after C-030 is green, never within C-030. |
+| ECR-0032 | EA-0028 + EA-0029 + EA-0031 + EA-0033 | **Rejected** | Shared posture-normalization base. Four instances share a *shell*; the divergence **is** the extension. Closed with a reopening condition. |
 | ECR-0033 | EA-0029 (+ EA-0028 normalization store) | Accepted | Make SSPM uncertainty honest and connectable before C-026: `over_scoped` uses semantic tri-state tokens, bounded KG reach propagates truncation, confidence is explicitly in the source claim rather than the vendor, over-scoped grants use EA-0023's real `KnownSurfaceSource` seam, both factory runtimes prove owner wiring, and normalization-store queries use EA-0002-style cursor pagination instead of silently capped lists. |
 | ECR-0034 | EA-0025 (+ EA-0023, EA-0024, EA-0030) | Resolved (C-034; silent truncation only — cursor pagination still open) | `InventoryIntelligenceEngine.inventory()` read `store.query(limit=10_000)` and returns `degraded=False` unconditionally; `AssetStore.query` has no cursor and no more-remaining signal. A tenant above 10 000 assets gets its first 10 000 reported as the complete inventory. That report is EA-0023's known-surface denominator and EA-0024's coverage base (`unscanned = inventory − scanned`), and both of their fail-closed gates are keyed on the `degraded` flag that is hardcoded `False` — so a silent cap shrinks the attack surface, under-reports unscanned assets, and cannot trip either refusal. EA-0030 now ingests SBOM components into the same store, making the cap reachable in ordinary operation. |
 | ECR-0035 | EA-0029 | Accepted | `SaaSIntegration` holds two of the blast radius's three states. `reachable_object_ids=[] , reachable_truncated=False` is the record for both "traversal ran, reaches nothing" and "traversal never ran" (the KG-unavailable case §11 requires), and the ambiguity resolves toward safe. `over_scoped` already has an explicit `unknown` in the same model; reach does not. Replace `reachable_truncated: bool` with `reach_status: Literal["computed","truncated","pending"]`. |
@@ -1528,6 +1528,71 @@ classification ownership or weakening any module's typed envelope.
 **Recommendation.** Hold as Proposed. Decide after C-030 is green, against all
 four real implementations. Any extraction remains a separate,
 behaviour-preserving refactor whose existing suites pass unchanged.
+
+### RESOLUTION - **Rejected** (post-C-037, reviewer audit at `a692d1c`)
+
+**Status: Proposed -> Rejected.** The deciding evidence is in; holding it further
+would be deferral without a pending question.
+
+**The deciding question.** Not *"is there duplication"* - there is, four times -
+but **do the four normalizers differ in their unknown handling?** Duplication of
+plumbing is cheap to carry; divergence in unknown handling decides whether a
+shared base can exist without changing behaviour. The reviewer answered it from
+shipped code:
+
+| Module | `unknown` is a... |
+|---|---|
+| **CSPM** | object type - `CLOUD_UNKNOWN_OBJECT_TYPE` |
+| **SSPM** | object type - `SAAS_UNKNOWN_OBJECT_TYPE` |
+| **DSPM** | classification state on a *downstream* record - **nothing in normalization**; `state="reachability_pending"` in exposure |
+| **ISPM** | flag on the normalized record - `identity_kind` or `"unknown"` -> `flagged=True` pending resolution |
+
+**Only CSPM and SSPM genuinely share a mechanism.**
+
+**The finding that closes it.** DSPM's and ISPM's divergence sits in the step that
+made them the third and fourth instances - **classification** and **control
+scoring** respectively. So **the divergence is not incidental; it *is* the
+extension.** "Four instances of one pattern" was always slightly wrong: they are
+four instances of a shared **shell** with divergent **cores**.
+
+A base therefore has only two possible shapes, and neither is worth building:
+
+- **Extract the plumbing only** - saves the cheap part (descriptor -> object ->
+  provenance -> route), leaves every interesting part divergent, and adds an
+  indirection each future reader must traverse to find behaviour that was never
+  shared.
+- **Homogenize the cores** - that is a **behaviour change wearing a refactor's
+  clothes**. It would need its own ECR, its own proof, and it would silently
+  change four modules' unknown semantics, which is the one thing this platform
+  guards hardest.
+
+**The cost of continuing to hold it.** ECR-0032 has been carried in **nineteen
+documents** - ten consecutive task bundles (C-026 through C-037), four specs, both
+GC bundles, the batch conformance analysis, the IS-037 analysis, the README, and
+this log - each repeating some form of *"preserve, do not absorb: ECR-0032."*
+**Proposed** signals *pending information*; the information is now in hand, so
+every further review re-asks a settled question, and a fifth posture module would
+re-litigate the analysis from scratch. Closing it converts a standing tax into a
+decision a future reader can check in one line.
+
+**Reopening condition (the only one).** Reopen **if and only if a future posture
+module's `unknown` handling matches an existing one's** - that is, if divergence
+stops being the extension. A fifth instance is *not* by itself grounds to reopen;
+a fifth instance whose unknown semantics are genuinely shared is.
+
+**Guardrail, if it ever proceeds.** The base must be **structurally incapable of
+expressing a default** - no parameter, no fallback branch, no optional argument
+that could carry one. Not a rule to follow but a property to hold, in the platform's
+own idiom (no person-score type, no secret-value field, no un-gated execution). A
+shared normalization base able to supply a default is precisely how **ECR-0013's
+unwired-default shape would enter four modules at once**, and it would arrive
+wearing the credibility of a de-duplication.
+
+**Consequence for future bundles.** Drop the *"preserve, do not absorb: ECR-0032"*
+line. The tracked backlog is now the EA-0018 unclamped-duration flake, the
+EA-0027/EA-0018 enterprise health probes, the EA-0013 equal-timestamp tie-breaker,
+and the finding re-scoring question - plus the separately-tracked
+first-deployment items (`FIRST_DEPLOYMENT_ITEMS.md`).
 
 ---
 

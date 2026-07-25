@@ -226,6 +226,25 @@ descending severity order made id order coincide with sort order. A test asserti
 about the right code can still prove nothing. Write the plausible wrong implementation, confirm the
 test fails, then revert.
 
+### 24. A contract suite that has never been run against a broken implementation is an untested test
+Mutation verification was already the discipline for **guards** (rules 21, 23). Two consecutive
+milestones then shipped an **inert control** in a *contract suite*, which is the same failure one
+level over:
+- C-037's tie-spanning test was written specifically to fail against an `id`-only cursor, and
+  **passed** against it -- `new_id` is monotonic and the fixtures were created in descending severity
+  order, so id order coincided with sort order.
+- The `AssetStore` and `FindingStore` cursor suites **passed** against a store with its ordering
+  removed entirely, because fixtures were inserted in id order and could not distinguish *"orders by
+  id"* from *"returns insertion order"*.
+
+Both were rigorous-looking and incapable of falsifying the wrong implementation. Two instances make
+it a pattern, not an incident.
+
+**For each property a contract suite claims to cover, break that property once and confirm the suite
+goes red.** Specifying a negative control is not enough -- the control must be *executed* against the
+defect, or nobody learns that it is inert. It costs one command; the alternative is silent and
+unbounded.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
