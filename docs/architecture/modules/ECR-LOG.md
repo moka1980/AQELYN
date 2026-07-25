@@ -3029,6 +3029,18 @@ the single assertion proving the threshold actually moved.
 paging-under-budget **shape** only. It is not scope, and rule 20 applies - the archive's
 EA-0038 (Vulnerability Intelligence Correlation) is unrelated to both.
 
+### On the value of `page_budget` (50 000): chosen, not derived
+
+Recorded so the number is not mistaken for a measurement. **Nobody can set this
+correctly yet**, because no real estate exists to measure read cost against. It was
+chosen to match `max_relationship_work`'s order of magnitude, and erring high is
+deliberate: the costs are asymmetric. Too low is a **silent capability loss** -
+`sweep_unreported` refuses forever on a large tenant, and the platform looks broken
+rather than slow. Too high is one slow read.
+
+**Configurable is the right shipped state; the tuning belongs to the first real
+deployment.** Revisit when there is an estate to measure.
+
 **Status:** ECR-0034 is now fully discharged - silent truncation (C-034) and cursor
 pagination (C-036). The cap that remains is explicit, configurable, and reported.
 
