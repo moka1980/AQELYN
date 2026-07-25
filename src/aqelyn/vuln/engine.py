@@ -606,7 +606,14 @@ def _priority_derivation(
         ],
         "count": 3,
     }
-    score_unit = round(score / 100.0, 6)
+    # ECR-0065: no intermediate rounding. `_compose_score` rounds ONCE, at the end
+    # (`round(unit * 100, 6)`); rounding here too made replay round-then-scale where
+    # composition scales-then-rounds -- different functions, not merely different
+    # precision. A six-decimal percentage needs eight at unit scale, so `round(_, 6)`
+    # here silently discarded two digits and the replayed score missed by 2.5e-5
+    # against a 1e-6 tolerance. Replay now mirrors composition operation for
+    # operation: divide, multiply back, round once in `_score_from_replay`.
+    score_unit = score / 100.0
     weighed_items = [{**claim, "weight": score_unit} for claim in selected_output["claims"]]
     weighed_output: dict[str, Any] = {"items": weighed_items}
     scored_items = [{**item, "score": score_unit} for item in weighed_items]
