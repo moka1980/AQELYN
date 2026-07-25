@@ -68,6 +68,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0061 | EA-0025 (+ EA-0023, EA-0024) | Accepted (C-036) | ECR-0034's second half: `AssetStore` gains cursor pagination (EA-0002 D8), the engine pages under `InventoryConfig.page_budget`. **Moves the truncation threshold; does not remove `degraded`.** Budget exhausted -> partial + flag; `sweep_unreported` -> exhaust or refuse, never partial. |
 | ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
 | ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
+| ECR-0064 | EA-0024 + EA-0030 | Proposed | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
 
 ---
 
@@ -3338,5 +3339,155 @@ visible if a "never let a finding look less severe than it has been" requirement
 **EA-0048** (recorded capability gap, unscheduled), and the two structural questions -
 live collection and the UI surfaces - which are product decisions rather than engineering
 work.
+
+---
+
+---
+
+## ECR-0064 - Real data falsifies three availability assumptions in the ingest path
+
+**Raised by:** **S-001**, the first real run - `postgres:16` scanned with syft
+v1.49.0 and grype v0.116.0, yielding **7,367 SBOM components** and **302
+vulnerability matches**.
+**Status:** Proposed. Gaps 1 and 2 are settled in direction; **Gap 3 is a
+production change to a shipped engine and is the owner's call.**
+**Number:** verified free by the reviewer at `0c21a94`; re-check `ECR-LOG.md`
+before merging (rule 1).
+
+**What S-001 was for.** No fixture data files exist anywhere in the test tree, so
+the format-to-descriptor seam was the one boundary 33 engines had never crossed.
+It broke in three places, and **no fixture could have revealed any of them.**
+
+### The generalisation, stated first because it outlives the three fixes
+
+> **A required field is an assertion that the field is always available - and only
+> real data can test it.**
+
+`VulnerabilityRecord.cvss` being required is not an oversight. It is a
+**structural** consequence of building against fixtures: every fixture carried a
+CVSS score because the person writing it supplied one. Reality withholds it 46% of
+the time. The model therefore encoded a claim about the world that **no fixture
+could ever falsify**, because the fixture author always has the value.
+
+This predicts where the next gaps will be. **Every required field on every
+handed-in descriptor is an untested availability claim**, and each connector that
+arrives will falsify a different subset.
+
+### Gap 1 - `VulnerabilityRecord.cvss` is required with no `unknown` representation
+
+**139 of 302 real matches (46%) have no CVSS.** `cvss.value` is a required
+non-negative float; **both omitting it and passing `None` are rejected** (verified
+empirically). The only way to construct the record is to invent a value - and
+`0.0` would assert *no severity*, the **most favourable possible reading** of an
+absence.
+
+**The irony is the finding.** An engine whose §0 discipline is *refuse, don't
+guess* has a vulnerability model with **no way to say "I don't know."**
+
+**Resolution.** The engine **already has the pattern**: EA-0024 ships
+`PriorityFactor(status: "known" | "unknown")`, and **ECR-0040** established that an
+unknown factor is excluded from the denominator rather than scored favourably. So
+this is not a new mechanism - **the engine is already built to consume an unknown
+CVSS; the input record simply cannot express one.** Make `cvss` optional, and have
+absence produce a factor with `status="unknown"` carrying its reason.
+
+### Gap 2 - `VALID_SEVERITIES` does not cover real scanner vocabulary
+
+**Reviewer correction to the drafted text:** the accepted set is exactly
+`{critical, high, medium, low, none}` (`vuln/models.py:26`) - the draft elided
+`none` and then illustrated the hazard with `Unknown -> low`. The set matters
+because `none` is precisely the tempting wrong target, so it is recorded verbatim
+here rather than paraphrased.
+
+Grype emits **`Negligible` (103 = 34%)** and **`Unknown` (36 = 12%)**. There is no
+`unknown` severity, so mapping `Unknown -> none` would be a **false claim** - it
+asserts *no severity* where the scanner reported that severity is undetermined -
+and whether `Negligible` maps to `low` or `none` is a semantic choice EA-0024 does
+not make.
+
+**Resolution: add `unknown` and `negligible`. Do not re-classify.**
+
+Severity here is a **handed-in claim, not a computed value**. `Negligible -> low`
+**inflates** it - negligible sits *below* low in grype's scale - and the
+re-classification is unrecoverable downstream. `Negligible -> none` asserts no
+severity, which the scanner also did not say. Recording what the source actually
+said is the same discipline **EA-0025** applies to conflicting ownership: *record,
+do not smooth*.
+
+**Required sweep:** **GC-001 AC-3** must cover the new `unknown` severity member,
+or the scorer registry has a hole the day this lands.
+
+### The overlap, and why fixing beats accepting 54%
+
+Gaps 1 and 2 cover **exactly the same 139 records**, so only **163 of 302 (54%)**
+of real vulnerabilities are representable today. The parser refuses the remainder
+with stated reasons - which is the discipline working, and is why the run produced
+a usable answer rather than a wrong one.
+
+But refusal is not the right resting state:
+
+> **A rejected record is invisible; an unknown record is a flagged gap.**
+
+Today the platform does not know those 139 vulnerabilities exist. After the fix it
+knows *"there is a vulnerability here whose severity we cannot determine"* - which
+is strictly more information, strictly more actionable, and strictly more
+consistent with **absence != safe**. The fix converts **139 silent absences into
+139 explicit unknowns.**
+
+### Gap 3 - `supplychain/parse.py` requires a `purl` on every component
+
+Real syft output carries **146 library components** (all with purls), **1
+operating-system component**, and **7,220 file components** (with none -
+**correctly**, per CycloneDX). The parser raises on the first file entry and
+**refuses the whole document**.
+
+**Recommendation: fix the parser.** Three reasons:
+
+1. **The parser is wrong about CycloneDX.** File components legitimately have no
+   purl. Requiring one universally is a **spec misreading**, not a strictness
+   choice.
+2. **Filtering in the driver puts a domain decision outside the domain owner.**
+   *What counts as a package* belongs to the supply-chain module; every future
+   ingest path would otherwise re-implement the same filter and eventually
+   diverge.
+3. **It would hide the defect.** The next real SBOM breaks identically, and
+   someone re-filters.
+
+**Requirement on the fix.** Skip non-package components **by component `type`**,
+and **report the skipped count with the reason**. Dropping 7,220 of 7,367
+components silently would be its **own truncation defect** - the same shape as
+`inventory()` returning `degraded=False`. *"Ingested 146 of 7,367 components; 7,220
+skipped as non-package types"* is a materially different statement from *"ingested
+the SBOM"*, and only the first is honest.
+
+### What this does not change
+
+- **CVSS is still not a priority** (EA-0024 §0). Gap 1 makes absence
+  representable; it does not promote CVSS to a score.
+- **No new scorer**, no new engine, no connector. `vuln/parse.py` and
+  `supplychain/parse.py` remain pure parsers of handed-in documents.
+- **The S-001 boundary holds** - nothing under `src/aqelyn/` learns that a scanner
+  exists.
+
+### How this lands
+
+- `vuln/models.py` - `cvss` optional; `VALID_SEVERITIES` gains `unknown` and
+  `negligible`. **Rule 9**: check the persisted shape before treating either as
+  additive.
+- `vuln/parse.py` - absence produces `status="unknown"` with a reason, never a
+  default.
+- `supplychain/parse.py` - component-type handling plus the skipped count.
+- **GC-001 AC-3** sweep for the new `unknown` severity member.
+- **Rule 18** if any Protocol signature moves.
+- **S-001 resumes** once these land; the unknown-density report then has real
+  content, which is the roadmap it was designed to produce.
+
+### Expectation for the next run
+
+After the fix the honest output will contain **substantially more `unknown` than
+`known`** - 139 newly-representable records arriving as explicit unknowns, on top
+of the unwired reachability, ownership and exposure factors. **That is the design
+working**, and it is what makes the density report a prioritised roadmap rather
+than a disappointment. S-001's success criteria stand unchanged.
 
 ---
