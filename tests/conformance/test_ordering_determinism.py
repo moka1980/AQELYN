@@ -86,7 +86,7 @@ async def _store(backend: str) -> AsyncIterator[VulnerabilityStore]:
         pytest.skip("AQELYN_DATABASE_URL not set")
     pg = await PostgresVulnerabilityStore.connect(PG_URL, mode="enterprise")
     async with pg._pool.acquire() as conn:
-        await conn.execute("TRUNCATE aq_vulnerability RESTART IDENTITY CASCADE")
+        await conn.execute("TRUNCATE aq_vuln_history, aq_vuln_record")
     try:
         yield pg
     finally:
