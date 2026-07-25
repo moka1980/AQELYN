@@ -3699,3 +3699,64 @@ observability**. Caught by `test_sc_quarantine`.
 > it with a counter is a weakening dressed as instrumentation.
 
 ---
+
+### AMENDMENT to ECR-0065 - determinations answered; sweep scope added
+
+**Both open determinations are now answered from shipped code**, and the second one
+widens this ECR's verification scope from one module to four.
+
+#### The consequence of Determination 1, in the terms it needs
+
+**162 of 200 real findings are withheld.**
+
+> **Record this in S-001's log in these terms, or a future reader misreads it.**
+> *"162 of 200 withheld"* looks like a broken run. It is the opposite: the platform
+> met data nobody wrote a fixture for, discovered it could not reproduce its own
+> scores, and **refused rather than served them - at the cost of 81% of its
+> output.** No fixture could have demonstrated that, because no fixture ever put the
+> guarantee under the pressure. It is the strongest evidence so far that the safety
+> discipline is real rather than aspirational.
+
+#### The sweep - and why it does not need real data
+
+**Separate discovery from testing.** Real data was the *discovery* mechanism: nobody
+knew to look. But **the shape is now known**, and once you know what a fixture
+accidentally supplies, you do not need real data to test it - **you need a fixture
+built to withhold it.**
+
+That is rule 27's own remedy, and the same move C-037 made with anti-correlated ids
+(low severity written first, so the fixture contradicts the correlation instead of
+embodying it). Here the contradicting fixture is trivial:
+
+> **A value carrying more significant digits than any scale crossing can survive** -
+> eight decimals at unit scale, where the fixtures carried four.
+
+**Scope added to this ECR:** after the `vuln` fix, run **precision-adversarial
+fixtures against all four replay-validated composers**. If the other three pass,
+that is certainty bought cheaply. If any fails, it is **the same fix and the same
+ECR**.
+
+**Why fold it in rather than wait for S-002/S-003/S-004.** Left to real-data
+discovery, each subsequent S-milestone rediscovers this defect **one module at a
+time**, and each rediscovery costs a full run. Doing it here converts *"unknown for
+three modules"* into *"known for four"* **before S-002 chooses a target** - and
+S-002's target should be chosen by the density report, not by whichever module
+happens to break next.
+
+Corroborated independently from the specs: **EA-0033's identity posture score** and
+**C-032's credential governance score** are both 0-100 with replay-or-reject,
+crossing unit-to-percentage exactly as `_compose_score` does. `exposure` is not
+corroborable from the spec side and needed the reviewer's read.
+
+#### Acceptance
+
+For each of the four composers: a precision-adversarial case that **fails against
+the round-then-scale order and passes against the mirrored implementation**.
+Mutation-verify by reintroducing the wrong order per module and confirming red - per
+**rule 24, a sweep that has never failed is an untested sweep.**
+
+**Unchanged from the parent ECR:** this is **not a scoring change**. No factor
+weights move, no semantics change, and composed scores must be **identical to
+today's values**. It is the replay that is wrong, not the score.
+
+---
