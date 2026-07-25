@@ -23,7 +23,18 @@ VulnBasisKind = Literal["scanner", "cve_feed", "advisory", "exposure", "threat"]
 VulnStatus = Literal["open", "reasserted", "closed"]
 PriorityLevel = Literal["immediate", "high", "medium", "low", "deferred"]
 
-VALID_SEVERITIES: Final[frozenset[str]] = frozenset(("critical", "high", "medium", "low", "none"))
+VALID_SEVERITIES: Final[frozenset[str]] = frozenset(
+    ("critical", "high", "medium", "low", "negligible", "none", "unknown")
+)
+"""ECR-0064 Gap 2. `negligible` and `unknown` were added because real scanner output
+uses both and neither could be represented.
+
+**`none` and `unknown` are not interchangeable.** `none` means *the source stated
+there is no severity* -- a positive claim of absence of risk. `unknown` means *the
+source did not say*. Mapping an undetermined severity onto `none` is the most
+favourable possible reading of an absence, arriving through a value that type-checks.
+`negligible` is carried verbatim rather than folded into `low` (which would inflate
+it) or `none` (which would assert something the scanner did not say)."""
 VALID_DISPOSITION_KINDS: Final[frozenset[str]] = frozenset(
     ("accepted_risk", "false_positive", "mitigated")
 )
@@ -177,7 +188,12 @@ class VulnerabilityRecord(BaseModel):
     scanner: str
     asset_ref: AssetRef
     severity: str
-    cvss: CarriedScore
+    # ECR-0064 Gap 1: optional because 46% of real scanner matches carry no CVSS.
+    # Requiring it forced callers to invent a value, and `0.0` would have asserted
+    # *no severity* -- the most favourable reading of an absence. Absence now
+    # produces a `PriorityFactor(status="unknown")`, which ECR-0040 already excludes
+    # from the denominator rather than scoring favourably.
+    cvss: CarriedScore | None = None
     epss: CarriedScore | None = None
     confidence: float
     basis: list[VulnBasis]

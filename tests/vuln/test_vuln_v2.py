@@ -131,6 +131,7 @@ async def test_vuln_store_contract(kind: str) -> None:
         )
         updated = await store.put(changed)
         assert updated.id == first.id
+        assert updated.cvss is not None
         assert updated.cvss.value == 10.0
         assert (await store.get(first.id, tenant_id=TENANT)) == updated
 
@@ -168,6 +169,7 @@ async def test_vuln_confidence_from_trust(kind: str) -> None:
         stored = await harness.store.get(saved.id, tenant_id=TENANT)
 
         assert saved.confidence == 0.42
+        assert saved.cvss is not None
         assert saved.cvss.value == 8.6
         assert saved.epss is not None
         assert saved.epss.value == 0.12
@@ -231,6 +233,7 @@ async def test_vuln_disposition_reasserted(kind: str) -> None:
 
         assert reasserted.id == saved.id
         assert reasserted.status == "reasserted"
+        assert reasserted.cvss is not None
         assert reasserted.cvss.value == 9.4
         assert reasserted.epss is not None
         assert reasserted.epss.value == 0.88

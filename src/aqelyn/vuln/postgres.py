@@ -186,7 +186,7 @@ def _vulnerability_args(vulnerability: VulnerabilityRecord) -> tuple[Any, ...]:
         vulnerability.scanner,
         json.dumps(vulnerability.asset_ref.model_dump(mode="json")),
         vulnerability.severity,
-        json.dumps(vulnerability.cvss.model_dump(mode="json")),
+        _dump_json_or_none(vulnerability.cvss),
         _dump_json_or_none(vulnerability.epss),
         vulnerability.confidence,
         json.dumps([basis.model_dump(mode="json") for basis in vulnerability.basis]),
