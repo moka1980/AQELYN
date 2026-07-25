@@ -316,6 +316,28 @@ signal while looking like added observability**, and it was caught only because 
 weakening dressed as instrumentation - and it is a particularly hard weakening to see in review,
 because more reporting reads as more rigour.
 
+### 29. A correction applied at one call site when it was a property of all of them
+**ECR-0040** established that an unknown factor is excluded from the denominator rather than scored
+favourably. It was applied to `exposure`. Three lines away in the same function, `threat`, `baseline`
+and `mission` kept defaulting to `known` when their providers are unwired - so every real priority
+score was computed with **three phantom favourable inputs**, and S-001's density report found it by
+showing `known=200` for providers that do not exist (ECR-0066).
+
+**This is a distinct failure mode from the rest of this series.** Rules 18/19/23/24/25 are the
+apparatus reporting success while not testing; 26/27 are fixtures unable to express the failure.
+This one is neither: **nothing failed to test, and the decision was correct.** The fix was scoped to
+the symptom, and the siblings inherited nothing.
+
+> **When an ECR corrects a defect at a call site, the closing question is not *"is this site fixed"*
+> but *"is this site the only one that could have had it?"*** - answered by **enumeration**, not by
+> inspection of the diff.
+
+**Corollary - the guard can carry the same error.** GC-001 AC-3 asserted that each composition scorer
+ships *a case* proving unknown is not favourable: **per scorer, one case**. A seven-factor scorer with
+one correct factor passes, so the guarantee written to catch this family was **capable of passing the
+exact defect**. A per-instance guard against a per-pattern property is the same mistake one level up.
+Widen the guard **with** the fix, or it certifies the repair while still admitting the disease.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
