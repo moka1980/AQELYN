@@ -81,6 +81,10 @@ class InMemoryFindingStore:
                 dict.fromkeys([*existing.affected_object_ids, *f.affected_object_ids])
             )
             existing.version += 1
+            # ECR-0063: escalation is visible without moving the sort key. The finding
+            # keeps its original `severity_score` -- which is what keeps ECR-0062's
+            # cursor safe -- while `current_severity_score` follows the latest emission.
+            existing.current_severity_score = f.severity_score
             if existing.status == "resolved":
                 existing.status = "open"
                 existing.resolved_at = None
@@ -101,6 +105,8 @@ class InMemoryFindingStore:
         if not created.id:
             created.id = new_id("fnd")
         created.version = 1
+        if created.current_severity_score is None:
+            created.current_severity_score = created.severity_score
         created.first_detected_at = now
         created.last_detected_at = now
         created.audit = [

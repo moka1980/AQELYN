@@ -9,6 +9,7 @@ from guarantees.controls.event_controls import (
 )
 from guarantees.controls.rogue_handler import RogueEngine, RogueHandler
 from guarantees.controls.unguarded_scorer import unsafe_status_score
+from guarantees.controls.unscoped_health_service import UnscopedHealthService
 
 __all__ = [
     "CYBER_EVENT",
@@ -16,6 +17,7 @@ __all__ = [
     "PermissiveSignal",
     "RogueEngine",
     "RogueHandler",
+    "UnscopedHealthService",
     "register_cyber_event",
     "register_smuggled_event",
     "unsafe_status_score",

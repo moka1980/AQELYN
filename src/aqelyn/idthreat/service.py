@@ -179,7 +179,7 @@ class IdentityThreatService:
 
     async def _check_store(self) -> None:
         try:
-            await self.store.get(new_id("idt"), tenant_id=None)
+            await self.store.get(new_id("idt"), tenant_id=self._health_tenant())
         except Exception as exc:
             raise StoreUnavailable(f"identity detection store unavailable: {exc}") from exc
 
@@ -193,11 +193,11 @@ class IdentityThreatService:
         try:
             await self.engine.entitlement_analyzer.access_paths(
                 new_id("obj"),
-                tenant_id=None,
+                tenant_id=self._health_tenant(),
             )
             await self.engine.entitlement_analyzer.analyze_risk(
-                tenant_id=None,
-                scope=ObjectQuery(limit=1),
+                tenant_id=self._health_tenant(),
+                scope=ObjectQuery(tenant_id=self._health_tenant(), limit=1),
             )
         except Exception as exc:
             raise StoreUnavailable(f"identity entitlement source unavailable: {exc}") from exc
@@ -228,3 +228,15 @@ class IdentityThreatService:
             await self.engine.finding_store.get(new_id("fnd"))
         except Exception as exc:
             raise StoreUnavailable(f"identity finding store unavailable: {exc}") from exc
+
+    def _health_tenant(self) -> str | None:
+        """Rule 11: a probe issuing tenant-scoped reads must be tenant-scoped itself.
+
+        In enterprise mode an unscoped read is refused, so a probe hardcoding
+        ``tenant_id=None`` fails startup for the whole service. The probe tenant is a
+        fixed, well-formed id that no real tenant uses: it exercises the scoped path
+        without reading anyone's data.
+        """
+        if getattr(self.store, "mode", "local") == "enterprise":
+            return "018f0000-0000-7000-8000-000000270500"
+        return None

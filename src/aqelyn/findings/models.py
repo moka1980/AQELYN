@@ -50,7 +50,14 @@ class Finding(BaseModel):
     dedup_key: str
     title: str
     severity: Severity
+    # ECR-0063: write-once. This is the cursor's sort key (ECR-0062), and the composite
+    # keyset is safe from skip/duplicate *because* it never changes. Escalation is
+    # carried by `current_severity_score` instead of mutating this.
     severity_score: float
+    # ECR-0063: the score of the most recent emission. Defaults to `severity_score` on
+    # first raise and is updated on dedup re-emission, so a finding that recurs more
+    # severely shows its current severity without moving in the ordering.
+    current_severity_score: float | None = None
     status: Status = "open"
     what_happened: str
     why_it_matters: str

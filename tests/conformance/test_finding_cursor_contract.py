@@ -365,3 +365,90 @@ def test_finding_cursor_optimized_python() -> None:
         env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# --- C-038/R4 (ECR-0063): escalation without moving the sort key ------------------
+
+
+@pytest.mark.parametrize(("backend", "tenant_mode"), MATRIX)
+async def test_finding_sort_key_still_write_once(backend: str, tenant_mode: str) -> None:
+    """Re-emission at a higher score must not move `severity_score`.
+
+    This is the constraint that made R4 non-obvious: ECR-0062's composite keyset is
+    safe from skip/duplicate *because* the sort key never changes. Option 2 -- update
+    the score in place -- would have reopened that hazard, so the field this asserts is
+    the one holding C-037's guarantee up.
+    """
+    async with _store(backend, tenant_mode) as (store, tenant_id):
+        first = await store.raise_finding(
+            _finding(tenant_id=tenant_id, index=0, severity_score=40.0)
+        )
+
+        again = await store.raise_finding(
+            _finding(tenant_id=tenant_id, index=0, severity_score=95.0)
+        )
+
+        assert again.id == first.id, "dedup did not match -- this is not a re-emission"
+        assert again.severity_score == 40.0, "the cursor's sort key moved"
+        assert again.current_severity_score == 95.0
+
+
+@pytest.mark.parametrize(("backend", "tenant_mode"), MATRIX)
+async def test_finding_escalation_recorded(backend: str, tenant_mode: str) -> None:
+    """A finding that recurs more severely says so, and survives a round-trip."""
+    async with _store(backend, tenant_mode) as (store, tenant_id):
+        created = await store.raise_finding(
+            _finding(tenant_id=tenant_id, index=1, severity_score=30.0)
+        )
+        assert created.current_severity_score == 30.0, "first raise must seed the field"
+
+        await store.raise_finding(_finding(tenant_id=tenant_id, index=1, severity_score=88.0))
+        loaded = await store.get(created.id)
+
+        assert loaded is not None
+        assert loaded.severity_score == 30.0
+        assert loaded.current_severity_score == 88.0
+
+
+@pytest.mark.parametrize(("backend", "tenant_mode"), MATRIX)
+async def test_finding_cursor_unaffected_by_escalation(backend: str, tenant_mode: str) -> None:
+    """C-037's cursor still pages correctly after scores have been escalated.
+
+    The acceptance the bundle asked for: re-run the ordering guarantee against a corpus
+    whose `current_severity_score` values disagree with their `severity_score` values.
+    If ordering ever keyed on the mutable field, this is where it would break.
+    """
+    async with _store(backend, tenant_mode) as (store, tenant_id):
+        low_ids = sorted(new_id("fnd") for _ in range(2))
+        high_ids = sorted(new_id("fnd") for _ in range(3))
+        for index, finding_id in enumerate(reversed(low_ids)):
+            await store.raise_finding(
+                _finding(
+                    tenant_id=tenant_id,
+                    index=index,
+                    severity_score=50.0,
+                    finding_id=finding_id,
+                )
+            )
+        for index, finding_id in enumerate(reversed(high_ids)):
+            await store.raise_finding(
+                _finding(
+                    tenant_id=tenant_id,
+                    index=10 + index,
+                    severity_score=90.0,
+                    finding_id=finding_id,
+                )
+            )
+        # Escalate every low-severity finding above every high-severity one. If the
+        # ordering followed the mutable field, the pages would now invert.
+        for index in range(2):
+            await store.raise_finding(
+                _finding(tenant_id=tenant_id, index=index, severity_score=99.0)
+            )
+
+        seen = await _page_everything(store, tenant_id=tenant_id, limit=2)
+
+        assert len(seen) == 5
+        assert len(seen) == len(set(seen))
+        assert seen[:3] == high_ids, "ordering followed the mutable score"
+        assert seen[3:] == low_ids

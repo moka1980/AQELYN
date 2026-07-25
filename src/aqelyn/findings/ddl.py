@@ -14,6 +14,10 @@ CREATE TABLE IF NOT EXISTS aq_finding (
                        CHECK (severity IN ('info','low','medium','high','critical')),
     severity_score     double precision NOT NULL
                        CHECK (severity_score >= 0 AND severity_score <= 100),
+    current_severity_score double precision NULL
+                       CHECK (current_severity_score IS NULL
+                              OR (current_severity_score >= 0
+                                  AND current_severity_score <= 100)),
     status             text NOT NULL DEFAULT 'open'
                        CHECK (status IN ('open','acknowledged','in_progress','resolved',
                                          'risk_accepted','false_positive')),
@@ -32,6 +36,9 @@ CREATE TABLE IF NOT EXISTS aq_finding (
     resolved_at        timestamptz NULL,
     version            int NOT NULL DEFAULT 1
 );
+-- ECR-0063: additive for deployments created before C-038 (rule 9 -- the persisted
+-- shape decides whether a field is free).
+ALTER TABLE aq_finding ADD COLUMN IF NOT EXISTS current_severity_score double precision NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS uq_finding_dedup
     ON aq_finding (COALESCE(tenant_id,''), finding_type, dedup_key);
 -- ECR-0062: the keyset cursor resumes on (severity_score DESC, id), so `id` must be
