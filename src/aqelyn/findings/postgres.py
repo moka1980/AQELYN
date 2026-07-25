@@ -17,7 +17,14 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.events import Event, EventBus, Subject
 from aqelyn.findings.ddl import DDL
-from aqelyn.findings.models import TRANSITIONS, AuditEntry, Finding, FindingQuery
+from aqelyn.findings.models import (
+    TRANSITIONS,
+    AuditEntry,
+    Finding,
+    FindingQuery,
+    decode_finding_cursor,
+    encode_finding_cursor,
+)
 from aqelyn.findings.store import (
     EvidenceExists,
     validate_evidence_refs,
@@ -315,14 +322,38 @@ class PostgresFindingStore:
                 f"WHERE aq_finding_asset.finding_id = aq_finding.id "
                 f"AND aq_finding_asset.object_id = ${len(args)})"
             )
-        args.append(q.limit)
+        if q.cursor is not None:
+            # Keyset resume on the complete sort key (severity_score DESC, id).
+            # An `id`-only predicate is incoherent under this ordering: rows with a
+            # larger id sort before the cursor row when their severity is higher, so
+            # they would be skipped, and lower-severity rows duplicated.
+            score, finding_id = decode_finding_cursor(q.cursor)
+            args.append(score)
+            score_arg = len(args)
+            args.append(finding_id)
+            clauses.append(
+                f"(severity_score < ${score_arg} "
+                f"OR (severity_score = ${score_arg} AND id > ${len(args)}))"
+            )
+        # Fetch one row past the page to learn whether another matching row exists,
+        # so `next_cursor` is non-null exactly when it should be (EA-0002 D8).
+        args.append(q.limit + 1)
         sql = (
             f"SELECT {_FINDING_COLS} FROM aq_finding WHERE {' AND '.join(clauses)} "
             f"ORDER BY severity_score DESC, id LIMIT ${len(args)}"
         )
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
-            return [await self._hydrate(conn, row) for row in rows], None
+            page = list(rows)[: q.limit]
+            next_cursor = (
+                encode_finding_cursor(
+                    severity_score=float(page[-1]["severity_score"]),
+                    finding_id=str(page[-1]["id"]),
+                )
+                if len(rows) > q.limit
+                else None
+            )
+            return [await self._hydrate(conn, row) for row in page], next_cursor
 
     async def transition(
         self,

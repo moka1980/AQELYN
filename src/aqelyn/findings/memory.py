@@ -12,7 +12,14 @@ from aqelyn.conventions.errors import (
     OptimisticConcurrencyConflict,
 )
 from aqelyn.events import Event, EventBus, Subject
-from aqelyn.findings.models import TRANSITIONS, AuditEntry, Finding, FindingQuery
+from aqelyn.findings.models import (
+    TRANSITIONS,
+    AuditEntry,
+    Finding,
+    FindingQuery,
+    decode_finding_cursor,
+    encode_finding_cursor,
+)
 from aqelyn.findings.store import (
     EvidenceExists,
     validate_evidence_refs,
@@ -137,7 +144,26 @@ class InMemoryFindingStore:
                 continue
             rows.append(copy.deepcopy(f))
         rows.sort(key=lambda x: (-x.severity_score, x.id))
-        return rows[: q.limit], None
+        if q.cursor is not None:
+            # Resume after the complete sort key. `id`-only would be incoherent here:
+            # a larger id sorts *before* the cursor row when its severity is higher.
+            score, finding_id = decode_finding_cursor(q.cursor)
+            rows = [
+                row
+                for row in rows
+                if row.severity_score < score
+                or (row.severity_score == score and row.id > finding_id)
+            ]
+        page = rows[: q.limit]
+        next_cursor = (
+            encode_finding_cursor(
+                severity_score=page[-1].severity_score,
+                finding_id=page[-1].id,
+            )
+            if len(rows) > q.limit
+            else None
+        )
+        return page, next_cursor
 
     async def transition(
         self,
