@@ -263,6 +263,28 @@ a *database*, which the repo's own `docker-compose.yml` supplies; running it too
 returned an unfavourable answer that had been sitting unexamined. Before deferring a question
 to production, check whether it merely needs something switched on.
 
+### 26. A required field is an assertion that the field is always available
+And **only real data can test it.** Fixtures cannot falsify an availability claim, because the
+fixture author always has the value - they supplied it. `VulnerabilityRecord.cvss` was required
+because every fixture carried a CVSS score; real grype output against a real Debian image withholds
+it for **46%** of matches, and the model had no way to say *"I don't know"* - in an engine whose §0
+discipline is *refuse, don't guess* (S-001, ECR-0064).
+
+The same run found two more of the same shape: a severity vocabulary that did not include what real
+scanners emit, and an SBOM parser requiring `purl` on every component when 7 220 of 7 367 were file
+entries that correctly have none.
+
+Same family as rules 18, 19, 23, 24 and 25 - **the apparatus reporting success while not testing** -
+but from the other end: here the *fixtures* are what cannot fail. **Every required field on every
+handed-in descriptor is an untested availability claim.** Treat the first real run of any new source
+as the test, and expect it to fail on the fields nobody thought to omit.
+
+**Corollary - a rejected record is invisible; an unknown record is a flagged gap.** Refusing what
+cannot be represented is correct at the boundary, but it is not the resting state: the platform then
+does not know those records exist. Making absence representable converts silent absences into
+explicit unknowns, which is strictly more information and the only version consistent with
+*absence != safe*.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
