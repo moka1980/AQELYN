@@ -245,6 +245,24 @@ goes red.** Specifying a negative control is not enough -- the control must be *
 defect, or nobody learns that it is inert. It costs one command; the alternative is silent and
 unbounded.
 
+### 25. A skipped test reports as success
+Backend-parameterized suites **skip** when the backend is absent, and a skip is not a
+failure - so a green local run can mean half the suite never executed. C-038 shipped a suite
+that truncated `aq_vulnerability`, a table that does not exist (the real ones are
+`aq_vuln_record` and `aq_vuln_history`); locally all three `postgres` params skipped, the run
+was green, and only CI's matrix caught it.
+
+Same family as rules 18, 19, 23 and 24 - **the test infrastructure reporting success while
+not testing.** Read the skip count, or make an expected-but-absent backend fail rather than
+skip. `docker compose up -d postgres` plus `AQELYN_DATABASE_URL` runs the real matrix
+locally, which is one command and removes the blind spot entirely.
+
+**Corollary - "needs a deployment" and "needs infrastructure" are different claims.**
+ECR-0062's index-seek question was filed as settleable only by a first deployment. It needed
+a *database*, which the repo's own `docker-compose.yml` supplies; running it took minutes and
+returned an unfavourable answer that had been sitting unexamined. Before deferring a question
+to production, check whether it merely needs something switched on.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`

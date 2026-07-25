@@ -66,9 +66,36 @@ ECR-0062 as evidence.
 drops into **Filter**. If it is in `Filter`, the extension did not achieve its
 purpose.
 
-**Settled by:** `EXPLAIN (ANALYZE, BUFFERS)` on the keyset query against an
-instance with enough rows for the index to be attractive. Re-verify only if the
-schema changes.
+**SETTLED 2026-07-25 — the answer is *no*, and the item is struck.**
+
+Run against a local Postgres 16 (the repo's own `docker-compose.yml`) with 60 000
+findings and dense severity ties, after `ANALYZE`:
+
+| Form | Keyset in the plan | Rows removed by filter | Buffers | Execution |
+|---|---|---|---|---|
+| **Shipped** — `OR` predicate, `(… severity_score DESC, id)` index | **`Filter`** | 28 500 | 29 366 | 18.2 ms |
+| Row comparison, `(… severity_score DESC, id DESC)` index | **`Index Cond`** | 0 | 6 | 0.156 ms |
+
+**The extension did not achieve its purpose.** The index is used — but only for
+`tenant_id` and `status`; the keyset predicate drops into `Filter`, scanning and
+discarding 28 500 rows to return 101.
+
+**Cause.** An `OR` predicate cannot become an index range scan. A `ROW(a, b) < ROW(x, y)`
+comparison can — but PostgreSQL requires every ordering column to run the **same
+direction**, and the shipped ordering is `severity_score DESC, id` (ascending), which is
+mixed. So the row-comparison form is unavailable without changing the tie-break to
+`id DESC`.
+
+**Correctness is unaffected** — results are right, merely scanned rather than sought,
+which is exactly why this was filed as performance verification rather than an open
+correctness question. That framing held.
+
+**Consequence:** a fix is a real change (ordering semantics within a tie, the cursor
+predicate, the index, and C-037's tests) and therefore needs its own ECR. It is **not**
+urgent: at 60 000 rows the shipped form answers in 18 ms.
+
+**Method note.** This was recorded as needing a first deployment; it needed a
+**database**, which `docker compose up postgres` supplies. See item 4.
 
 ### 3. Live-deployment migration sequencing — ECR-0062
 
@@ -87,6 +114,25 @@ more care:
 the current DDL is correct for every deployment that does exist.
 
 ---
+
+### 4. Postgres-parameterized tests skip silently without a database — ECR-0062 / C-038
+
+Not a deployment question at all, and the reason item 2 sat here longer than it needed to.
+
+Without `AQELYN_DATABASE_URL` set, every `postgres` parameterization **skips**, and a
+skip reports as success. A green local run can therefore conceal tests that never
+executed — which is how C-038 shipped a suite that truncated a table (`aq_vulnerability`)
+that does not exist; the real tables are `aq_vuln_record` and `aq_vuln_history`. Only CI's
+matrix caught it.
+
+**Mitigation available today:** `docker compose up -d postgres` (already in the repo) plus
+`AQELYN_DATABASE_URL=postgresql://aqelyn:aqelyn@localhost:5432/aqelyn`. Verified
+2026-07-25: the full suite passes against real Postgres, and doing so settled item 2.
+
+**Settled by:** reading the skip count, or making an expected-but-absent backend fail
+rather than skip. Recorded here because the *category* is the same — verification that
+cannot happen without infrastructure in the loop — even though the infrastructure turned
+out to be one command away rather than a deployment.
 
 ## What this category implies
 
