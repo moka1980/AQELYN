@@ -182,6 +182,39 @@ Corollary (C-034, from the same round): proving a mechanism at a reduced scale e
 not that the production constant is what reaches the call sites. Pin the constant and assert the
 shipped call sites pass it, or the proof and the code can drift apart while both stay green.
 
+### 22. Grep proposes, the type system disposes
+Three instances of the same failure: the ECR-0015 capability check, the `llm` substring matching
+`fullmatch(` in an ownership grep, and C-036's `AssetStore` double list -- wrong in **both**
+directions, naming three files that implement other modules' protocols with similarly-named methods
+while missing two real implementers. Grep is a **discovery heuristic** producing a candidate set; it
+is never an enumeration, and treating its output as complete is what fails.
+Enumerate Protocol implementers with `mypy --strict`. Where no signature change forces the issue,
+break the Protocol signature temporarily and read what `mypy` names, then revert (C-037 used this to
+establish that `FindingStore` has no test doubles at all).
+
+### 23. When a return type widens to a tuple, every operation valid on both silently changes meaning
+`len(result)` (row count -> always 2), **`if result:`** (empty was falsy -> a non-empty tuple is
+always truthy), `for x in result:` (rows -> `[list, cursor]`), `result[0]` (first row -> the whole
+list), `x in result` (membership over the wrong container). All are legal, so **`mypy` is
+structurally unable to help**: C-036 shipped exactly this past a green `--strict` run --
+`len(inventory)` where `inventory` had become a 2-tuple -- caught only because the expected value
+happened not to be 2.
+**`if result:` is the dangerous one**: it converts an empty read into a truthy one, so a guard
+written as *"if we got nothing, refuse"* silently stops firing. That is the empty-means-safe family
+(ECR-0013, ECR-0040) arriving through a **type change** rather than a logic error. Sweep call sites
+for these five operations whenever a return type widens.
+
+**Corollary - mutation testing modifies the working tree**, so restoration must not depend on `git`
+when the tree is dirty. Restore from a scratchpad copy, or mutate a copy and point the test at it.
+(`git checkout <file>` destroyed uncommitted work twice during C-036 before this was adopted.)
+
+**Corollary - a negative control is what distinguishes a real proof from a vacuous one.** C-037's
+tie-spanning test was written specifically to fail against an `id`-only cursor, and on first run it
+**passed** against that wrong implementation: `new_id` is monotonic, and creating fixtures in
+descending severity order made id order coincide with sort order. A test asserting the right thing
+about the right code can still prove nothing. Write the plausible wrong implementation, confirm the
+test fails, then revert.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`

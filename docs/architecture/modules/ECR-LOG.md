@@ -66,6 +66,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Proposed | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
 | ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive exhausted as a requirements source. |
 | ECR-0061 | EA-0025 (+ EA-0023, EA-0024) | Accepted (C-036) | ECR-0034's second half: `AssetStore` gains cursor pagination (EA-0002 D8), the engine pages under `InventoryConfig.page_budget`. **Moves the truncation threshold; does not remove `degraded`.** Budget exhausted -> partial + flag; `sweep_unreported` -> exhaust or refuse, never partial. |
+| ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
 
 ---
 
@@ -3043,5 +3044,131 @@ deployment.** Revisit when there is an estate to measure.
 
 **Status:** ECR-0034 is now fully discharged - silent truncation (C-034) and cursor
 pagination (C-036). The cap that remains is explicit, configurable, and reported.
+
+---
+
+---
+
+## ECR-0062 - `FindingStore` advertised pagination it did not provide
+
+**Raised by:** Claude Code, during the post-C-036 audit claude.ai recommended - a sweep
+for tuple-widening hazards (clean) plus a check of what each cursor keys on (this).
+**Spec:** claude.ai. **Implemented and reviewed by Claude Code (C-037)** during the
+Codex outage. **Number** verified free before assignment; rule 1.
+
+### The defect
+
+`FindingQuery.cursor` (`findings/models.py`) existed and was validated. **Neither
+backend read it.** Both returned `..., None` unconditionally while truncating at
+`limit` (default 100). Since a null `next_cursor` means *exhausted*, a caller paging
+until the cursor was `None` received one page and a completeness guarantee it never
+earned.
+
+**This is worse in kind than ECR-0034.** That was a cap that never claimed otherwise -
+`limit=10_000` returning `degraded=False` made no promise about completeness, it merely
+failed to flag the absence of one. Here the signature is documentation, and it was
+false: the parameter exists, it is validated, the return type is
+`tuple[..., str | None]`. **The ECR-0013 unwired default, living inside the pagination
+contract** - about the most load-bearing place it could sit.
+
+`findings` was the sole outlier. Cursor references per backend: `objects` 3/4, `ispm`
+2/3, `secrets` 3/4, `cspm` 2/3, `sspm` 4/9, `inventory` 2/4, **`findings` 0/0**.
+
+### Severity: latent, no known wrong answer today
+
+`risk/correlate.py::_finding_signals` - the only real consumer - reads under
+`RiskConfig`'s correlation limit and re-truncates with `gathered[:limit]`. With
+`ORDER BY severity_score DESC` that is a deliberate **top-N by severity** read, not a
+completeness claim. It is correct **by intent**, and correct only because it never asks
+for completeness. The trap was for the next caller - precisely any UI listing surface.
+
+### Implement, not remove
+
+Removing the cursor would have **renamed** the defect. A store that can only ever return
+`limit` rows, for the platform's primary output emitted by every engine, is ECR-0034
+relocated rather than resolved.
+
+**Store-level only.** C-036 added an engine loop, a `page_budget` and a `degraded` flag
+because `inventory()` promises a complete answer. `FindingStore.query` promises **a
+page**, so none of that apparatus was copied. `limit=100` is unchanged: this does not
+change the page size, **it makes the page size truthful.**
+
+### The cursor keys on the complete sort key
+
+Ordering is `severity_score DESC, id`, so the predicate is
+`severity_score < $s OR (severity_score = $s AND id > $i)`, with the cursor encoding
+both components. An `id`-only cursor is incoherent here: a row with a larger id sorts
+*before* the cursor row when its severity is higher, so it would skip and duplicate.
+
+`severity_score` is **write-once** (verified: Postgres `_save` updates only `status`,
+`last_detected_at`, `resolved_at`, `version`; memory dedup never touches it), so the
+keyset is safe from the mutable-sort-key hazard. No as-of bound was needed.
+
+**Index:** `ix_finding_status_sev` lacked `id`, so the tie-break filtered instead of
+seeking. Replaced by `ix_finding_status_sev_id (tenant_id, status, severity_score DESC,
+id)`; the old index was a strict prefix of the new one, so it is dropped rather than
+kept alongside.
+
+### What the cursor does and does not promise
+
+After this the read is stable **with respect to ordering** - no row skipped or
+duplicated because of sort position. It is **not a stable set.** `status` is mutable, is
+the most common filter, and is the leading index column, so a finding can enter or leave
+the filtered set between page reads. That is the ordinary phase-change of keyset
+pagination over a mutable **predicate** - not a sort-key defect, and not cursor-fixable.
+
+**The consumer class matters.** A live listing surface tolerates phase-change; it is a
+live view. A caller needing a **reproducible** read does not - if EA-0022 pages findings
+for an issued report, or a compliance evidence set is assembled across pages, a status
+change mid-read silently omits or duplicates a finding and the figure is not
+reproducible, colliding with EA-0022's *no number without provenance* and its immutable
+issued reports. **Not scope here**, recorded so the first such caller inherits the
+constraint rather than discovering it.
+
+### The negative control caught a vacuous proof
+
+The tie-spanning test is the only one that distinguishes a correct cursor from an
+`id`-only one, so it was verified by writing the wrong implementation and watching it
+fail. **It did not fail.**
+
+`new_id` is monotonic (UUIDv7), and the first version of the test created findings in
+descending severity order - which made id order coincide with sort order, so
+`id > cursor` was accidentally equivalent to the correct predicate. **The proof passed
+against the very bug it existed to catch.**
+
+Fixed by making the fixtures **anti-correlated**: low-severity rows are written first so
+they carry smaller ids while sorting last. Under an `id`-only cursor they are then
+excluded outright, and both the tie test and the round-trip go red. This is the sharpest
+demonstration yet that a test asserting the right thing about the right code can still
+be vacuous - **the negative control is what tells the difference**, and it is cheap.
+
+### Rule 18, inverted - and vacuous here
+
+The signature did not change; only the behaviour did. So the usual left-behind-double
+risk did not apply, and the real risk inverted: **a double that faithfully models broken
+behaviour becomes a broken double the moment the behaviour is fixed**, invisibly to
+`mypy` because no type changed.
+
+**That hazard does not materialise in this codebase: there are no `FindingStore` doubles
+at all.** Enumerated by temporarily breaking the Protocol signature and reading what
+`mypy --strict` named (rule 22 - grep proposes, the type system disposes): the only
+implementers are `InMemoryFindingStore` and `PostgresFindingStore`, and the only call
+sites are `risk/correlate.py` plus three `limit=1` health probes in `ispm`, `secrets`
+and `dspm` that **discard** the result. The probes were checked, not skipped; discarding
+is safe, since the cursor changes what is returned, never whether the call succeeds. A
+test now pins the implementer set so adding a double later is a deliberate act.
+
+### Flagged, deliberately not absorbed
+
+Dedup re-emission keeps the **original** `severity_score`: a finding that recurs more
+severely is never re-scored, because `_save` does not carry the new emission's score.
+That may be deliberate under EA-0013's *history is not recomputed*, or a gap. **The
+cursor makes the ordering reliable; whether the ordering reflects current severity is
+the other question.** Recorded as its own backlog item.
+
+**EA-0013's tie-breaker:** the composite-cursor requirement above supersedes it for this
+store and is specified here. EA-0013's equal-timestamp item stays on the backlog - the
+hypothesis that it was a pagination precondition **did not hold**: every other
+paginating store orders on a unique key (`id` / `object_id`), so ties cannot bite.
 
 ---

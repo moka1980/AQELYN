@@ -34,8 +34,13 @@ CREATE TABLE IF NOT EXISTS aq_finding (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_finding_dedup
     ON aq_finding (COALESCE(tenant_id,''), finding_type, dedup_key);
-CREATE INDEX IF NOT EXISTS ix_finding_status_sev
-    ON aq_finding (tenant_id, status, severity_score DESC);
+-- ECR-0062: the keyset cursor resumes on (severity_score DESC, id), so `id` must be
+-- in the index or the tie-break filters instead of seeking. The old index is dropped
+-- rather than left alongside: it is a strict prefix of the new one, so keeping it
+-- would only cost writes.
+DROP INDEX IF EXISTS ix_finding_status_sev;
+CREATE INDEX IF NOT EXISTS ix_finding_status_sev_id
+    ON aq_finding (tenant_id, status, severity_score DESC, id);
 CREATE TABLE IF NOT EXISTS aq_finding_evidence (
     finding_id  text NOT NULL REFERENCES aq_finding(id),
     evidence_id text NOT NULL,

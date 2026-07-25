@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from aqelyn.conventions import ActorRef, require_tenant_id, require_typed_id
+from aqelyn.conventions.errors import SchemaValidationError
 
 Severity = Literal["info", "low", "medium", "high", "critical"]
 Status = Literal[
@@ -89,6 +91,36 @@ class Finding(BaseModel):
         return [require_typed_id(value, "obj", field="affected_object_ids") for value in values]
 
 
+_CURSOR_SEPARATOR = "|"
+
+
+def encode_finding_cursor(*, severity_score: float, finding_id: str) -> str:
+    """Encode the complete sort key, not just the id.
+
+    Findings are ordered by ``severity_score DESC, id``, so a cursor keyed on ``id``
+    alone is incoherent: a row with a larger id sorts *before* the cursor row when its
+    severity is higher, which skips and duplicates across pages. The cursor therefore
+    carries both components.
+
+    ``repr`` of a float round-trips exactly under ``float()``, so the resume point is
+    the same value the store ordered by -- not a rounded approximation of it.
+    """
+    return f"{severity_score!r}{_CURSOR_SEPARATOR}{finding_id}"
+
+
+def decode_finding_cursor(value: str) -> tuple[float, str]:
+    head, separator, finding_id = value.partition(_CURSOR_SEPARATOR)
+    if not separator:
+        raise SchemaValidationError("finding cursor must encode severity_score and id")
+    try:
+        severity_score = float(head)
+    except ValueError as exc:
+        raise SchemaValidationError("finding cursor severity_score is not a number") from exc
+    if not math.isfinite(severity_score):
+        raise SchemaValidationError("finding cursor severity_score must be finite")
+    return severity_score, require_typed_id(finding_id, "fnd", field="cursor")
+
+
 class FindingQuery(BaseModel):
     tenant_id: str | None = None
     status: tuple[str, ...] | None = None
@@ -102,6 +134,14 @@ class FindingQuery(BaseModel):
     @classmethod
     def _tenant_id(cls, value: str | None) -> str | None:
         return require_tenant_id(value)
+
+    @field_validator("cursor")
+    @classmethod
+    def _cursor(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        decode_finding_cursor(value)
+        return value
 
     @field_validator("affected_object_id")
     @classmethod
