@@ -58,10 +58,16 @@ MATRIX = [
 ]
 
 
-def _finding(*, tenant_id: str | None, index: int, severity_score: float) -> Finding:
+def _finding(
+    *,
+    tenant_id: str | None,
+    index: int,
+    severity_score: float,
+    finding_id: str | None = None,
+) -> Finding:
     now = datetime.now(UTC)
     return Finding(
-        id="",
+        id=finding_id or "",
         tenant_id=tenant_id,
         finding_type="aqelyn.finding.device.open_port",
         schema_version=1,
@@ -159,22 +165,31 @@ async def test_finding_cursor_ties_span_page_boundary(backend: str, tenant_mode:
         # sorting LAST. That anti-correlation is what makes the id-only cursor fail:
         # under `id > cursor` the trailing 50s are excluded outright, because their ids
         # are smaller than the tie member the first page ended on.
-        low = [
-            (
-                await store.raise_finding(
-                    _finding(tenant_id=tenant_id, index=i, severity_score=50.0)
+        # Ids are pre-generated and the rows inserted in REVERSE id order within each
+        # severity group, so insertion order mirrors neither the id order nor the sort
+        # order. A store returning insertion order, or one tie-breaking on arrival,
+        # fails here; with fixtures inserted in id order it would not.
+        low_ids = sorted(new_id("fnd") for _ in range(2))
+        high_ids = sorted(new_id("fnd") for _ in range(3))
+        for index, finding_id in enumerate(reversed(low_ids)):
+            await store.raise_finding(
+                _finding(
+                    tenant_id=tenant_id,
+                    index=index,
+                    severity_score=50.0,
+                    finding_id=finding_id,
                 )
-            ).id
-            for i in range(2)
-        ]
-        high = [
-            (
-                await store.raise_finding(
-                    _finding(tenant_id=tenant_id, index=10 + i, severity_score=90.0)
+            )
+        for index, finding_id in enumerate(reversed(high_ids)):
+            await store.raise_finding(
+                _finding(
+                    tenant_id=tenant_id,
+                    index=10 + index,
+                    severity_score=90.0,
+                    finding_id=finding_id,
                 )
-            ).id
-            for i in range(3)
-        ]
+            )
+        low, high = low_ids, high_ids
         written = [*low, *high]
 
         seen = await _page_everything(store, tenant_id=tenant_id, limit=2)
@@ -186,6 +201,9 @@ async def test_finding_cursor_ties_span_page_boundary(backend: str, tenant_mode:
         # the 50s were created first and sort by a smaller id.
         assert set(seen[:3]) == set(high), "a tie member leaked across the page boundary"
         assert set(seen[3:]) == set(low)
+        # Within a tie the order is by id -- the sort key -- not by arrival.
+        assert seen[:3] == high_ids
+        assert seen[3:] == low_ids
 
 
 @pytest.mark.parametrize(("backend", "tenant_mode"), MATRIX)
