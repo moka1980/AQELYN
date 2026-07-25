@@ -302,7 +302,12 @@ class VulnerabilityIntelligenceEngine:
         threat = (
             await self.threat_provider.exploitation_factor(vulnerability)
             if self.threat_provider is not None
-            else PriorityFactor(0.0, "threat:unavailable", "No EA-0014 threat signal supplied.")
+            else PriorityFactor(
+                0.0,
+                "threat:unavailable",
+                "No EA-0014 threat provider supplied.",
+                status="unknown",
+            )
         )
         exposure = exposure_override
         if exposure is None:
@@ -312,14 +317,19 @@ class VulnerabilityIntelligenceEngine:
                 else PriorityFactor(
                     0.0,
                     "exposure:unavailable",
-                    "No EA-0023 exposure signal supplied.",
+                    "No EA-0023 exposure provider supplied.",
                     status="unknown",
                 )
             )
         baseline = (
             await self.baseline_provider.blocking_factor(vulnerability)
             if self.baseline_provider is not None
-            else PriorityFactor(0.0, "baseline:unavailable", "No EA-0012 blocking signal supplied.")
+            else PriorityFactor(
+                0.0,
+                "baseline:unavailable",
+                "No EA-0012 blocking provider supplied.",
+                status="unknown",
+            )
         )
         trust = await self.trust_provider.scanner_trust(vulnerability)
         mission = await self._mission_factor(vulnerability)
@@ -329,6 +339,10 @@ class VulnerabilityIntelligenceEngine:
             "threat": threat,
             "exposure": exposure,
             "mission": mission,
+            # ECR-0066: `status` is carried through the inversion. Building a fresh
+            # factor without it forced every baseline to `known` -- including one the
+            # provider had correctly reported as unknown. The density report could not
+            # reveal this, because both paths printed `known`.
             "baseline": PriorityFactor(
                 1.0 - baseline.value,
                 baseline.source,
@@ -336,19 +350,26 @@ class VulnerabilityIntelligenceEngine:
                     f"EA-0012 blocking factor {baseline.value:.3f} reduces priority; "
                     f"{baseline.reason}"
                 ),
+                status=baseline.status,
             ),
             "trust": trust,
         }
 
     async def _mission_factor(self, vulnerability: VulnerabilityRecord) -> PriorityFactor:
         if self.mission_provider is None:
-            return PriorityFactor(0.0, "mission:unavailable", "No EA-0007 mission signal supplied.")
+            return PriorityFactor(
+                0.0,
+                "mission:unavailable",
+                "No EA-0007 mission provider supplied.",
+                status="unknown",
+            )
         result = await self.mission_provider.mission_impact(vulnerability.asset_ref.ref_id)
         if not result.impacts:
             return PriorityFactor(
                 0.0,
                 f"mission:none:{vulnerability.asset_ref.ref_id}",
-                "EA-0007 returned no mission impact for the affected asset.",
+                "EA-0007 mission provider returned no signal for the affected asset.",
+                status="unknown",
             )
         selected = max(result.impacts, key=lambda impact: (impact.impact_score, impact.mission.id))
         return PriorityFactor(selected.impact_score, selected.mission.id, selected.reason)
@@ -532,7 +553,12 @@ def _finding_severity(score: float) -> str:
 
 def _epss_factor(vulnerability: VulnerabilityRecord) -> PriorityFactor:
     if vulnerability.epss is None:
-        return PriorityFactor(0.0, "epss:missing", "No EPSS carried score was supplied.")
+        return PriorityFactor(
+            0.0,
+            "epss:missing",
+            "No EPSS carried score was supplied by the source.",
+            status="unknown",
+        )
     return PriorityFactor(
         _unit_factor(vulnerability.epss.value, field="epss.value"),
         vulnerability.epss.source,
