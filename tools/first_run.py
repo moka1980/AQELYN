@@ -187,8 +187,61 @@ async def drive(target: str, tenant_mode: str, workdir: Path, *, reuse: bool) ->
     )
 
 
+class UnreadableFactor(Exception):
+    """The reporter could not read a factor's status -- distinct from the platform
+    not knowing the factor's value."""
+
+
+@dataclass(frozen=True)
+class FactorReading:
+    name: str
+    status: str
+    reason: str
+
+
+def read_factors(finding: Any) -> list[FactorReading]:
+    """Read one finding's factors, or raise naming exactly what could not be read.
+
+    Three states exist, and only two of them belong in a report: `known` and
+    `unknown` are the platform speaking; **undetermined is the tool speaking**, and
+    the tool does not get a row in a table about the platform.
+    """
+    payload = getattr(finding, "factors", None)
+    if not isinstance(payload, dict) or not payload:
+        raise UnreadableFactor(
+            f"factors payload is {type(payload).__name__}, expected a non-empty dict"
+        )
+    readings: list[FactorReading] = []
+    for name, factor in sorted(payload.items()):
+        if not isinstance(factor, dict):
+            raise UnreadableFactor(f"factor {name!r} is {type(factor).__name__}, expected a dict")
+        status = factor.get("status")
+        if status not in ("known", "unknown"):
+            raise UnreadableFactor(
+                f"factor {name!r} has status {status!r}, expected 'known' or 'unknown'"
+            )
+        reason = str(factor.get("reason") or "")
+        if status == "unknown" and not reason.strip():
+            raise UnreadableFactor(f"factor {name!r} is unknown but carries no reason")
+        readings.append(FactorReading(name=name, status=status, reason=reason))
+    return readings
+
+
 def density_report(report: RunReport) -> None:
-    """Per-factor known/unknown with reasons — the roadmap this run produces."""
+    """Per-factor known/unknown with reasons -- or a refusal, never a partial table.
+
+    **The reporter refuses rather than renders when it cannot read its input.** A
+    broken reporter and a genuinely all-unknown platform produce identical output
+    (`known=0`, reasons `?`), and given reachability, ownership and exposure are
+    unwired, all-unknown is the plausible real answer -- so the camouflage is maximal
+    exactly when the answer matters most. Distinct rendering is not enough: a reader
+    scanning a column of non-`known` rows cannot parse which are the platform's
+    answer and which are the tool's failure.
+
+    Same discipline as EA-0030's SBOM quarantine and GC-001's unclassifiable => fail,
+    do not skip. A partially-readable decision artifact is worse than none, because
+    it presents as a basis for the decision it is corrupting.
+    """
     print("\n" + "=" * 74)
     print("UNKNOWN-DENSITY REPORT")
     print("=" * 74)
@@ -198,34 +251,72 @@ def density_report(report: RunReport) -> None:
     )
     for reason, count in Counter(r[2] for r in report.vuln_rejected).most_common():
         print(f"  {count:5d}  {reason}")
+    if not report.vuln_rejected:
+        print("  none -- every match was representable")
 
-    factors: Counter[str] = Counter()
-    reasons: dict[str, Counter[str]] = {}
-    errors: Counter[str] = Counter()
-    for item in report.findings:
-        if isinstance(item, Exception):
-            errors[f"{type(item).__name__}: {item}"[:100]] += 1
-            continue
-        for name, factor in getattr(item, "factors", {}).items():
-            known = getattr(factor, "value", None) not in (None, 0.0)
-            factors[f"{name}:{'known' if known else 'unknown'}"] += 1
-            if not known:
-                reasons.setdefault(name, Counter())[getattr(factor, "reason", "?")[:70]] += 1
+    errors = [item for item in report.findings if isinstance(item, Exception)]
+    priorities = [item for item in report.findings if not isinstance(item, Exception)]
 
-    if factors:
-        print("\n-- priority factors --")
-        names = sorted({k.rsplit(":", 1)[0] for k in factors})
-        for name in names:
-            known = factors.get(f"{name}:known", 0)
-            unknown = factors.get(f"{name}:unknown", 0)
-            pct = unknown / (known + unknown or 1) * 100
-            print(f"  {name:22s} known={known:4d} unknown={unknown:4d} ({pct:3.0f}%)")
-            for reason, count in reasons.get(name, Counter()).most_common(2):
-                print(f"      {count:4d}x {reason}")
     if errors:
-        print("\n-- prioritization errors --")
-        for message, count in errors.most_common(5):
-            print(f"  {count:5d}  {message}")
+        print(f"\n-- prioritization errors ({len(errors)}) --")
+        for message, count in Counter(f"{type(e).__name__}: {e}" for e in errors).most_common(5):
+            print(f"  {count:5d}  {message[:96]}")
+
+    # Refuse before reporting: read every factor on every finding first.
+    unreadable: list[str] = []
+    per_finding: list[list[FactorReading]] = []
+    for index, priority in enumerate(priorities):
+        try:
+            per_finding.append(read_factors(priority))
+        except UnreadableFactor as exc:
+            identifier = getattr(priority, "vulnerability_id", f"#{index}")
+            unreadable.append(f"{identifier}: {exc}")
+
+    if unreadable:
+        print("\n" + "!" * 74)
+        print("NO DENSITY REPORT PRODUCED -- the reporter could not read its input.")
+        print("!" * 74)
+        print(
+            "\nThis is a refusal, not an empty result. `known=0 / unknown=0` would be\n"
+            "indistinguishable from a platform that genuinely knows nothing, and this\n"
+            "report decides what S-002 connects. It is not emitted on unread input.\n"
+        )
+        print(f"unreadable factors on {len(unreadable)} of {len(priorities)} findings:")
+        for line in unreadable[:10]:
+            print(f"  {line}")
+        if len(unreadable) > 10:
+            print(f"  ... and {len(unreadable) - 10} more")
+        raise SystemExit(2)
+
+    if not per_finding:
+        print("\nno findings were prioritized -- nothing to report on")
+        return
+
+    known: Counter[str] = Counter()
+    unknown: Counter[str] = Counter()
+    reasons: dict[str, Counter[str]] = {}
+    for readings in per_finding:
+        for reading in readings:
+            if reading.status == "known":
+                known[reading.name] += 1
+            else:
+                unknown[reading.name] += 1
+                reasons.setdefault(reading.name, Counter())[reading.reason] += 1
+
+    total_factors = sum(known.values()) + sum(unknown.values())
+    print(f"\n-- priority factors ({len(per_finding)} findings, {total_factors} factors) --")
+    # Ordered by unknown density. The ordering IS the roadmap; no commentary is
+    # added, because a recommendation would be the tool making the owner's decision
+    # and would obscure the one property that makes the ordering trustworthy -- that
+    # it is mechanical.
+    for name in sorted(set(known) | set(unknown), key=lambda n: (-unknown[n], n)):
+        total = known[name] + unknown[name]
+        pct = unknown[name] / total * 100 if total else 0.0
+        print(
+            f"  {name:12s} known={known[name]:4d} unknown={unknown[name]:4d} ({pct:3.0f}% unknown)"
+        )
+        for reason, count in reasons.get(name, Counter()).most_common(2):
+            print(f"       {count:4d}x {reason[:78]}")
 
 
 def main() -> None:
