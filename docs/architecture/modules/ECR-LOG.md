@@ -70,6 +70,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
 | ECR-0064 | EA-0024 + EA-0030 | Proposed | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
 | ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Proposed | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
+| ECR-0066 | EA-0024 (+ GC-001 AC-3) | Proposed | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
 
 ---
 
@@ -3758,5 +3759,117 @@ Mutation-verify by reintroducing the wrong order per module and confirming red -
 **Unchanged from the parent ECR:** this is **not a scoring change**. No factor
 weights move, no semantics change, and composed scores must be **identical to
 today's values**. It is the replay that is wrong, not the score.
+
+---
+
+## ECR-0066 - Three priority factors report `known` with no provider supplied
+
+**Raised by:** **S-001**'s density report, on its first correct run.
+**Status:** Proposed.
+**Severity:** **high** - a demonstrated wrong answer on **every** real finding, in
+the path that decides what a security team looks at first.
+**Number:** verified free by the reviewer at `69a1b7e`; rule 1.
+
+### The defect
+
+Across 200 real findings and 1,400 factor evaluations, **`baseline`, `mission` and
+`threat` report `known` on every finding while their providers are not wired.**
+`exposure`, **three lines apart in the same function**, sets `status="unknown"` for
+exactly the same situation (`vuln/engine.py:305`, `:313-316`, `:322`, `:345`).
+
+This is not a missing signal. It is a **confident** one.
+
+**Why it is severe.** **ECR-0040** exists so that uncertainty **removes a factor's
+vote** rather than casting a favourable one. These three cast a vote nobody
+supplied: the denominator treats them as **known-benign**, so every priority score
+is currently computed with **three phantom favourable inputs**. It is the
+empty-means-safe family arriving in the one place it costs most - the ordering a
+responder reads first.
+
+### The shape: ECR-0040 was applied to an instance, not to the pattern
+
+Nothing here failed to test, and no fixture could have caught it in the usual sense.
+**The fix was scoped to the symptom and the siblings inherited nothing** - the
+correct handling and the three defective ones sit **three lines apart in the same
+function**.
+
+That is a distinct failure mode from the ones this project has collected
+(18/19/23/24/25/26/27/28): not an apparatus that reports success while not testing,
+and not a fixture that cannot express the failure, but **a correct decision applied
+at one call site when it was a property of all of them.**
+
+**Generalisation worth carrying:** when an ECR corrects a defect at a call site, the
+closing question is not *"is this site fixed"* but ***"is this site the only one
+that could have had it?"*** - answered by enumeration, not by inspection of the diff.
+
+### Consequence: GC-001 AC-3 has the same gap it was built to prevent
+
+As specified, **AC-3 asserts that each composition scorer ships *a case* proving
+unknown is not the favourable result - per scorer, one case.** A scorer with seven
+factors, one of which handles unknown correctly, **passes**.
+
+That is the identical instance-versus-pattern error, sitting inside the guarantee
+written to catch this family.
+
+> **AC-3 SHALL widen from per-scorer to per-factor:** every factor of every
+> composition scorer ships a case proving `unknown` is not the favourable result.
+> **Negative control:** a scorer with one factor defaulting to `known` **fails**.
+
+This widening lands **with** the fix, not after it - otherwise the guard stays
+capable of passing the exact defect being repaired.
+
+### Scope of the fix
+
+**1. Audit all seven factors, not the three found.** For each, determine whether
+`known` is **earned by a supplied input** or **defaulted in the absence of one**.
+Enumerate by reading each factor's provider path - **not by grep** (rule 22). The
+three named are what the report made visible; they are not established as the
+complete set.
+
+**2. Unwired must produce `unknown`, matching `exposure`'s handling** - with the
+factor excluded from the denominator per ECR-0040.
+
+**3. Distinguish the two reasons, because the report groups by them.**
+
+| Situation | Reason | Next action it implies |
+|---|---|---|
+| no provider supplied at all | *"no `<X>` provider supplied"* | **wire it** |
+| provider supplied, returned nothing | *"`<X>` provider returned no signal"* | **investigate why it is empty** |
+
+Collapsing these into one reason produces a roadmap entry nobody can act on.
+
+**4. Re-run the density report** after the fix. Its numbers are the input to S-002's
+target decision and are currently wrong for three of seven rows.
+
+### Consequence for the roadmap - the ranking is not yet complete
+
+`exposure` at **200/200 unknown** is sound. But if `baseline`, `mission` and `threat`
+are unwired and would report `unknown` once fixed, **they land at 200/200 too** - a
+**four-way tie at the top**.
+
+> **The report's top entry is sound; its ranking is not.** Three of seven rows are
+> wrong in the direction that **hides** work, and correcting them may reveal that
+> S-002's target is a **choice among four** rather than the obvious one.
+
+**This is a gap in the S-001 addendum, not only in the code.** It specified *"ordered
+by unknown count descending"* and *"the ordering is the recommendation"* - which
+quietly assumed a **unique maximum**. That is a fixture-shaped assumption about the
+**distribution** (rule 27's family), and real data found it the same way it found the
+others.
+
+**Required:** with a tie, the ordering **stops being a recommendation**, and the
+report SHALL state the tie rather than break it arbitrarily. A tie-break -
+cheapest-to-wire, or largest effect on score usefulness - is an **owner decision**,
+and the report must not make it silently by sort stability.
+
+### Explicitly not in scope
+
+**The exposure replay gap** - a replay check that verifies a derivation is
+structurally valid rather than that it reproduces the score. Real, and it lands on
+the property that makes this platform unusual, but it has **no demonstrated wrong
+answer** and is a different defect. It is **ECR-0067**, after this.
+
+Widening scope at the end of a milestone is how good milestones end badly; the same
+applies to widening an ECR at the point its fix is understood.
 
 ---
