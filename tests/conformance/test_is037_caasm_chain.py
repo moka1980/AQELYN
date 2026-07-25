@@ -301,7 +301,11 @@ async def test_asset_store_cursor_contract() -> None:
     try:
         for store in stores:
             written = [_asset(TENANT, index=index) for index in range(6)]
-            for asset in written:
+            # Insert in REVERSE id order. `new_id` is monotonic, so inserting in
+            # creation order would let a store that merely returns insertion order pass
+            # every assertion below -- the fixture would mirror the property under test
+            # and could not falsify the wrong implementation.
+            for asset in reversed(written):
                 await store.put(asset)
             expected = sorted(asset.id for asset in written)
 

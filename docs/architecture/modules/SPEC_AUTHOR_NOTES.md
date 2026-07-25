@@ -208,6 +208,17 @@ for these five operations whenever a return type widens.
 when the tree is dirty. Restore from a scratchpad copy, or mutate a copy and point the test at it.
 (`git checkout <file>` destroyed uncommitted work twice during C-036 before this was adopted.)
 
+**Corollary - a fixture whose incidental structure mirrors the property under test cannot falsify a
+wrong implementation.** Monotonic ids inserted in creation order is one instance; timestamps
+correlated with insertion order is the same bug waiting for the next time-keyed cursor. The fixture
+must be **adversarial with respect to the correlation the implementation might accidentally
+exploit**: anti-correlate the sort key against the id, and insert out of id order.
+Post-C-037 audit, measured: with fixtures inserted in id order, an `AssetStore` with **no ordering at
+all** passed the entire cursor contract suite. With the fixtures inserted in reverse id order it
+fails. The suites could not distinguish *"orders by id"* from *"returns insertion order"* - and the
+one-contract-suite guarantee, which exists to catch backend divergence, would not have caught it,
+because Postgres orders explicitly while an in-memory store need not.
+
 **Corollary - a negative control is what distinguishes a real proof from a vacuous one.** C-037's
 tie-spanning test was written specifically to fail against an `id`-only cursor, and on first run it
 **passed** against that wrong implementation: `new_id` is monotonic, and creating fixtures in
