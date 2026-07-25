@@ -12,6 +12,7 @@ from aqelyn.inventory.store import (
     validate_asset,
     validate_asset_id,
     validate_lifecycle_filter,
+    validate_query_cursor,
     validate_query_limit,
     validate_tenant,
 )
@@ -46,18 +47,24 @@ class InMemoryAssetStore:
         tenant_id: str | None,
         lifecycle_state: LifecycleState | None = None,
         limit: int = 100,
-    ) -> list[AssetRecord]:
+        cursor: str | None = None,
+    ) -> tuple[list[AssetRecord], str | None]:
         selected_tenant = validate_tenant(tenant_id)
         selected_lifecycle = validate_lifecycle_filter(lifecycle_state)
         selected_limit = validate_query_limit(limit)
+        selected_cursor = validate_query_cursor(cursor)
+        # Filters -- including the cursor -- apply before the limit (EA-0002 D8).
         rows = [
             copy.deepcopy(record)
             for record in self._records.values()
             if self._visible(record.tenant_id, selected_tenant)
             and (selected_lifecycle is None or record.lifecycle_state == selected_lifecycle)
+            and (selected_cursor is None or record.id > selected_cursor)
         ]
-        rows.sort(key=lambda record: (record.first_seen_at, record.id))
-        return rows[:selected_limit]
+        rows.sort(key=lambda record: record.id)
+        page = rows[:selected_limit]
+        next_cursor = page[-1].id if len(rows) > selected_limit else None
+        return page, next_cursor
 
     async def history(self, asset_id: str) -> list[dict[str, Any]]:
         validate_asset_id(asset_id)

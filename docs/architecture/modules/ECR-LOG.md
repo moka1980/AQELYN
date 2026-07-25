@@ -65,6 +65,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0058 | GC-002 (cross-cutting) | Proposed | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
 | ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Proposed | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
 | ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive exhausted as a requirements source. |
+| ECR-0061 | EA-0025 (+ EA-0023, EA-0024) | Accepted (C-036) | ECR-0034's second half: `AssetStore` gains cursor pagination (EA-0002 D8), the engine pages under `InventoryConfig.page_budget`. **Moves the truncation threshold; does not remove `degraded`.** Budget exhausted -> partial + flag; `sweep_unreported` -> exhaust or refuse, never partial. |
 
 ---
 
@@ -1726,7 +1727,9 @@ will see these gates begin refusing where they previously proceeded. That is a c
 surfacing a pre-existing wrong answer, not a regression: those deployments were already
 being told an attack surface was exhaustive when it was not.
 
-**Status:** Resolved for silent truncation; the cursor half is carried forward.
+**Status:** **Fully resolved.** Silent truncation closed by C-034 (this section); cursor
+pagination under a work budget closed by **C-036 / ECR-0061**. The remaining cap is
+explicit, configurable, and reported.
 
 ---
 
@@ -2926,5 +2929,107 @@ half - as precedent, not as scope.
 the remaining backlog is the tracked follow-ups plus whatever is chosen deliberately. Next
 scheduled item is **ECR-0034's cursor half** - letting a >10 000-asset tenant be answered
 rather than correctly refused.
+
+---
+
+---
+
+## ECR-0061 - ECR-0034's second half: cursor pagination under a work budget
+
+**Raised by:** claude.ai (spec) - **implemented and reviewed by Claude Code (C-036)**,
+during the Codex outage. **Number** verified free against this log before assignment
+(highest allocated was 0060, C-035); rule 1.
+
+### This moves the threshold. It does not remove `degraded`.
+
+C-034 replaced a *silent* 10 000-row cap with an *honest* one: the read was still
+capped, but truncation was reported and both gated consumers refused on it. C-036
+pages under `InventoryConfig.page_budget` (50 000) instead, so a tenant between 10 000
+and the budget is now **answered** rather than correctly refused.
+
+**A budget that truncates is still a cap - a better-behaved one.** Above the budget the
+read is still partial and still says so. The honest description of this milestone is
+*"silent cap at 10 000 -> explicit budget at N with truncation reported"* (rule 10 /
+EA-0002 D8), **not** "ECR-0034 is closed". Describing it the other way produces an
+implementation that re-opens the original defect at a higher number.
+
+### Conforming to the house pattern, not designing one
+
+`AssetStore.query` now returns `tuple[list[AssetRecord], str | None]` and accepts
+`cursor`, matching what `findings`, `ispm` and `secrets` already ship. The engine loop
+mirrors `ispm/engine.py::_identity_for_account`: a work budget bounds total rows,
+`min(_ASSET_PAGE_SIZE, remaining)` bounds each page *and* prevents budget overshoot, and
+a repeated cursor raises `StoreUnavailable` rather than looping forever.
+
+Note the continuity: C-034's `limit + 1` probe did not disappear, it **moved inside the
+store**, where it is the mechanism behind `next_cursor` rather than a cap detector
+above it.
+
+### The exhaustion decision, recorded rather than implied
+
+**Budget exhausted -> return the partial with `degraded=True`.** Not a producer-side
+refusal. Three reasons:
+
+1. **Downstream behaviour is identical either way.** C-034 established that
+   `degraded=True` already makes the known-surface and coverage consumers refuse, so a
+   flagged partial becomes a refusal one layer up **without touching the gates** - a
+   change that was deliberately not smuggled into this ticket.
+2. **Strictly more informative at zero safety cost.** A producer-side refusal tells the
+   caller nothing about how much was read; the gates refuse to *score* on it either way.
+3. **The refusal would decide something that belongs to the caller.**
+   `sweep_unreported` needs exhaustion, the coverage gates need completeness, a listing
+   surface needs neither. Refusing at the producer forecloses the legitimate callers.
+
+**Residual risk, recorded explicitly:** a *future* consumer of `inventory()` that
+ignores `degraded`. The four current consumers are enumerated and each is
+mutation-verified (rule 21). **Any new consumer of `inventory()` must read `degraded`.**
+
+### `sweep_unreported`: exhaust or refuse, never partial
+
+The apparent dilemma - respect a truncating budget and produce a partial sweep, or
+ignore the budget and scan unbounded - is false. It **pages under the budget and refuses
+if the budget is exhausted before the store is.** Work stays bounded and a partial sweep
+is never produced. A budget-truncated sweep would mark live assets as unreported: the
+*absence is not decommission* error EA-0025 was founded on. **Exhaustion is a
+precondition for sweeping, not a target to approximate.**
+
+### Rule 18, and what `mypy` did not catch
+
+The signature change reached every implementer and caller. `mypy --strict` enumerated
+them authoritatively - and it is worth recording that the bundle's *predicted* list of
+six doubles was wrong in both directions: three named files implement other modules'
+protocols with similarly-named methods, and the real set was two doubles plus four
+caller sites. **Grep proposed the list; the type checker settled it.**
+
+**One breakage `mypy` did not catch**, exactly the behavioural-vacancy shape the spec
+warned about, arriving by an unpredicted route: `tests/secrets/test_secrets_w2.py`
+computed `len(inventory)` where `inventory` became a 2-tuple. `len()` on a tuple is
+valid, so the type checker passed while the assertion silently stopped counting rows -
+it would have counted 2 forever. It was caught only because the expected value was not
+2. **`mypy` green is necessary, not sufficient**; the test suite and mutation are what
+close the gap.
+
+### C-034's guards were rewritten, not dropped
+
+`test_inventory_call_sites_pass_the_production_constant` pinned the 10 000 cap and the
+probe. The cap is gone, so the guard is **rewritten to pin the same property one level
+up**: `test_inventory_budget_constant_pinned` asserts the shipped `page_budget` and
+`_ASSET_PAGE_SIZE`, and that the loop pages by the production page size rather than a
+literal. A drift guard that goes red during a refactor is the likeliest thing to be
+quietly dropped - which would have evaporated C-034's protection in the very change
+that made it necessary.
+
+**Proof cost:** the exhaustion logic is exercised at a reduced `page_budget` (5 against
+6 rows) rather than with a 50 001-row fixture, paired with the constant pin so the
+small-N tests cannot drift from the shipped value - C-034's pattern, right answer again.
+One test does pay for 10 001 real records: `test_inventory_below_budget_not_degraded`,
+the single assertion proving the threshold actually moved.
+
+**Precedent:** ECR-0038 (*"traversal truncation and a real path proof"*) for the
+paging-under-budget **shape** only. It is not scope, and rule 20 applies - the archive's
+EA-0038 (Vulnerability Intelligence Correlation) is unrelated to both.
+
+**Status:** ECR-0034 is now fully discharged - silent truncation (C-034) and cursor
+pagination (C-036). The cap that remains is explicit, configurable, and reported.
 
 ---

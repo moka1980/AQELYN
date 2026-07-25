@@ -20,7 +20,16 @@ class AssetStore(Protocol):
         tenant_id: str | None,
         lifecycle_state: LifecycleState | None = None,
         limit: int = 100,
-    ) -> list[AssetRecord]: ...
+        cursor: str | None = None,
+    ) -> tuple[list[AssetRecord], str | None]:
+        """Return one page and a cursor for the next, or ``None`` when exhausted.
+
+        EA-0002 D8 semantics, matching the shape already shipped by `findings`,
+        `ispm` and `secrets`: rows are ordered by `id`, the cursor is **exclusive**,
+        filters apply **before** the limit, and `next_cursor` is non-null **exactly
+        when** another matching row exists.
+        """
+        ...
 
     async def history(self, asset_id: str) -> list[dict[str, Any]]: ...
 
@@ -49,3 +58,9 @@ def validate_query_limit(value: int) -> int:
     if isinstance(value, bool) or value < 1:
         raise InventoryConfigInvalid("limit must be >= 1")
     return value
+
+
+def validate_query_cursor(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return require_typed_id(value, "ast", field="cursor")

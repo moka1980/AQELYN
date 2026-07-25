@@ -15,6 +15,7 @@ from aqelyn.conventions.errors import (
     InventoryConfigInvalid,
     InventoryUnavailable,
     SourceHealthUnknown,
+    StoreUnavailable,
 )
 from aqelyn.graph import Path
 from aqelyn.inventory.models import (
@@ -35,14 +36,15 @@ _RECONCILED_FIELDS = ("asset_type", "classification", "owner")
 _INVENTORY_STATES = frozenset(("provisioned", "active", "modified", "unreported"))
 _INVENTORY_ACTOR = ActorRef(actor_type="system", actor_id="inventory_engine")
 
-# ECR-0034: the engine reads the asset store under a fixed row cap. `AssetStore.query`
-# has no cursor and no more-remaining signal, so the cap is probed by asking for one
-# row beyond it: a full `_ASSET_QUERY_CAP + 1` result proves more assets exist than the
-# read returned. This is the honest signal only -- it says *more exists*, not *here is
-# the rest*. Completeness needs cursor pagination under a work budget (EA-0002 D8) and
-# is deliberately a separate change.
-_ASSET_QUERY_CAP = 10_000
-_ASSET_QUERY_PROBE = _ASSET_QUERY_CAP + 1
+# ECR-0061 (ECR-0034's second half). C-034 replaced a silent 10 000-row cap with an
+# honest one: the read was still capped, but truncation was reported. This pages under
+# a work budget instead, so a tenant between 10 000 and `InventoryConfig.page_budget`
+# is now *answered* rather than correctly refused.
+#
+# This does NOT remove `degraded`. It moves the threshold. A budget that truncates is
+# still a cap, only a better-behaved one -- above the budget the read is still partial
+# and still says so. Rule 10 / EA-0002 D8: page under a budget, report truncation.
+_ASSET_PAGE_SIZE = 100
 
 
 class AssetClassifier(Protocol):
@@ -174,18 +176,17 @@ class InventoryIntelligenceEngine:
         if source.health == "unknown":
             raise SourceHealthUnknown("cannot sweep unreported assets for unknown source health")
         selected_tenant = require_tenant_id(tenant_id)
-        try:
-            rows = await self.store.query(tenant_id=selected_tenant, limit=_ASSET_QUERY_PROBE)
-        except Exception as exc:
-            raise InventoryUnavailable("asset inventory store unavailable") from exc
-        # ECR-0034: a sweep is only sound over the whole tenant. Sweeping a truncated read
-        # would leave the unread assets still looking currently-reported -- stale rows
-        # silently keeping a fresh posture, which is unknown treated as safe. There is no
-        # report to flag here, so this refuses instead of half-sweeping.
-        if len(rows) > _ASSET_QUERY_CAP:
+        rows, truncated = await self._read_assets(tenant_id=selected_tenant)
+        # ECR-0061: a sweep is only sound over the whole tenant. Sweeping a truncated read
+        # marks live assets as unreported -- assets that exist but fell outside the budget
+        # -- which is the absence-is-not-decommission error EA-0025 exists to prevent. So a
+        # partial sweep is never produced: exhaustion is a precondition for sweeping, not a
+        # target to approximate. Paging keeps the work bounded; exceeding the budget
+        # refuses.
+        if truncated:
             raise InventoryUnavailable(
-                "asset inventory exceeds the readable row cap; "
-                "cannot sweep unreported assets over a truncated read (ECR-0034)"
+                "asset inventory exceeds the page budget; "
+                "cannot sweep unreported assets over a truncated read (ECR-0061)"
             )
         changed: list[AssetRecord] = []
         for row in rows:
@@ -257,19 +258,48 @@ class InventoryIntelligenceEngine:
             )
         )
 
+    async def _read_assets(self, *, tenant_id: str | None) -> tuple[list[AssetRecord], bool]:
+        """Page the asset store under the work budget.
+
+        Returns the rows read and whether the budget was exhausted before the store
+        was. Mirrors `ispm/engine.py::_identity_for_account`: a work budget bounds
+        total rows, `min(page_size, remaining)` bounds each page and prevents
+        overshooting the budget, and a repeated cursor is treated as a malfunctioning
+        store rather than an invitation to loop forever.
+        """
+        budget = self.config.page_budget
+        rows: list[AssetRecord] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while len(rows) < budget:
+            remaining = budget - len(rows)
+            try:
+                page, next_cursor = await self.store.query(
+                    tenant_id=tenant_id,
+                    limit=min(_ASSET_PAGE_SIZE, remaining),
+                    cursor=cursor,
+                )
+            except Exception as exc:
+                raise InventoryUnavailable("asset inventory store unavailable") from exc
+            rows.extend(page)
+            if next_cursor is None:
+                return rows, False
+            if next_cursor in seen_cursors:
+                raise StoreUnavailable("AssetStore returned a repeated pagination cursor")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        # The budget ran out while the store still had rows: a truncated read.
+        return rows, True
+
     async def inventory(self, *, tenant_id: str | None) -> InventoryReport:
         selected_tenant = require_tenant_id(tenant_id)
-        try:
-            rows = await self.store.query(tenant_id=selected_tenant, limit=_ASSET_QUERY_PROBE)
-        except Exception as exc:
-            raise InventoryUnavailable("asset inventory store unavailable") from exc
-        # ECR-0034: above the cap this report covers only part of the tenant. Reporting a
-        # truncated read as complete is the platform asserting an exhaustive asset set it
-        # cannot know; `degraded` is the flag EA-0023's known surface and EA-0024's
-        # coverage base already fail closed on.
-        capped = len(rows) > _ASSET_QUERY_CAP
-        if capped:
-            rows = rows[:_ASSET_QUERY_CAP]
+        rows, truncated = await self._read_assets(tenant_id=selected_tenant)
+        # ECR-0061: the threshold moved, it did not disappear. Above the budget this
+        # report still covers only part of the tenant, and `degraded` is still the flag
+        # EA-0023's known surface and EA-0024's coverage base fail closed on. Returning
+        # the partial rather than refusing is deliberate: the gated consumers refuse on
+        # the flag anyway, and a producer-side refusal would foreclose the callers that
+        # legitimately do not need completeness.
         included = [row for row in rows if row.lifecycle_state in _INVENTORY_STATES]
         freshness = _source_freshness(included)
         as_of = min(freshness.values()) if freshness else utc_now()
@@ -278,7 +308,7 @@ class InventoryIntelligenceEngine:
             total=len(included),
             as_of=as_of,
             source_freshness=freshness,
-            degraded=capped,
+            degraded=truncated,
         )
 
     async def classify(self, asset_id: str, *, tenant_id: str | None) -> AssetRecord:

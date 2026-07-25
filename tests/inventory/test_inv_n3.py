@@ -48,7 +48,8 @@ class _UnavailableStore:
         tenant_id: str | None,
         lifecycle_state: str | None = None,
         limit: int = 100,
-    ) -> list[AssetRecord]:
+        cursor: str | None = None,
+    ) -> tuple[list[AssetRecord], str | None]:
         raise StoreUnavailable("store down")
 
     async def history(self, asset_id: str) -> list[dict[str, Any]]:

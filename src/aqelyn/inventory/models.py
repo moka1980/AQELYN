@@ -357,8 +357,15 @@ class InventoryConfig(BaseModel):
     stale_after_days: int = 30
     min_source_health: str = "ok"
     max_relationship_work: int = 50_000
+    # ECR-0061: total rows a single paged read may consume. Inventory is the
+    # denominator for EA-0023's known surface and EA-0024's coverage, so a budget
+    # below a realistic estate would make the platform honest and useless rather
+    # than merely honest -- hence the same order of magnitude as the relationship
+    # budget above. What matters is that it is configurable and that exhausting it
+    # is reported, never silent.
+    page_budget: int = 50_000
 
-    @field_validator("stale_after_days", "max_relationship_work", mode="before")
+    @field_validator("stale_after_days", "max_relationship_work", "page_budget", mode="before")
     @classmethod
     def _positive(cls, value: object) -> int:
         return _positive_int(value, field="inventory config limit")

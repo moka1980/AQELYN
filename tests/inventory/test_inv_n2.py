@@ -112,11 +112,14 @@ async def test_inv_store_contract(kind: str) -> None:
 
         assert await store.get(first.id, tenant_id=TENANT) == first
         assert await store.get(first.id, tenant_id=OTHER_TENANT) is None
-        assert [row.id for row in await store.query(tenant_id=TENANT)] == [first.id]
-        assert [row.id for row in await store.query(tenant_id=OTHER_TENANT)] == [other.id]
-        assert [
-            row.id for row in await store.query(tenant_id=TENANT, lifecycle_state="active")
-        ] == [first.id]
+        mine, mine_cursor = await store.query(tenant_id=TENANT)
+        theirs, _ = await store.query(tenant_id=OTHER_TENANT)
+        active, _ = await store.query(tenant_id=TENANT, lifecycle_state="active")
+        assert [row.id for row in mine] == [first.id]
+        # A single-row page is exhausted, so no cursor is offered (EA-0002 D8).
+        assert mine_cursor is None
+        assert [row.id for row in theirs] == [other.id]
+        assert [row.id for row in active] == [first.id]
 
         changed = first.model_copy(update={"classification": "database"}, deep=True)
         updated = await store.put(changed)

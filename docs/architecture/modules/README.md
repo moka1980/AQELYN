@@ -99,6 +99,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | [GC-001 §0 Guarantee-Conformance Suite](GC-001-guarantee-conformance-suite.spec.md) | *(GC track)* | *test-only; no runtime surface — see ECR-0057* | [GC-001](GC-001_Task_Bundle.md) | Accepted |
 | [GC-002 Event-Namespace Closure Guard](GC-002-event-namespace-closure.spec.md) | *(GC track)* | *test-only; no runtime surface — see ECR-0058* | [GC-002](GC-002_Task_Bundle.md) | Accepted |
 | [IS-037 — conformant via EA-0023+0024+0025+0005](IS-037_Conformance_Analysis.md) | EA-0037 | *(no new module; no `Cyber*` namespace — see ECR-0059)* | [C-034](C-034_Task_Bundle.md) | Analysis |
+| [C-036 — `AssetStore` cursor pagination](C-036_Task_Bundle.md) | EA-0025 (+ EA-0023, EA-0024) | *threshold moved to `page_budget`; `degraded` retained — see ECR-0061* | [C-036](C-036_Task_Bundle.md) | Accepted |
 | [Batch — EA-0038…EA-0050 conformant via shipped owners](EA-0038-0050_Batch_Conformance_Analysis.md) | EA-0038–0047, EA-0049 | *(no new modules — see ECR-0060)* | [C-035](C-035_Task_Bundle.md) | Analysis |
 | [EA-0048 — AI Security & Model Governance](EA-0038-0050_Batch_Conformance_Analysis.md) | EA-0048 | **open capability gap — no shipped owner, not scheduled (ECR-0060)** | [C-035](C-035_Task_Bundle.md) | Gap |
 | [EA-0050 — Platform Implementation Blueprint](EA-0038-0050_Batch_Conformance_Analysis.md) | EA-0050 | *non-capability; blueprint/readiness baseline, with EA-0051 (ECR-0060)* | [C-035](C-035_Task_Bundle.md) | Non-capability |

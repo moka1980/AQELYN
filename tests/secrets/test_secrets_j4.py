@@ -558,7 +558,7 @@ async def test_crypto_owner_evidence_failure_writes_nothing(
             )
 
         objects, _ = await harness.object_store.query(ObjectQuery(tenant_id=TENANT, limit=100))
-        inventory_rows = await harness.inventory_store.query(
+        inventory_rows, _ = await harness.inventory_store.query(
             tenant_id=TENANT,
             limit=100,
         )
