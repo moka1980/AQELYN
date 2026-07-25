@@ -305,6 +305,19 @@ def density_report(report: RunReport) -> None:
 
     total_factors = sum(known.values()) + sum(unknown.values())
     print(f"\n-- priority factors ({len(per_finding)} findings, {total_factors} factors) --")
+    # ECR-0066: with a tie at the top the ordering stops recommending anything, and
+    # breaking it by sort stability would make an owner's decision invisibly. The
+    # report states the tie and stops there; the tie-break -- cheapest-to-wire, or
+    # largest effect on score usefulness -- is not the tool's to make.
+    if unknown:
+        top = max(unknown.values())
+        tied = sorted(name for name, count in unknown.items() if count == top)
+        if top > 0 and len(tied) > 1:
+            print(
+                f"\n  ** {len(tied)}-WAY TIE at {top} unknown: {', '.join(tied)}\n"
+                "     The ordering below does NOT rank these. Choosing between them\n"
+                "     is an owner decision, not a property of the data.\n"
+            )
     # Ordered by unknown density. The ordering IS the roadmap; no commentary is
     # added, because a recommendation would be the tool making the owner's decision
     # and would obscure the one property that makes the ordering trustworthy -- that

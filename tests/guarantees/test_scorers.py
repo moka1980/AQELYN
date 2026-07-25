@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import subprocess
 import sys
@@ -19,7 +20,15 @@ from aqelyn.risk.scoring import score_risk
 from aqelyn.secrets import GovernanceFactor
 from aqelyn.secrets.models import LEGACY_GOVERNANCE_FACTOR_NAMES
 from aqelyn.secrets.scoring import governance_score_result
-from aqelyn.vuln import CarriedScore, PriorityFactor, VulnBasis, VulnConfig, VulnerabilityRecord
+from aqelyn.vuln import (
+    CarriedScore,
+    InMemoryVulnerabilityStore,
+    PriorityFactor,
+    VulnBasis,
+    VulnConfig,
+    VulnerabilityIntelligenceEngine,
+    VulnerabilityRecord,
+)
 from aqelyn.vuln import engine as vuln_engine
 from guarantees.controls import unsafe_status_score
 from guarantees.discovery import (
@@ -402,3 +411,52 @@ def _vulnerability_score_with_cvss(*, present: bool) -> float:
     )
     score, _ = vuln_engine._compose_score(record, factors=factors, config=VulnConfig())
     return score
+
+
+def test_gc_every_factor_reports_unknown_when_unsupplied() -> None:
+    """AC-3 widened: per-FACTOR, not per-scorer (ECR-0066).
+
+    As originally specified, AC-3 asserted each composition scorer ships *a case*
+    proving unknown is not favourable -- **per scorer, one case**. A seven-factor
+    scorer with one correct factor passed, so the guarantee written to catch this
+    family was capable of passing the exact defect it exists to prevent: `exposure`
+    handled unknown correctly while `threat`, `baseline`, `mission` and `epss`
+    defaulted to `known` three lines away.
+
+    This drives an engine with **no providers wired at all** and asserts that every
+    factor whose input was not supplied reports `status="unknown"`. A factor that
+    defaults to `known` casts a confident vote nobody supplied, and ECR-0040 then
+    counts it in the denominator as known-benign.
+    """
+    engine = VulnerabilityIntelligenceEngine(InMemoryVulnerabilityStore(mode="local"))
+    record = _vulnerability().model_copy(update={"cvss": None, "epss": None}, deep=True)
+
+    factors = asyncio.run(engine._factors_for(record))
+
+    unsupplied = {"cvss", "epss", "threat", "exposure", "mission", "baseline"}
+    confident = sorted(name for name in unsupplied if factors[name].status != "unknown")
+    assert confident == [], (
+        f"factors reporting 'known' with no input supplied: {confident} -- "
+        "each casts a favourable vote nobody supplied (ECR-0040, ECR-0066)"
+    )
+    # `trust` is excluded deliberately: it always has a provider
+    # (`_StoredScannerTrustProvider`), so its `known` is earned rather than defaulted.
+    assert factors["trust"].status == "known"
+
+
+def test_gc_negative_control_factor_defaulting_to_known() -> None:
+    """Rule 24: the widened AC-3 must fail against the defect it was written for.
+
+    A factor built without an explicit `status` defaults to `known`. That is exactly
+    what `threat`, `baseline`, `mission` and `epss` did, and a per-scorer AC-3 passed
+    it. Constructing one here proves the per-factor check can see it.
+    """
+    defaulted = PriorityFactor(0.0, "control:unavailable", "No provider supplied.")
+
+    assert defaulted.status == "known", "the control no longer models the defect"
+
+    explicit = PriorityFactor(0.0, "control:unavailable", "No provider supplied.", status="unknown")
+    assert explicit.status == "unknown"
+    # mypy narrows both literals, so the inequality is asserted on the values rather
+    # than the types -- the point is that the default differs from the explicit form.
+    assert str(defaulted.status) != str(explicit.status)
