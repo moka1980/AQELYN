@@ -352,3 +352,53 @@ def _vulnerability() -> VulnerabilityRecord:
         ],
         discovered_at=NOW,
     )
+
+
+def test_gc_scorer_absent_cvss_is_unknown_not_favourable() -> None:
+    """ECR-0064 Gap 1: an absent CVSS must not score better than a known one.
+
+    GC-001 AC-3 sweep. `VulnerabilityRecord.cvss` became optional because 46% of real
+    scanner matches carry none. The hazard is that absence takes the most favourable
+    reading -- a zero claiming the vulnerability scores nothing. The engine's factor
+    must therefore be `status="unknown"`, which ECR-0040 excludes from the denominator
+    rather than scoring as benign.
+    """
+    absent = vuln_engine._cvss_factor(_vulnerability_without_cvss())
+    present = vuln_engine._cvss_factor(_vulnerability())
+
+    assert absent.status == "unknown"
+    assert present.status == "known"
+    assert "not zero" in absent.reason
+
+    observation = ScorerObservation(
+        name="vuln-cvss-absent",
+        known_good=_vulnerability_score_with_cvss(present=True),
+        unknown=_vulnerability_score_with_cvss(present=False),
+        orientation="lower_is_favourable",
+    )
+    assert_unknown_less_favourable((observation,))
+
+
+def _vulnerability_without_cvss() -> VulnerabilityRecord:
+    return _vulnerability().model_copy(update={"cvss": None}, deep=True)
+
+
+def _vulnerability_score_with_cvss(*, present: bool) -> float:
+    """Score varying only the CVSS factor, mirroring the shipped exposure check.
+
+    `known_good` is a **known benign** CVSS, not a known severe one -- comparing
+    absence against a high score would prove only that high scores are high. The
+    guarantee is that not knowing is never better than knowing it is fine.
+    """
+    record = _vulnerability() if present else _vulnerability_without_cvss()
+    factors = {
+        name: PriorityFactor(0.8, f"gc:{name}", f"{name} is known for the CVSS check.")
+        for name in ("epss", "threat", "exposure", "mission", "baseline", "trust")
+    }
+    factors["cvss"] = (
+        PriorityFactor(0.0, "gc:cvss", "CVSS is known and benign for the check.")
+        if present
+        else vuln_engine._cvss_factor(record)
+    )
+    score, _ = vuln_engine._compose_score(record, factors=factors, config=VulnConfig())
+    return score

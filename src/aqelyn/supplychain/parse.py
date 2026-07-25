@@ -19,6 +19,40 @@ from aqelyn.supplychain.models import (
 class ParsedSBOM:
     components: tuple[SoftwareComponent, ...]
     relationships: tuple[DependencyRelationship, ...]
+    # ECR-0064 Gap 3: coverage travels with the result, so a consumer can see what the
+    # document held versus what was ingested without re-deriving it -- the way
+    # `inventory()` carries `degraded`. Fields rather than a widened return: `X ->
+    # tuple[X, int]` keeps `len()`, `if`, `for`, `[0]` and `in` legal while changing
+    # their meaning, invisibly to `mypy --strict` (rule 23).
+    total_components: int = 0
+    skipped_non_package: int = 0
+    """Components whose `type` is not package-like (e.g. CycloneDX `file` entries).
+
+    **Expected, not a coverage gap** -- these were never in scope for package
+    analysis, so this count is provenance for auditing the ingest and SHALL NOT feed
+    EA-0024 coverage, which would inflate a gap that does not exist."""
+    skipped_malformed: int = 0
+    """Package-like components missing a `purl` -- **a genuine signal, and the
+    document is malformed.**
+
+    In practice this is always `0` on a successfully parsed document: EA-0030
+    *quarantines* a partial SBOM rather than ingesting it partially, so the parser
+    refuses instead of skipping. The field exists so the two skip reasons stay
+    distinct rather than collapsing into one total, and so a future caller that
+    chooses tolerance has somewhere honest to record it. **Refusal is the strongest
+    form of acting on the signal** -- stronger than any count."""
+
+
+PACKAGE_COMPONENT_TYPES: frozenset[str] = frozenset(
+    ("library", "application", "framework", "container", "firmware", "device", "platform")
+)
+"""CycloneDX component types that denote a package.
+
+`file`, `operating-system` and `data` legitimately carry no `purl`; requiring one
+universally was a misreading of the format, not strictness (ECR-0064 Gap 3). Real
+`syft` output for `postgres:16` is 146 `library`, 1 `operating-system` and 7 220
+`file` components.
+"""
 
 
 @dataclass(frozen=True)
@@ -54,7 +88,26 @@ def _parse_cyclonedx(doc: SBOMDocument, *, tenant_id: str | None) -> ParsedSBOM:
     if not raw_components:
         raise SBOMParseError("CycloneDX document contains no components")
 
-    inputs = [_cyclonedx_component(item) for item in raw_components]
+    inputs: list[_ComponentInput] = []
+    skipped_non_package = 0
+    skipped_malformed = 0
+    for item in raw_components:
+        component_type = str(item.get("type", "")).strip().lower()
+        if component_type and component_type not in PACKAGE_COMPONENT_TYPES:
+            skipped_non_package += 1
+            continue
+        if not str(item.get("purl") or "").strip():
+            # Package-like but with no purl: the document is malformed. This still
+            # RAISES, because EA-0030 quarantines partial SBOMs rather than ingesting
+            # them partially -- a shipped guarantee that counting instead would have
+            # silently weakened. The counter exists so the distinction is expressible;
+            # refusing is the strongest possible way of acting on it, and is stronger
+            # than any count would be.
+            skipped_malformed += 1
+            _cyclonedx_component(item)  # raises SBOMParseError naming the purl
+        inputs.append(_cyclonedx_component(item))
+    if not inputs:
+        raise SBOMParseError("CycloneDX document contains no package components")
     by_ref = _unique_refs(inputs)
     dependencies = _mapping_list(raw.get("dependencies", []), field="CycloneDX dependencies")
     root_ref = _cyclonedx_root_ref(raw)
@@ -89,6 +142,9 @@ def _parse_cyclonedx(doc: SBOMDocument, *, tenant_id: str | None) -> ParsedSBOM:
         inputs=inputs,
         pairs=pairs,
         direct_refs=direct_refs,
+        total_components=len(raw_components),
+        skipped_non_package=skipped_non_package,
+        skipped_malformed=skipped_malformed,
     )
 
 
@@ -147,6 +203,9 @@ def _build_result(
     inputs: Sequence[_ComponentInput],
     pairs: Sequence[tuple[str, str]],
     direct_refs: set[str],
+    total_components: int = 0,
+    skipped_non_package: int = 0,
+    skipped_malformed: int = 0,
 ) -> ParsedSBOM:
     if doc.evidence_id is None:
         raise SBOMParseError("SBOM is partial: evidence_id is required")
@@ -190,6 +249,9 @@ def _build_result(
     return ParsedSBOM(
         components=tuple(components_by_purl[purl] for purl in sorted(components_by_purl)),
         relationships=tuple(relationships[key] for key in sorted(relationships)),
+        total_components=total_components or len(inputs),
+        skipped_non_package=skipped_non_package,
+        skipped_malformed=skipped_malformed,
     )
 
 

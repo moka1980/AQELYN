@@ -285,6 +285,37 @@ does not know those records exist. Making absence representable converts silent 
 explicit unknowns, which is strictly more information and the only version consistent with
 *absence != safe*.
 
+### 27. A fixture's values encode assumptions about the SHAPE of real data
+Rule 26's sibling. Where 26 covers **availability** - a required field asserts the field always
+exists - this covers **shape**: precision, magnitude, cardinality, length. Every one is an assertion,
+and every one is untested until real data arrives.
+
+S-001: `_compose_score` returns `round(unit * 100, 6)` while the replay path does
+`round(score / 100.0, 6)` - **scale-then-round versus round-then-scale, which are different
+functions.** Fixture scores carried four decimals or fewer, so the round-trip was lossless *by
+accident of fixture construction*. Real EPSS values (`0.01109`, `0.73327`) broke **162 of 200**
+records on first contact (ECR-0065).
+
+**Nobody chose four decimals as a claim about CVSS.** It was what a person types when writing an
+example. The assertion was made invisibly, which is why no amount of mutation testing on the fixtures
+could surface it - the fixtures agreed with themselves.
+
+**Corollary - precision is usually the symptom, not the cause.** When a stored value and its
+recomputation disagree, check whether the two paths perform the *same operations in the same order*
+before adding digits. Adding digits makes today's values agree while leaving the paths computing
+different functions, and the next value with more significant digits reopens it.
+
+### 28. Before specifying that a condition be counted, check whether it is already refused
+ECR-0064's amendment tabled `malformed` as a count category and illustrated it as
+`{non_package: 7220, malformed: 0}` - which reads as *count it*. But EA-0030 already **quarantines** a
+partial SBOM. Implementing the count as specified would have **downgraded a hard guarantee to a soft
+signal while looking like added observability**, and it was caught only because a shipped test
+(`test_sc_quarantine`) asserted the quarantine.
+
+**Refusal is the strongest possible way of acting on a signal.** Replacing it with a counter is a
+weakening dressed as instrumentation - and it is a particularly hard weakening to see in review,
+because more reporting reads as more rigour.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`

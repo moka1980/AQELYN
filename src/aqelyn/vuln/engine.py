@@ -324,14 +324,7 @@ class VulnerabilityIntelligenceEngine:
         trust = await self.trust_provider.scanner_trust(vulnerability)
         mission = await self._mission_factor(vulnerability)
         return {
-            "cvss": PriorityFactor(
-                _normalize_cvss(vulnerability.cvss.value),
-                vulnerability.cvss.source,
-                (
-                    "CVSS is carried verbatim from the published source and normalized only "
-                    "for composition."
-                ),
-            ),
+            "cvss": _cvss_factor(vulnerability),
             "epss": _epss_factor(vulnerability),
             "threat": threat,
             "exposure": exposure,
@@ -577,8 +570,9 @@ def _compose_score(
             "reason": factor.reason,
             "status": factor.status,
         }
-    payload["cvss"]["carried_value"] = vulnerability.cvss.value
-    payload["cvss"]["carried_vector"] = vulnerability.cvss.vector
+    if vulnerability.cvss is not None:
+        payload["cvss"]["carried_value"] = vulnerability.cvss.value
+        payload["cvss"]["carried_vector"] = vulnerability.cvss.vector
     if vulnerability.epss is not None:
         payload["epss"]["carried_value"] = vulnerability.epss.value
     return (round(_clamp_unit(score_unit) * 100.0, 6), payload)
@@ -709,6 +703,27 @@ def _first_evidence_id(vulnerability: VulnerabilityRecord) -> str | None:
         if basis.evidence_id is not None:
             return basis.evidence_id
     return vulnerability.asset_ref.evidence_id
+
+
+def _cvss_factor(vulnerability: VulnerabilityRecord) -> PriorityFactor:
+    """CVSS as a factor, or an explicit unknown when the source supplied none.
+
+    ECR-0064 Gap 1. A zero would claim the vulnerability scores nothing; `status`
+    unknown says the source did not tell us, which ECR-0040 already excludes from the
+    denominator rather than treating as favourable.
+    """
+    if vulnerability.cvss is None:
+        return PriorityFactor(
+            0.0,
+            "cvss:unavailable",
+            "No CVSS was supplied by the source; severity is undetermined, not zero.",
+            status="unknown",
+        )
+    return PriorityFactor(
+        _normalize_cvss(vulnerability.cvss.value),
+        vulnerability.cvss.source,
+        ("CVSS is carried verbatim from the published source and normalized only for composition."),
+    )
 
 
 def _normalize_cvss(value: float) -> float:

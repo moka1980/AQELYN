@@ -69,6 +69,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
 | ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
 | ECR-0064 | EA-0024 + EA-0030 | Proposed | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
+| ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Proposed | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
 
 ---
 
@@ -3489,5 +3490,212 @@ After the fix the honest output will contain **substantially more `unknown` than
 of the unwired reachability, ownership and exposure factors. **That is the design
 working**, and it is what makes the density report a prioritised roadmap rather
 than a disappointment. S-001's success criteria stand unchanged.
+
+---
+
+---
+
+### AMENDMENT to ECR-0064 (owner decision on Gap 3; correction to Gap 2)
+
+**Status:** Gap 3 **decided - parser fix approved**. Gap 2 gains a distinction the
+original section could not state, because it was written against an elided set.
+
+#### Correction: the elided member was the dangerous one
+
+The original Gap 2 text quoted the accepted severities as
+`{critical, high, medium, low, ...}`. The real set is
+`{critical, high, medium, low, none}`. **An ellipsis in a quoted set asserts
+that the omitted members do not matter** - an assertion the author cannot make
+without having seen them, and here the elided member is the trap. Same failure as
+EA-0046's paraphrased title in C-035: the part that seemed not worth writing out
+is the part that carried the risk.
+
+#### Gap 2, restated: `none` makes the hazard worse, not better
+
+Without `none` in the set, a mapper facing grype's `Unknown` has nowhere to put it
+and **must raise**. With `none` present, it has a target that **type-checks and
+reads as reasonable to a reviewer**:
+
+| Value | Means |
+|---|---|
+| `none` | **the source stated there is no severity** - a positive claim of absence of risk |
+| `unknown` | **the source did not say** |
+
+Conflating them is the platform's founding error wearing a valid enum member: the
+most favourable possible reading of an absence, arriving through a mapping that
+passes type-checking.
+
+**Requirement added:** `none` and `unknown` SHALL be **provably distinct**, not
+merely both present. The acceptance test drives the real mapper against **two real
+documents** - one whose source states `none` severity, one whose source states
+`Unknown` - and asserts they produce **different records**.
+
+> **A test that exercises only `Unknown` passes against a mapper that routes it to
+> `none`.** This is rule 24 applied at specification time rather than discovered by
+> mutation: the control has to be capable of failing against the plausible wrong
+> implementation.
+
+#### Gap 3: **parser fix approved**
+
+`supplychain/parse.py` skips non-package components **by component `type`** rather
+than requiring a `purl` universally. Driver-side filtering is rejected for the
+three recorded reasons: the parser is **wrong about CycloneDX** rather than strict;
+filtering in the driver puts *what counts as a package* outside the module that
+owns the domain; and it would **hide the defect** until the next SBOM broke
+identically.
+
+**Three specifications on the skipped count, because "report it" is not enough:**
+
+**1. It travels with the result, not in a log line.** A log line is the weakest
+form - nobody reads it and it is not in the data. The count belongs on the parsed
+result the way `inventory()` carries `degraded`, so any consumer can see coverage
+without re-deriving it.
+
+**2. Put it on the result model as a field - do NOT widen the return to a tuple.**
+Widening `X -> tuple[X, int]` walks directly into **rule 23**: `len()`, `if`,
+`for`, `[0]` and `in` all remain legal on the result while silently changing
+meaning, and `mypy --strict` cannot see it. This project has already shipped one
+such breakage (C-036's `len()`-on-tuple, caught only because the expected value
+happened not to be 2). **A field on the result avoids the hazard entirely and
+costs nothing.**
+
+**3. Key the count by reason - the two cases are not the same.**
+
+| Skipped because | Meaning | Is it a coverage gap? |
+|---|---|---|
+| component `type` is not package-like (e.g. `file`) | **expected** - was never in scope for package analysis | **No** |
+| a package-like component is **missing its `purl`** | **the SBOM is malformed** | **Yes** |
+
+A single total conflates them, and **the malformed case is the one worth knowing
+about.** Record `{non_package: 7220, malformed: 0}` rather than `{skipped: 7220}`.
+
+#### Does anything act on the count? - answered, not deferred
+
+**The non-package count is provenance, not a coverage signal, and SHALL NOT feed
+EA-0024 coverage.** Skipping a file component is not a coverage gap, because file
+components were never in scope for package analysis; wiring it to coverage would
+**inflate a gap that does not exist**. It tells an auditor what the document
+contained versus what was ingested - which matters for auditing the ingest, not
+for scoring.
+
+**The malformed count is a genuine signal** and may legitimately reach coverage,
+but that is a separate decision and is **not** taken here.
+
+Stating this explicitly is the point: the alternative is a truthful field nobody
+acts on and nobody knows whether anyone should - the **ECR-0013 shape**, which
+this project has now caught four times.
+
+#### Consequence
+
+S-001 resumes once Gaps 1-3 land. Scan output is cached, so re-runs cost nothing,
+and the next run produces the unknown-density report with real content.
+
+---
+
+---
+
+## ECR-0065 - Derivation replay performs different arithmetic from composition
+
+**Raised by:** **S-001**, the first real run. **162 of 200 real records fail
+replay** - S-001 success criterion #2 - on a chain that passes every fixture.
+**Status:** Proposed.
+**Number:** verified free by the reviewer at `1528f35`; rule 1.
+
+### The defect, exactly
+
+```
+_compose_score :  round(unit * 100, 6)          ->  30.763625      (engine.py:578)
+replay path    :  round(score / 100.0, 6)       ->  0.307636       (engine.py:609)
+                                                   the trailing 25 is gone
+                  round(0.307636 * 100, 6)      ->  30.7636        (engine.py:673)
+delta          :  0.000025          against _SCORE_TOLERANCE = 1e-6
+```
+
+**Six decimals at percentage scale requires eight at unit scale.** Fixture scores
+carried four decimals or fewer, so the round-trip was lossless **by accident of
+fixture construction**. Real values - EPSS `0.01109`, `0.73327` - expose it on
+first contact.
+
+### The principle this violates
+
+EA-0020's guarantee is **replay-or-reject**: a score whose derivation does not
+reproduce it is withheld, not served with a caveat. That guarantee assumes replay
+recomputes **the same thing**.
+
+> **Replay must perform the identical computation, not an equivalent-looking one.**
+
+The defect is not really precision. The compose path and the replay path do
+**different arithmetic in a different order** - scale-then-round versus
+round-then-scale - and those are not the same function. Precision is how the
+difference became visible; it is not the cause.
+
+**This matters for choosing the fix.** Adding digits (six -> eight at unit scale)
+makes the current values agree and **leaves the two paths still computing different
+functions**, so the next value with more significant digits reopens it. The correct
+fix is to make the replay path mirror `_compose_score` **operation for operation**;
+if intermediate rounding is wanted at all, it must occur at the same point in both.
+
+### Determination 1 - enforced at write, ANSWERED: yes, at three production sites
+
+`validate_replayable_priority` is called from `src/`, not only from tests:
+
+| Site | Effect of failure |
+|---|---|
+| `vuln/engine.py:181` - `prioritize()` return path | no priority is returned |
+| `vuln/engine.py:226` - `recommend()` | no remediation plan is produced |
+| `vuln/engine.py:254` - `raise_vulnerability()` | no finding is raised |
+
+**So the favourable branch holds: production does not serve unreproducible scores.**
+The explainability guarantee is real rather than nominal - and the consequence is
+that **162 of 200 real findings are withheld**. The platform is correctly refusing
+and consequently near-silent on real data. That is the design working, and it is
+exactly why this is urgent rather than cosmetic.
+
+### Determination 2 - other scale-crossing pairs, ANSWERED: the shape recurs in four modules
+
+Every one of these crosses a unit/percentage boundary at a fixed six decimals:
+
+| Module | Sites | Has replay validation |
+|---|---|---|
+| `vuln` | `engine.py:435`, `:578`, `:609`, `:673` | **yes** - the confirmed defect |
+| `ispm` | `scoring.py:168`, `:169`, `:242`, `exposure.py:143` | **yes** |
+| `secrets` | `scoring.py:112`, `:191`, `:385` | **yes** |
+| `exposure` | `engine.py:623` | **yes** |
+
+**All four pair a scale crossing with a replay guarantee**, so all four are
+candidates for the identical defect - and **none of the other three has been driven
+with real data**, so fixtures would hide them for the identical reason. Whether each
+is a genuine defect depends on whether its crossing has a paired inverse; that
+requires per-module determination and is **not** claimed here.
+
+**Scope note:** this ECR fixes `vuln`. The other three need the same question asked,
+and that is best done by the run that first drives real data through them rather
+than by inspection - which is S-002's business, not this one's.
+
+### Why no fixture could have caught it
+
+The same thesis as **rule 26**, one level along. Rule 26 says a *required field* is
+an assertion that the field is always available. This is its sibling:
+
+> **A fixture's values encode assumptions about the *shape* of real data -
+> precision, magnitude, cardinality, length - and every one of them is untested
+> until real data arrives.**
+
+Nobody chose four decimals as a claim about CVSS. It was simply what a person types
+when writing an example. The assertion was made invisibly, and only real data could
+falsify it. **Availability (rule 26) and shape (this) are the two halves of the same
+gap.**
+
+### A specification correction recorded with it
+
+ECR-0064's amendment tabled `malformed` as a **count** category and illustrated it
+as `{non_package: 7220, malformed: 0}` - which reads as *count it*, when EA-0030
+already **quarantines** a partial SBOM. Implementing the count as written would have
+**downgraded a hard guarantee to a soft signal while looking like added
+observability**. Caught by `test_sc_quarantine`.
+
+> **Before specifying that a condition be counted, check whether it is already
+> refused.** Refusal is the strongest possible way of acting on a signal; replacing
+> it with a counter is a weakening dressed as instrumentation.
 
 ---
