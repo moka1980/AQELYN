@@ -64,6 +64,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0057 | GC-001 (cross-cutting) | Proposed | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
 | ECR-0058 | GC-002 (cross-cutting) | Proposed | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
 | ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Proposed | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
+| ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive exhausted as a requirements source. |
 
 ---
 
@@ -2864,3 +2865,66 @@ IS-038/039 come back identical, the honest question is whether the remainder
 warrants **one batch-level decision** rather than thirteen passes - and whether the
 archive has stopped being a source of requirements, leaving the tracked follow-ups
 as the real backlog.
+
+---
+
+## ECR-0060 - EA-0038 - EA-0050: batch conformance, three dispositions
+
+**Raised by:** claude.ai (batch analysis) - **verified and implemented by Claude Code (C-035)
+at `2699006`**, during the Codex outage.
+**Number:** confirmed free against this log before assignment (highest allocated was 0059,
+C-034). Rule 1 discharged - the ECR-0058 collision earlier in this sequence is why the
+number was carried as provisional until checked.
+
+**Decision.** Thirteen archive masters (`EA-0038` ... `EA-0050`) are same-generator stubs:
+a shared skeleton with boilerplate objectives and the generic 12-capability requirements
+matrix, no module-specific requirement text in any of them. They are resolved by one
+decision rather than thirteen conformance passes - but they **do not share one
+disposition**:
+
+- **A - conformant via shipped owners (eleven):** EA-0038, 0039, 0040, 0041, 0042, 0043,
+  0044, 0045, 0046, 0047, 0049. Per-row evidence (package + declared EA + realizing API)
+  is recorded in `EA-0038-0050_Batch_Conformance_Analysis.md` §2 and pinned by
+  `test_batch_disposition_a_owners_present`.
+- **B - open capability gap, not scheduled:** **EA-0048** (AI Security & Model Governance).
+- **C - non-capability:** **EA-0050** (Platform Implementation Blueprint & Coding Readiness
+  Baseline), classified alongside EA-0051.
+
+**The batch replaces the analyses, not the capability map.** EA-0048 is the proof: it is
+the one row where the same-generator heuristic gives the wrong answer. A batch that
+skipped the map would have certified that AI security is already owned.
+
+**EA-0048.** No shipped owner - zero hits across all 35 packages for the ownership term
+set at this SHA. **EA-0020 "AI Decision Intelligence Engine" was considered and rejected:**
+EA-0020 is AI used *by* AQELYN (replayable derivations over cases and claims); EA-0048
+would be governance *of* customer AI/ML systems. Opposite directions, and the rule 20 shape
+in a new dress - a name that looks like an owner and is not. The rejection is asserted by
+`test_batch_ea0020_is_not_the_ea0048_owner` so it stays on the record.
+
+**A recorded gap is not an approved build.** The archive names the capability and specifies
+nothing about it. If it is wanted, the requirements come from the owner, not from a stub -
+it would be the first module specified from intent rather than reconciled against the
+archive, and that is a product decision to be made as one.
+
+**Why the verification budget is proportionate.** The eleven rows restate owners already
+certified by their own milestones, and GC-001/GC-002 are the mechanical backstop: a wrong
+row that someone later builds on fails engine discovery, the scorer registry, or the
+unowned-prefix negative control. Before those suites existed this batch would have been
+reviewer-protected only. **If either suite goes red, this batch's proportionality no longer
+holds and the rows need heavier proof.**
+
+**Rule 20 sweep.** All thirteen numbers collide with existing ECRs; the live and genuinely
+confusable one is the archive's **EA-0040 "Attack Path & Exposure Graph Engine"** against
+**ECR-0040** ("unknown component reachability must not become a low score") - both concern
+exposure and reachability, and ECR-0040 is cited throughout C-034's records as the
+optimistic-default precedent. Neither inherits scope from the other. Noted also:
+**ECR-0038** ("traversal truncation and a real path proof") is an existing precedent for
+paging under a budget and reporting truncation, and is relevant to ECR-0034's open cursor
+half - as precedent, not as scope.
+
+**Archive status: exhausted as a requirements source.** With EA-0036 - EA-0050 resolved,
+the remaining backlog is the tracked follow-ups plus whatever is chosen deliberately. Next
+scheduled item is **ECR-0034's cursor half** - letting a >10 000-asset tenant be answered
+rather than correctly refused.
+
+---
