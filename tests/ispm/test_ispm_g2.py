@@ -314,7 +314,7 @@ async def test_ispm_normalize_to_iag_shape() -> None:
             normalized.account_object_ids[0],
             direction="out",
         )
-        inventory_rows = await harness.inventory_store.query(tenant_id=TENANT, limit=100)
+        inventory_rows, _ = await harness.inventory_store.query(tenant_id=TENANT, limit=100)
 
         assert identity is not None
         assert identity.object_type == "identity"

@@ -14,6 +14,7 @@ from aqelyn.inventory.store import (
     validate_asset,
     validate_asset_id,
     validate_lifecycle_filter,
+    validate_query_cursor,
     validate_query_limit,
     validate_tenant,
 )
@@ -91,10 +92,12 @@ class PostgresAssetStore:
         tenant_id: str | None,
         lifecycle_state: LifecycleState | None = None,
         limit: int = 100,
-    ) -> list[AssetRecord]:
+        cursor: str | None = None,
+    ) -> tuple[list[AssetRecord], str | None]:
         selected_tenant = validate_tenant(tenant_id)
         selected_lifecycle = validate_lifecycle_filter(lifecycle_state)
         selected_limit = validate_query_limit(limit)
+        selected_cursor = validate_query_cursor(cursor)
         args: list[Any] = []
         clauses: list[str] = []
         if self.mode == "local":
@@ -105,15 +108,23 @@ class PostgresAssetStore:
         if selected_lifecycle is not None:
             args.append(selected_lifecycle)
             clauses.append(f"lifecycle_state = ${len(args)}")
-        args.append(selected_limit)
+        if selected_cursor is not None:
+            args.append(selected_cursor)
+            clauses.append(f"id > ${len(args)}")
+        # Fetch one row past the page to learn whether another matching row exists.
+        # This is C-034's probe, now living where it belongs: inside the store, as
+        # the mechanism behind `next_cursor` rather than a cap detector above it.
+        args.append(selected_limit + 1)
         where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
                 f"SELECT {_ASSET_COLS} FROM aq_inventory_asset "
-                f"{where}ORDER BY first_seen_at, id LIMIT ${len(args)}",
+                f"{where}ORDER BY id LIMIT ${len(args)}",
                 *args,
             )
-        return [_row_to_asset(row) for row in rows]
+        page = list(rows)[:selected_limit]
+        next_cursor = str(page[-1]["id"]) if len(rows) > selected_limit else None
+        return [_row_to_asset(row) for row in page], next_cursor
 
     async def history(self, asset_id: str) -> list[dict[str, Any]]:
         validate_asset_id(asset_id)

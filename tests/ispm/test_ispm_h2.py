@@ -567,7 +567,7 @@ async def test_nhi_ownership_evidence_failure_writes_nothing(failure: str) -> No
             )
 
         objects, _ = await harness.object_store.query(ObjectQuery(tenant_id=TENANT, limit=100))
-        inventory_rows = await harness.inventory_store.query(tenant_id=TENANT, limit=100)
+        inventory_rows, _ = await harness.inventory_store.query(tenant_id=TENANT, limit=100)
         identities, _ = await harness.ispm_store.query_identities(
             tenant_id=TENANT,
             limit=100,

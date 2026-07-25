@@ -229,7 +229,7 @@ def _certificate_descriptor(
 
 async def _owner_counts(harness: _Harness) -> tuple[int, int, int]:
     objects, _ = await harness.object_store.query(ObjectQuery(tenant_id=TENANT, limit=1000))
-    inventory = await harness.inventory_store.query(tenant_id=TENANT, limit=1000)
+    inventory, _ = await harness.inventory_store.query(tenant_id=TENANT, limit=1000)
     assets, _ = await harness.store.query_assets(CryptoQuery(tenant_id=TENANT, limit=1000))
     return len(objects), len(inventory), len(assets)
 

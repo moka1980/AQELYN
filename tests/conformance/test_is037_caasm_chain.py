@@ -25,7 +25,11 @@ from pathlib import Path
 import pytest
 
 from aqelyn.conventions import new_id, utc_now
-from aqelyn.conventions.errors import CoverageUnavailable, InventoryUnavailable
+from aqelyn.conventions.errors import (
+    CoverageUnavailable,
+    InventoryUnavailable,
+    StoreUnavailable,
+)
 from aqelyn.exposure import ExposureConfig, KnownDataExposureEngine
 from aqelyn.exposure.memory import InMemoryExposureStore
 from aqelyn.inventory import (
@@ -34,12 +38,13 @@ from aqelyn.inventory import (
     AssetStore,
     DiscoverySource,
     InMemoryAssetStore,
+    InventoryConfig,
     InventoryIntelligenceEngine,
     InventoryKnownSurfaceSource,
     InventoryVulnerabilityCoverageProvider,
     PostgresAssetStore,
 )
-from aqelyn.inventory.engine import _ASSET_QUERY_CAP, _ASSET_QUERY_PROBE
+from aqelyn.inventory.engine import _ASSET_PAGE_SIZE
 from aqelyn.vuln import InMemoryVulnerabilityStore
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -195,52 +200,94 @@ class _LimitRecordingAssetStore(InMemoryAssetStore):
         tenant_id: str | None,
         lifecycle_state: str | None = None,
         limit: int = 100,
-    ) -> list[AssetRecord]:
+        cursor: str | None = None,
+    ) -> tuple[list[AssetRecord], str | None]:
         self.requested_limits.append(limit)
         return await super().query(
             tenant_id=tenant_id,
             lifecycle_state=lifecycle_state,  # type: ignore[arg-type]
             limit=limit,
+            cursor=cursor,
         )
 
 
-async def test_inventory_call_sites_pass_the_production_constant() -> None:
-    """The proof and the shipped call sites must not drift apart.
+class _RepeatedCursorAssetStore(InMemoryAssetStore):
+    """A malfunctioning store: it always offers the same cursor back."""
 
-    Proving the mechanism at small n establishes the logic, not that the real
-    constant is what reaches `store.query`. A call site that goes back to a literal,
-    or a constant edited without the proof following, would leave the cap tested at a
-    value the platform no longer uses. So: pin the constant, and assert every capped
-    read asks for exactly it.
+    async def query(
+        self,
+        *,
+        tenant_id: str | None,
+        lifecycle_state: str | None = None,
+        limit: int = 100,
+        cursor: str | None = None,
+    ) -> tuple[list[AssetRecord], str | None]:
+        page, _ = await super().query(
+            tenant_id=tenant_id,
+            lifecycle_state=lifecycle_state,  # type: ignore[arg-type]
+            limit=limit,
+            cursor=None,
+        )
+        return page, "ast_00000000000000000000000000"
+
+
+def _budgeted(store: AssetStore, budget: int) -> InventoryIntelligenceEngine:
+    """A real engine with a reduced page budget.
+
+    P5's cost decision: the shipped budget is 50 000, and a 50 001-row fixture is
+    disproportionate on both backends. The exhaustion *logic* is identical at any
+    budget, so it is exercised at small N and the shipped value is pinned separately
+    by `test_inventory_budget_constant_pinned`. Same pattern C-034 used for the cap.
     """
-    assert _ASSET_QUERY_CAP == 10_000
-    assert _ASSET_QUERY_PROBE == _ASSET_QUERY_CAP + 1
+    return InventoryIntelligenceEngine(store=store, config=InventoryConfig(page_budget=budget))
+
+
+async def test_inventory_budget_constant_pinned() -> None:
+    """The proof and the shipped paging loop must not drift apart.
+
+    This replaces C-034's `test_inventory_call_sites_pass_the_production_constant`,
+    which pinned the 10 000-row cap and asserted both reads requested the probe. The
+    cap is gone, so that guard is *rewritten rather than dropped* -- it pins the same
+    property one level up: the loop pages using the production budget and page size,
+    not literals, and the reduced-budget tests below cannot silently drift from the
+    shipped value.
+    """
+    assert InventoryConfig().page_budget == 50_000
+    assert _ASSET_PAGE_SIZE == 100
 
     store = _LimitRecordingAssetStore(mode="enterprise")
+    for index in range(3):
+        await store.put(_asset(TENANT, index=index))
     engine = InventoryIntelligenceEngine(store=store)
 
     await engine.inventory(tenant_id=TENANT)
-    await engine.sweep_unreported(
-        source=DiscoverySource(
-            source_id="is037-conformance",
-            reliability=1.0,
-            health="ok",
-            as_of=utc_now(),
-        ),
-        tenant_id=TENANT,
-    )
 
-    assert store.requested_limits == [_ASSET_QUERY_PROBE, _ASSET_QUERY_PROBE]
+    # Each page is bounded by the page size, never by an ad-hoc literal, and never
+    # by the whole budget in one read.
+    assert store.requested_limits
+    assert all(limit == _ASSET_PAGE_SIZE for limit in store.requested_limits)
 
 
-async def test_inventory_cap_signal_shape() -> None:
-    """`limit + 1` is the probe, and both backends honour it identically.
+async def test_inventory_paging_never_overshoots_the_budget() -> None:
+    """`min(page_size, remaining)` bounds the last page, so the budget is not exceeded."""
+    store = _LimitRecordingAssetStore(mode="enterprise")
+    for index in range(6):
+        await store.put(_asset(TENANT, index=index))
+    engine = _budgeted(store, 5)
 
-    The store has no cursor and no more-remaining signal, so the engine detects
-    truncation by asking for one row past the cap. That is only sound if a store
-    asked for `n + 1` returns `n + 1` when `n + 1` rows exist, under the same
-    ordering. Proven here at small n on both backends; the real-cap behaviour is
-    proven against 10_001 real records in the test below.
+    report = await engine.inventory(tenant_id=TENANT)
+
+    # Budget 5 with a page size of 100 must ask for 5, not 100.
+    assert store.requested_limits == [5]
+    assert report.total == 5
+    assert report.degraded is True
+
+
+async def test_asset_store_cursor_contract() -> None:
+    """EA-0002 D8 semantics, and both backends honour them identically.
+
+    `next_cursor` is non-null exactly when another matching row exists, the cursor is
+    exclusive, and paging the whole set returns every row once in a stable order.
     """
     stores: list[AssetStore] = [InMemoryAssetStore(mode="enterprise")]
     closeables: list[PostgresAssetStore] = []
@@ -256,53 +303,102 @@ async def test_inventory_cap_signal_shape() -> None:
             written = [_asset(TENANT, index=index) for index in range(6)]
             for asset in written:
                 await store.put(asset)
+            expected = sorted(asset.id for asset in written)
 
-            under = await store.query(tenant_id=TENANT, limit=5)
-            probe = await store.query(tenant_id=TENANT, limit=6)
-            assert len(under) == 5
-            assert len(probe) == 6
-            # The probe extends the same ordering; it does not reshuffle the page.
-            assert [row.id for row in under] == [row.id for row in probe[:5]]
+            # Exhausted page: no cursor offered.
+            whole, whole_cursor = await store.query(tenant_id=TENANT, limit=6)
+            assert [row.id for row in whole] == expected
+            assert whole_cursor is None
+
+            # Partial page: a cursor is offered, and it is the last row of the page.
+            first, first_cursor = await store.query(tenant_id=TENANT, limit=4)
+            assert [row.id for row in first] == expected[:4]
+            assert first_cursor == expected[3]
+
+            # The cursor is exclusive: the next page starts after it, no overlap.
+            second, second_cursor = await store.query(
+                tenant_id=TENANT, limit=4, cursor=first_cursor
+            )
+            assert [row.id for row in second] == expected[4:]
+            assert second_cursor is None
+
+            # Paging the whole set yields every row exactly once.
+            paged: list[str] = []
+            cursor: str | None = None
+            while True:
+                page, cursor = await store.query(tenant_id=TENANT, limit=2, cursor=cursor)
+                paged.extend(row.id for row in page)
+                if cursor is None:
+                    break
+            assert paged == expected
     finally:
         for closeable in closeables:
             await closeable.close()
 
 
-async def test_inventory_degraded_when_capped() -> None:
-    """Above the cap, `inventory()` reports `degraded=True` instead of claiming complete.
+async def test_inventory_below_budget_not_degraded() -> None:
+    """The user-visible win: 10 001 assets are now answered, not refused.
 
-    Driven with 10_001 real AssetRecords through a real store and the real engine --
-    the actual shipped cap, not a lowered stand-in.
+    Under C-034 this exact estate returned `degraded=True` and both gates refused.
+    This is the one assertion that proves the threshold actually moved, so it pays for
+    real records at the old cap rather than using a reduced budget.
     """
     store = InMemoryAssetStore(mode="enterprise")
-    for index in range(_ASSET_QUERY_CAP + 1):
-        await store.put(_asset(TENANT, index=index))
-    engine = InventoryIntelligenceEngine(store=store)
-
-    report = await engine.inventory(tenant_id=TENANT)
-
-    assert report.degraded is True
-    # The report is still bounded by the cap: the flag says more exists, it does not
-    # deliver the rest. Completeness is cursor pagination and a separate ticket.
-    assert report.total == _ASSET_QUERY_CAP
-    assert len(report.assets) == _ASSET_QUERY_CAP
-
-
-async def test_inventory_not_degraded_at_cap_boundary() -> None:
-    """Exactly at the cap is complete, not truncated -- the probe must not off-by-one."""
-    store = InMemoryAssetStore(mode="enterprise")
-    for index in range(_ASSET_QUERY_CAP):
+    for index in range(10_001):
         await store.put(_asset(TENANT, index=index))
     engine = InventoryIntelligenceEngine(store=store)
 
     report = await engine.inventory(tenant_id=TENANT)
 
     assert report.degraded is False
-    assert report.total == _ASSET_QUERY_CAP
+    assert report.total == 10_001
+
+
+async def test_inventory_degraded_when_budget_exhausted() -> None:
+    """Above the budget the read is still partial, and still says so.
+
+    The threshold moved; it did not disappear. A budget that truncates is still a cap,
+    only a better-behaved one.
+    """
+    store = InMemoryAssetStore(mode="enterprise")
+    for index in range(6):
+        await store.put(_asset(TENANT, index=index))
+    engine = _budgeted(store, 5)
+
+    report = await engine.inventory(tenant_id=TENANT)
+
+    assert report.degraded is True
+    # Partial and flagged, not refused: the gated consumers refuse on the flag anyway,
+    # and refusing here would foreclose callers that do not need completeness.
+    assert report.total == 5
+
+
+async def test_inventory_not_degraded_at_budget_boundary() -> None:
+    """Exactly at the budget is exhausted, not truncated -- the loop must not off-by-one."""
+    store = InMemoryAssetStore(mode="enterprise")
+    for index in range(5):
+        await store.put(_asset(TENANT, index=index))
+    engine = _budgeted(store, 5)
+
+    report = await engine.inventory(tenant_id=TENANT)
+
+    assert report.degraded is False
+    assert report.total == 5
+
+
+async def test_inventory_repeated_cursor_refused() -> None:
+    """A store that keeps handing back the same cursor is a malfunction, not a loop."""
+    store = _RepeatedCursorAssetStore(mode="enterprise")
+    for index in range(4):
+        await store.put(_asset(TENANT, index=index))
+    engine = _budgeted(store, 50)
+
+    with pytest.raises(StoreUnavailable):
+        await engine.inventory(tenant_id=TENANT)
 
 
 async def test_is037_downstream_gates_refuse_on_degraded() -> None:
-    """Every enumerated consumer of the capped denominator refuses or flags.
+    """Every enumerated consumer of the truncated denominator refuses or flags.
 
     An honest flag is necessary but not sufficient: a truthful field nobody acts on
     is the ECR-0013 unwired-default shape. The consumers of
@@ -317,12 +413,16 @@ async def test_is037_downstream_gates_refuse_on_degraded() -> None:
       4. `InventoryIntelligenceService.inventory` -- passthrough; re-exposes the
          report verbatim, so the flag reaches its caller unmodified.
 
-    This drives 1, 2 and 4 past the cap and asserts each one acts on the flag.
+    Any *new* consumer of `inventory()` must read `degraded` too. That obligation is
+    the residual risk of returning a flagged partial instead of refusing, and it is
+    recorded in ECR-0061 alongside this list.
+
+    This drives 1, 2 and 4 past the budget and asserts each one acts on the flag.
     """
     store = InMemoryAssetStore(mode="enterprise")
-    for index in range(_ASSET_QUERY_CAP + 1):
+    for index in range(6):
         await store.put(_asset(TENANT, index=index))
-    engine = InventoryIntelligenceEngine(store=store)
+    engine = _budgeted(store, 5)
 
     known_surface = InventoryKnownSurfaceSource(engine)
     exposure = KnownDataExposureEngine(
@@ -351,17 +451,40 @@ async def test_is037_downstream_gates_refuse_on_degraded() -> None:
     assert (await engine.inventory(tenant_id=TENANT)).degraded is True
 
 
-async def test_inventory_sweep_refuses_over_truncated_read() -> None:
-    """A sweep over a truncated read would leave stale assets looking reported.
+async def test_sweep_unreported_exhausts_and_sweeps() -> None:
+    """Under the budget the sweep pages to exhaustion and does its job."""
+    store = InMemoryAssetStore(mode="enterprise")
+    stale = [_asset(TENANT, index=index) for index in range(4)]
+    for asset in stale:
+        await store.put(asset)
+    engine = _budgeted(store, 50)
 
-    `sweep_unreported` has no report to flag, so it refuses. Silently half-sweeping
-    is unknown treated as safe: the unread rows keep a fresh posture they have not
-    earned.
+    changed = await engine.sweep_unreported(
+        source=DiscoverySource(
+            source_id="is037-conformance",
+            reliability=1.0,
+            health="ok",
+            as_of=utc_now(),
+        ),
+        tenant_id=TENANT,
+    )
+
+    assert {row.id for row in changed} == {asset.id for asset in stale}
+    assert all(row.lifecycle_state == "unreported" for row in changed)
+
+
+async def test_sweep_unreported_refuses_when_budget_exhausted() -> None:
+    """Exhaustion is a precondition for sweeping, not a target to approximate.
+
+    A budget-truncated sweep would mark live assets as unreported -- assets that exist
+    but fell outside the budget. That is the absence-is-not-decommission error EA-0025
+    was founded on, so the sweep refuses rather than half-sweeping. Paging keeps the
+    work bounded; it does not license a partial answer.
     """
     store = InMemoryAssetStore(mode="enterprise")
-    for index in range(_ASSET_QUERY_CAP + 1):
+    for index in range(6):
         await store.put(_asset(TENANT, index=index))
-    engine = InventoryIntelligenceEngine(store=store)
+    engine = _budgeted(store, 5)
 
     with pytest.raises(InventoryUnavailable):
         await engine.sweep_unreported(
@@ -373,6 +496,29 @@ async def test_inventory_sweep_refuses_over_truncated_read() -> None:
             ),
             tenant_id=TENANT,
         )
+
+
+async def test_sweep_never_marks_on_partial_read() -> None:
+    """The refusal happens before any write: no asset is marked on a truncated read."""
+    store = InMemoryAssetStore(mode="enterprise")
+    written = [_asset(TENANT, index=index) for index in range(6)]
+    for asset in written:
+        await store.put(asset)
+    engine = _budgeted(store, 5)
+
+    with pytest.raises(InventoryUnavailable):
+        await engine.sweep_unreported(
+            source=DiscoverySource(
+                source_id="is037-conformance",
+                reliability=1.0,
+                health="ok",
+                as_of=utc_now(),
+            ),
+            tenant_id=TENANT,
+        )
+
+    rows, _ = await store.query(tenant_id=TENANT, limit=100)
+    assert [row.lifecycle_state for row in rows] == ["active"] * 6
 
 
 # --- M3: real-runtime chain proof ------------------------------------------------

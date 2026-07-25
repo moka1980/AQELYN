@@ -37,9 +37,9 @@ from aqelyn.inventory import (
     AssetBasis,
     AssetRecord,
     InMemoryAssetStore,
+    InventoryConfig,
     InventoryIntelligenceEngine,
 )
-from aqelyn.inventory.engine import _ASSET_QUERY_CAP
 from aqelyn.ispm import (
     ISPM_EVENTS,
     ControlFact,
@@ -263,7 +263,7 @@ async def test_ispm_assessment_is_durable_and_inventory_not_exhaustive() -> None
 
 
 async def test_ispm_inventory_note_flags_a_truncated_read() -> None:
-    """C-034: ISPM is the third consumer of the capped denominator, and it must act.
+    """C-034/C-036: ISPM is the third consumer of the denominator, and it must act.
 
     This consumer produces a note rather than a gate, so it flags instead of refusing
     -- but it has to read `degraded`. A note that reports the asset count without
@@ -271,7 +271,7 @@ async def test_ispm_inventory_note_flags_a_truncated_read() -> None:
     """
     engine, _, _, _, _ = await _scored_engine()
     store = InMemoryAssetStore(mode="enterprise")
-    for index in range(_ASSET_QUERY_CAP + 1):
+    for index in range(6):
         seen = NOW - timedelta(days=30) + timedelta(seconds=index)
         await store.put(
             AssetRecord(
@@ -285,7 +285,10 @@ async def test_ispm_inventory_note_flags_a_truncated_read() -> None:
                 last_reported_at=seen,
             )
         )
-    engine.inventory = InventoryIntelligenceEngine(store)
+    # C-036: the truncation threshold is the page budget now, so the reduced-budget
+    # config exercises the same branch without a 50 001-row fixture. The shipped
+    # value is pinned by test_inventory_budget_constant_pinned.
+    engine.inventory = InventoryIntelligenceEngine(store, config=InventoryConfig(page_budget=5))
 
     assessment = await engine.assess(tenant_id=TENANT)
 
