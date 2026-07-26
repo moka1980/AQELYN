@@ -361,6 +361,26 @@ covers what the corpus exercised; **enumeration covers the rest**, and only enum
 *always known* from *always known by default*. That is the concrete vindication of auditing all seven
 factors rather than the three the report revealed: the measurement could not have found the fourth.
 
+### 31. For a guarantee of the form "A must equal B", mutate A or B - never the comparator
+ECR-0067: `validate_replayable_exposure` called `replay()` and **discarded the return value**. That
+is not a check asserting a weaker property - it is **no check at all, wearing the name of one**. The
+three things it did verify were incidental: that `replay` does not raise, that the derivation is
+traversable, that steps exist. The comparison never happened.
+
+**Eight controls passed, and no mutation of the tests would have found it - the tests were fine.**
+The defect was in the code they exercised, which called the checker and threw the answer away.
+
+> **A correct comparator whose result is discarded passes every mutation of itself.** Perturbing
+> `replay()` would have changed nothing. Perturbing the **stored score** turned all eight red.
+
+**The revealing mutation targets the subject of the guarantee, not its implementation.** Adjacent to
+rule 21 - mutate consumers, not only producers - but distinct: rule 21 is about whether a signal is
+*acted on*; this is about whether the comparison is **wired at all**.
+
+**Corollary:** a guarantee that holds *in fact* while being absent *in principle* cannot be noticed
+by reading, because every output is correct. Only mutating its subject distinguishes "verified" from
+"happens to be true".
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
