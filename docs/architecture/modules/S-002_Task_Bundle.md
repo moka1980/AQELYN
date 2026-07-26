@@ -5,7 +5,23 @@
 **For:** Claude Code (implementer **and** reviewer during the Codex outage) · Codex (retroactive re-review on return)
 **Prerequisites:** S-001 closed; **ECR-0066 implemented** (four factors + wrapper); **ECR-0067 implemented** (exposure replay compares); `S-001_Addendum_II_Report_Limits.md` read; environment warm, `postgres:16` scans cached (`--reuse` free).
 **ECR:** **none by default.** One is required only if the reviewer judges §3's reason-taxonomy extension a semantic change rather than a refinement of ECR-0066's — see §3.
-**Definition of Done:** `threat` moves off 200/200 unknown; **no record acquires a favourable `known` from an absence**; density report re-run and states its tie or its new ordering; both backends, both tenant modes, `python -O`; `mypy --strict src tests`; `gh pr checks` PASS before merge.
+**Definition of Done (AMENDED after the join check):** ~~`threat` moves off 200/200
+unknown~~ — **that line encoded a premise the data falsified and is unsatisfiable by
+any correct implementation.** The CVE join returns **zero** hits against `postgres:16`
+*and* `debian:10`, because KEV catalogues exploited **products** (Microsoft 382,
+Cisco 94, Apple 93) while a container SBOM lists **distro packages** — only 2.4% of
+KEV comes from OS/library vendors, mostly kernel CVEs absent from a container by
+construction. **KEV and container SBOMs describe near-disjoint populations**, so no
+container target exercises this factor.
+
+Replaced by what the milestone actually means: **every KEV-listed CVE in the corpus
+yields `known`; every other yields `unknown` with the third-category reason; zero
+records acquire a favourable `known` from an absence; and `threat`'s unknowns are
+reported as structural rather than closable.** The 302-record corpus is therefore the
+milestone's **primary** test artifact, not a disappointment — 302 real records where
+the source says nothing, every one required to say so.
+
+Also required: **no record acquires a favourable `known` from an absence**; density report re-run and states its tie or its new ordering; both backends, both tenant modes, `python -O`; `mypy --strict src tests`; `gh pr checks` PASS before merge.
 
 ---
 
