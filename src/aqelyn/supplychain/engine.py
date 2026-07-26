@@ -874,6 +874,7 @@ def _reachability_factor(signal: ReachabilitySignal) -> PriorityFactor:
                 f"score denominator rather than treated as low exposure: {signal.reason}"
             ),
             status="unknown",
+            unknown_cause="assessment_incomplete",
         )
     if signal.reachable == "unreachable":
         return PriorityFactor(0.0, source, signal.reason)

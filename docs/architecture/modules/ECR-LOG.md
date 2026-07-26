@@ -71,7 +71,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0064 | EA-0024 + EA-0030 | Proposed | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
 | ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Proposed | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
 | ECR-0066 | EA-0024 (+ GC-001 AC-3) | Proposed | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
-| ECR-0067 | EA-0023 exposure | Accepted (implemented) | **Replay verified structure, not reproduction** - `replay()`'s result was discarded and the score never compared. A check asserting less than its name. |
+| ECR-0067 | EA-0023 + EA-0020 | Accepted | **A replay check that asserts less than its name.** `replay()` was called and its return discarded; comparison absent entirely. |
+| ECR-0068 | GC-001 | Proposed | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
 
 ---
 
@@ -3927,3 +3928,104 @@ Enforcing that every replay validator compares its score belongs in the **GC tra
 discovery-based rather than declared, and is deliberately **not** part of this fix.
 
 ---
+
+## ECR-0068 - GC-001 AC-3 covers a state the platform is leaving
+
+**Raised by:** **S-002**, on completing the first provider wiring.
+**Status:** Proposed.
+**Severity:** **structural, and worsening** - no wrong answer today, and the
+uncovered region **grows with every S-milestone**.
+**Number:** my log copy ends at 0067; re-check `ECR-LOG.md` before assigning
+(rule 1).
+
+### The defect
+
+**AC-3 drives an engine with no providers wired at all** and asserts every
+unsupplied factor reports `unknown`. That is exactly what ECR-0066 needed, and it
+was correct when written - at that point **nothing was wired**.
+
+**S-002 wired one.** `threat` now has a provider, so AC-3's scenario no longer
+describes it. And the states that *do* now describe it are **unchecked**:
+
+| Provider state | AC-3 covers it? |
+|---|---|
+| **no provider wired** | **yes** - the ECR-0066 case |
+| **wired, returns nothing** | **no** |
+| **wired, cannot assert for this record** | **no** - the state S-002 created |
+
+### The shape: a guarantee whose coverage decays as the system matures
+
+This is not an error. AC-3 was correct when written, **is still correct**, and
+becomes **less relevant with every milestone that wires a provider**. Nothing
+breaks; the guard simply, quietly, stops covering the majority case.
+
+> **A guarantee scoped to one state of the system loses coverage as the system
+> moves to another - monotonically, silently, and fastest when the project is
+> going well.**
+
+That is a distinct failure shape from the ones collected so far. Rules 18/19/24/25
+concern apparatus reporting success while not testing; 26/27/30 concern data -
+fixture or real - unable to express a failure; 29 concerns a correct decision
+applied at one **site** when it was a property of all. **This is a correct
+decision applied to one *state* when the system has several, and the covered state
+is becoming the minority.**
+
+**The tell is that improvement causes the decay.** Every S-milestone that wires a
+provider moves a factor **out** of AC-3's coverage and into a region nothing
+checks. The better the platform gets, the less the guard guards.
+
+### The fix
+
+**AC-3 SHALL assert the invariant across every provider state, not one.** In all
+states the requirement is identical: **`unknown`, excluded from the denominator,
+never favourable** (ECR-0040).
+
+**Do not assume three states is the complete set.** The three above are the ones
+demonstrated. **Enumerate whether others exist** - provider raises, provider
+returns a malformed value, provider times out - and cover each, or record why it
+cannot occur. Assuming the demonstrated set is the whole set is precisely the
+**rule 29** error, and it would be committed here inside a fix for a coverage gap.
+
+**Negative control per state** (rule 24): a factor defaulting to a favourable
+`known` in **any** state must turn the suite red. A control exercising only the
+unwired state passes against a factor that defaults when its provider returns
+nothing - which is the current condition.
+
+**Provider implementations must be discovered, not named as a closed roster.**
+GC-001 SHALL derive every concrete factor-returning EA-0024 provider from shipped
+source and require an exact behavioral case registry. A new implementation without
+a case fails centrally. The generic mission owner API is recorded as an explicit
+limitation because it returns `MissionImpactResult` and is shared platform-wide;
+EA-0024's internal adapter is covered separately. This keeps the limitation visible
+instead of letting the registry decay silently.
+
+### One distinction the fix must not collapse
+
+**For scoring, the three states are identical.** All produce `unknown`, all are
+excluded from the denominator, none may be favourable. AC-3 treats them the same.
+
+**For the roadmap, they are not.** S-002 established that a *closable* unknown -
+no provider wired - is actionable, while *wired, cannot assert* is not, and the
+density report now ranks by **closable unknowns only**. That distinction lives in
+the **reason taxonomy**, not in the guarantee.
+
+**Keep the two purposes separate.** A guarantee that ranked states, or a roadmap
+that scored them, would be each doing the other's job.
+
+### Standing practice this suggests
+
+Both AC-3 gaps - per-scorer to per-factor (ECR-0066), and now unwired-only to
+all-states - were found by **real data**, not by the guard. The suite has needed
+widening twice, in the same AC, for the same underlying reason: **the production
+reality moved and the guarantee did not.**
+
+> **Recommended standing item on every S-milestone: does the guarantee suite still
+> cover production reality after this change?** The S-track is precisely what
+> changes that reality, so it is the track that ages the guards. Asking once per
+> milestone would have caught this decay before it was a gap rather than after.
+
+### Not in scope
+
+- **The reason taxonomy** and the closable-versus-unclosable ranking - both landed
+  in S-002.
+- **The S-003 target decision** - a product question, not this ECR's.

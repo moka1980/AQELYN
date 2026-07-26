@@ -1,8 +1,10 @@
 """Vulnerability Intelligence & Prioritization Engine (EA-0024)."""
 
 from aqelyn.vuln.engine import (
+    VALID_FACTOR_UNKNOWN_CAUSES,
     BaselineBlockingProvider,
     ExposureReachabilityProvider,
+    FactorUnknownCause,
     PriorityFactor,
     ScannerTrustProvider,
     ThreatExploitProvider,
@@ -48,6 +50,7 @@ from aqelyn.vuln.store import VulnerabilityStore
 
 __all__ = [
     "VALID_DISPOSITION_KINDS",
+    "VALID_FACTOR_UNKNOWN_CAUSES",
     "VALID_PRIORITY_LEVELS",
     "VALID_SEVERITIES",
     "VALID_VULN_BASIS_KINDS",
@@ -61,6 +64,7 @@ __all__ = [
     "DriftSnapshotBlockingProvider",
     "ExposureReachabilityProvider",
     "ExposureStoreReachabilityProvider",
+    "FactorUnknownCause",
     "InMemoryVulnerabilityStore",
     "InertVulnerabilityCoverageProvider",
     "PostgresVulnerabilityStore",

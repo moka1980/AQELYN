@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, get_args
 
 from aqelyn.conventions import ActorRef, new_id, require_typed_id, utc_now
 from aqelyn.conventions.errors import (
@@ -35,6 +35,14 @@ from aqelyn.vuln.store import VulnerabilityStore
 _FACTOR_ORDER = ("cvss", "epss", "threat", "exposure", "mission", "baseline", "trust")
 _SCORE_TOLERANCE = 0.000001
 
+FactorUnknownCause = Literal[
+    "provider_unconfigured",
+    "input_missing",
+    "assessment_incomplete",
+    "source_cannot_assert",
+]
+VALID_FACTOR_UNKNOWN_CAUSES = frozenset(get_args(FactorUnknownCause))
+
 
 @dataclass(frozen=True)
 class PriorityFactor:
@@ -42,6 +50,7 @@ class PriorityFactor:
     source: str
     reason: str
     status: Literal["known", "unknown"] = "known"
+    unknown_cause: FactorUnknownCause | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "value", _unit_factor(self.value, field="priority factor"))
@@ -51,6 +60,13 @@ class PriorityFactor:
             raise VulnConfigInvalid("priority factor reason must not be empty")
         if self.status not in {"known", "unknown"}:
             raise VulnConfigInvalid("priority factor status must be known or unknown")
+        if self.status == "unknown":
+            if self.unknown_cause not in VALID_FACTOR_UNKNOWN_CAUSES:
+                raise VulnConfigInvalid(
+                    "unknown priority factor requires a registered unknown_cause"
+                )
+        elif self.unknown_cause is not None:
+            raise VulnConfigInvalid("known priority factor must not carry an unknown_cause")
 
 
 class ThreatExploitProvider(Protocol):
@@ -300,38 +316,55 @@ class VulnerabilityIntelligenceEngine:
         exposure_override: PriorityFactor | None = None,
     ) -> dict[str, PriorityFactor]:
         threat = (
-            await self.threat_provider.exploitation_factor(vulnerability)
+            _provider_factor(
+                await self.threat_provider.exploitation_factor(vulnerability),
+                name="threat",
+            )
             if self.threat_provider is not None
             else PriorityFactor(
                 0.0,
                 "threat:unavailable",
                 "No EA-0014 threat provider supplied.",
                 status="unknown",
+                unknown_cause="provider_unconfigured",
             )
         )
         exposure = exposure_override
         if exposure is None:
             exposure = (
-                await self.exposure_provider.reachability_factor(vulnerability)
+                _provider_factor(
+                    await self.exposure_provider.reachability_factor(vulnerability),
+                    name="exposure",
+                )
                 if self.exposure_provider is not None
                 else PriorityFactor(
                     0.0,
                     "exposure:unavailable",
                     "No EA-0023 exposure provider supplied.",
                     status="unknown",
+                    unknown_cause="provider_unconfigured",
                 )
             )
+        else:
+            exposure = _provider_factor(exposure, name="exposure")
         baseline = (
-            await self.baseline_provider.blocking_factor(vulnerability)
+            _provider_factor(
+                await self.baseline_provider.blocking_factor(vulnerability),
+                name="baseline",
+            )
             if self.baseline_provider is not None
             else PriorityFactor(
                 0.0,
                 "baseline:unavailable",
                 "No EA-0012 blocking provider supplied.",
                 status="unknown",
+                unknown_cause="provider_unconfigured",
             )
         )
-        trust = await self.trust_provider.scanner_trust(vulnerability)
+        trust = _provider_factor(
+            await self.trust_provider.scanner_trust(vulnerability),
+            name="trust",
+        )
         mission = await self._mission_factor(vulnerability)
         return {
             "cvss": _cvss_factor(vulnerability),
@@ -351,6 +384,7 @@ class VulnerabilityIntelligenceEngine:
                     f"{baseline.reason}"
                 ),
                 status=baseline.status,
+                unknown_cause=baseline.unknown_cause,
             ),
             "trust": trust,
         }
@@ -362,6 +396,7 @@ class VulnerabilityIntelligenceEngine:
                 "mission:unavailable",
                 "No EA-0007 mission provider supplied.",
                 status="unknown",
+                unknown_cause="provider_unconfigured",
             )
         result = await self.mission_provider.mission_impact(vulnerability.asset_ref.ref_id)
         if not result.impacts:
@@ -370,6 +405,7 @@ class VulnerabilityIntelligenceEngine:
                 f"mission:none:{vulnerability.asset_ref.ref_id}",
                 "EA-0007 mission provider returned no signal for the affected asset.",
                 status="unknown",
+                unknown_cause="input_missing",
             )
         selected = max(result.impacts, key=lambda impact: (impact.impact_score, impact.mission.id))
         return PriorityFactor(selected.impact_score, selected.mission.id, selected.reason)
@@ -558,12 +594,21 @@ def _epss_factor(vulnerability: VulnerabilityRecord) -> PriorityFactor:
             "epss:missing",
             "No EPSS carried score was supplied by the source.",
             status="unknown",
+            unknown_cause="input_missing",
         )
     return PriorityFactor(
         _unit_factor(vulnerability.epss.value, field="epss.value"),
         vulnerability.epss.source,
         "EPSS is carried verbatim from the published source and used as a probability.",
     )
+
+
+def _provider_factor(value: object, *, name: str) -> PriorityFactor:
+    # Shape validation cannot prove a provider earned `known`; GC-001 discovers
+    # every shipped implementation and drives its no-data state behaviorally.
+    if not isinstance(value, PriorityFactor):
+        raise VulnConfigInvalid(f"{name} provider returned an invalid priority factor")
+    return value
 
 
 def _compose_score(
@@ -595,6 +640,7 @@ def _compose_score(
             "contribution": round(contribution, 6),
             "reason": factor.reason,
             "status": factor.status,
+            "unknown_cause": factor.unknown_cause,
         }
     if vulnerability.cvss is not None:
         payload["cvss"]["carried_value"] = vulnerability.cvss.value
@@ -751,6 +797,7 @@ def _cvss_factor(vulnerability: VulnerabilityRecord) -> PriorityFactor:
             "cvss:unavailable",
             "No CVSS was supplied by the source; severity is undetermined, not zero.",
             status="unknown",
+            unknown_cause="input_missing",
         )
     return PriorityFactor(
         _normalize_cvss(vulnerability.cvss.value),

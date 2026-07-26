@@ -5,7 +5,7 @@
 **Consumed by:** CI — every future module passes through it
 **Status:** Accepted
 **Build milestone:** GC-001 (see `GC-001_Task_Bundle.md`)
-**Change control:** **ECR-0057**
+**Change control:** **ECR-0057, ECR-0068**
 
 ---
 
@@ -213,6 +213,26 @@ structurally-matching scorer is missing from it.
 **Negative control (must FAIL):** a stub composition scorer that maps unknown to
 its favourable known case.
 
+**Provider-state coverage (ECR-0068).** For EA-0024, AC-3 SHALL exercise every
+factor state production can reach: provider unconfigured; carried input missing;
+wired owner with no matching record; wired positive-only source unable to assert;
+and incomplete bounded assessment. Every such factor remains explicit
+`status="unknown"`, carries a typed cause, and receives zero normalized weight.
+Provider exceptions, timeouts, and malformed return values are not ordinary
+unknowns: prioritization refuses and assessment records the failure as unavailable.
+
+Concrete factor-provider implementations SHALL be discovered structurally from
+`src/aqelyn/` and matched exactly by a behavioral case registry. A provider added
+without a case SHALL fail GC-001. The generic `VulnerabilityMissionProvider` is an
+explicit exclusion: its shared `mission_impact` API returns `MissionImpactResult`,
+not `PriorityFactor`, and EA-0024's internal empty-result adapter has a dedicated
+behavioral case. This limitation SHALL remain named rather than hidden in a roster.
+
+The typed cause and scoring status serve different purposes. Scoring treats every
+unknown identically. Roadmap tooling maps causes independently and SHALL refuse if a
+new cause has no explicit roadmap classification; it SHALL NOT infer semantics from
+`source` or `reason` text.
+
 ### 4.4 Explicitly out of scope — already covered
 
 - **integrity ≠ authenticity** — ISPM h3, secrets j3/w1/w3/w5, supplychain q4;
@@ -230,7 +250,7 @@ Re-centralizing these would add maintenance without adding safety.
 - **FR-4** AC-1 SHALL NOT match on method names or `ActionSpec` construction; it SHALL key on the §3 two-part signature, and the six listed benign sites SHALL pass **by that definition**, not by exemption (§3).
 - **FR-5** AC-1 SHALL assert that every registered `ActionHandler` in a constructed kernel is owned by EA-0008 and that no module outside EA-0008 directly invokes a handler or dispatches one through an alternate registry. Connector implementations, kernel registration, proposal-only `ActionSpec` construction, and calls through the real `WorkflowEngine` are not alternate execution paths (§3/§4.1).
 - **FR-6** AC-2 SHALL assert both the frozen membership of `SignalKind` and `ClassificationSignalKind` **and** runtime rejection of an out-of-set kind via the **real** construction/ingestion path (§4.2).
-- **FR-7** AC-3 SHALL assert, for every discovered composition scorer, an orientation-aware case proving **unknown is strictly less favourable than known-good/safe**. Its relation to known-bad SHALL remain a per-scorer assertion. `risk/scoring.py::score_risk` SHALL be excluded, with the exclusion reason recorded (§4.3).
+- **FR-7** AC-3 SHALL assert, for every discovered composition scorer, an orientation-aware case proving **unknown is strictly less favourable than known-good/safe**. For EA-0024 it SHALL discover every concrete factor-provider implementation, require an exact behavioral case registry, and cover every wired and unwired factor state enumerated in §4.3, with a negative control that mutates a discovered provider to favourable defaulting. Its relation to known-bad SHALL remain a per-scorer assertion. `risk/scoring.py::score_risk` and the generic mission-provider signature SHALL be excluded only with their reasons recorded (§4.3, ECR-0068).
 - **FR-8** Every AC SHALL ship a **negative control that fails** when the guarantee is violated; the control SHALL perform the forbidden action rather than assert about it (rule 19, §2.3).
 - **FR-9** Out-of-set kinds and unknown factors SHALL resolve toward **rejection / non-favourable**, never toward a permissive default (rule 5).
 - **FR-10** Any AC touching a real engine or scorer SHALL run on both backends, both tenant modes, and under `python -O`.
@@ -250,6 +270,9 @@ Re-centralizing these would add maintenance without adding safety.
 | AC-3a | Every discovered composition scorer has an orientation-aware unknown case | `test_gc_scorer_unknown_not_favourable` |
 | AC-3b | `score_risk` excluded, reason recorded | `test_gc_scorer_exclusion_documented` |
 | AC-3c | **Negative control:** stub scorer without the case → FAILS | `test_gc_negative_control_unguarded_scorer` |
+| AC-3d | Every concrete EA-0024 factor provider is discovered, has exactly one behavioral case, and its earned state is scored correctly | `test_gc_vulnerability_factor_provider_discovery_complete` / `test_gc_discovered_vulnerability_factor_provider_state[...]` |
+| AC-3e | A future provider without a case and a discovered KEV provider mutated to favourable absence both fail centrally | `test_gc_vulnerability_factor_provider_discovery_detects_new_provider` / `test_gc_negative_control_discovered_provider_defaulting_to_known` |
+| AC-3f | Generic mission absence remains unknown through its named internal-adapter case; malformed and timed-out providers refuse | `test_gc_wired_mission_absence_is_unknown_and_excluded` / `test_gc_wired_provider_failure_emits_no_factor` |
 | AC-4 | No runtime surface added | `test_gc_no_runtime_surface` |
 | AC-5 | Both backends, both tenant modes, `python -O` | `test_gc_matrix[...]` |
 
