@@ -416,15 +416,48 @@ class KnownDataExposureEngine:
         return records
 
 
+_SCORE_TOLERANCE = 0.000001
+"""ECR-0067: matches EA-0024's tolerance, so the two replay checks agree on what
+"reproduces" means."""
+
+
+def _score_from_replay(result: dict[str, Any]) -> float:
+    """Extract the replayed score, mirroring composition operation for operation.
+
+    ECR-0065: no intermediate rounding. The derivation carries the score at unit
+    scale; scaling back and rounding once reproduces the stored percentage.
+    """
+    items = result.get("items")
+    if not isinstance(items, list) or not items:
+        raise ExposureNotReplayable("exposure derivation emitted no score items")
+    scores: list[float] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ExposureNotReplayable("exposure derivation emitted an invalid score item")
+        selected = item.get("score")
+        if not isinstance(selected, int | float) or isinstance(selected, bool):
+            raise ExposureNotReplayable("exposure derivation emitted an invalid score")
+        scores.append(float(selected))
+    return round(max(scores) * 100.0, 6)
+
+
 def validate_replayable_exposure(exposure: ExposureRecord) -> ExposureRecord:
     if exposure.score is None:
         return exposure.model_copy(deep=True)
     if exposure.derivation is None:
         raise ExposureNotReplayable("scored exposure requires a replayable derivation")
     try:
-        replay(exposure.derivation)
+        result = replay(exposure.derivation)
     except DerivationNotReplayable as exc:
         raise ExposureNotReplayable("exposure score derivation does not replay") from exc
+    # ECR-0067: compare the replayed score to the stored one. Previously the replay
+    # result was discarded, so this verified only that the derivation was
+    # well-formed -- not that it reproduced the number. A check that asserts less
+    # than its name consumes the attention that would otherwise notice the absence:
+    # a reader seeing `validate_replayable_exposure` concludes the score replays.
+    replayed = _score_from_replay(result)
+    if abs(replayed - exposure.score) > _SCORE_TOLERANCE:
+        raise ExposureNotReplayable("exposure score does not replay")
     _validate_impact_binding(exposure)
     return exposure.model_copy(deep=True)
 

@@ -71,6 +71,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0064 | EA-0024 + EA-0030 | Proposed | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
 | ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Proposed | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
 | ECR-0066 | EA-0024 (+ GC-001 AC-3) | Proposed | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
+| ECR-0067 | EA-0023 exposure | Accepted (implemented) | **Replay verified structure, not reproduction** - `replay()`'s result was discarded and the score never compared. A check asserting less than its name. |
 
 ---
 
@@ -3871,5 +3872,58 @@ answer** and is a different defect. It is **ECR-0067**, after this.
 
 Widening scope at the end of a milestone is how good milestones end badly; the same
 applies to widening an ECR at the point its fix is understood.
+
+---
+
+## ECR-0067 - Exposure's replay verified structure, not reproduction
+
+**Raised by:** the reviewer, during ECR-0065's four-module sweep.
+**Status:** **Accepted - determined and implemented.**
+
+### Determination first, because the fix depended on it
+
+The concern was that `validate_replayable_exposure` might verify a derivation is
+*well-formed* rather than that it *reproduces the score* - but whether the
+comparison was **absent** or **present but non-binding** changes the fix, and acting
+on an assumed shape is how this project's most expensive defects have started.
+
+**Determined at `a0127a6`: the comparison was absent entirely.**
+`exposure/engine.py:425` called `replay(exposure.derivation)` and **discarded the
+return value** - it was not assigned. `exposure.score` was never compared to
+anything. The function verified that a derivation exists when scored, that it
+replays structurally, and that impact binding is valid. Reproduction was not among
+them.
+
+### Why this mattered more than its severity suggested
+
+**No demonstrated wrong answer** - with the comparison added, every shipped exposure
+test passes, so the derivations did in fact reproduce their scores. The guarantee was
+correct in practice and unverified in principle.
+
+> **A check that asserts less than its name consumes the attention that would
+> otherwise notice the absence.** A reader encountering `validate_replayable_*`
+> concludes the property holds. Nothing prompts them to ask *which* property.
+
+That is the **ECR-0013 shape one level up** - not a field nobody reads, but a
+guarantee asserting less than it appears to. The specific failure mode it admitted:
+a future refactor silently decoupling exposure's explanation from exposure's number,
+with the check still green because the derivation is still well-formed.
+
+### The fix
+
+`replay()`'s result is captured, the score extracted, and compared to
+`exposure.score` within `_SCORE_TOLERANCE` (1e-6, matching EA-0024 so the two checks
+agree on what *reproduces* means). Extraction mirrors composition operation for
+operation with **no intermediate rounding**, per **ECR-0065**.
+
+**Mutation-verified:** perturbing the derivation's carried score turns **8** exposure
+controls red. Previously all 8 passed, because nothing compared the number.
+
+### Not folded in: enforcing uniformity mechanically
+
+Four modules hold replay validation, they **diverged**, and only a reviewer's eye
+caught it - which is **rule 29** again: a property of all four, verified at one.
+Enforcing that every replay validator compares its score belongs in the **GC track**,
+discovery-based rather than declared, and is deliberately **not** part of this fix.
 
 ---
