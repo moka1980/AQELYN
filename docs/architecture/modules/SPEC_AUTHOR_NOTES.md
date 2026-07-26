@@ -338,6 +338,29 @@ one correct factor passes, so the guarantee written to catch this family was **c
 exact defect**. A per-instance guard against a per-pattern property is the same mistake one level up.
 Widen the guard **with** the fix, or it certifies the repair while still admitting the disease.
 
+### 30. Real data is not adversarial either
+Rules 26 and 27 say fixtures cannot falsify assumptions about **availability** and **shape**, because
+the fixture author supplies the value. The S-track was the remedy - and it has the mirror-image limit.
+
+**Real data supplies what it supplies.** It falsifies a *different* set of assumptions than fixtures
+do, and the ones it leaves untouched are **invisible precisely because the run succeeded against
+them**. S-001's density report - the instrument built to find unwired factors - could not see `epss`
+defaulting to `known`, because every grype match carried EPSS, so its missing branch never fired
+(ECR-0066).
+
+> **A `known = N/N` row is not evidence that a factor is wired. It is evidence that the corpus never
+> asked.**
+
+**The camouflage improves with scale.** A larger corpus in which every record carries EPSS hides the
+defect *exactly as well* as a small one, and makes the row look **better evidenced** - `known =
+20,000/20,000` reads as stronger confirmation than `200/200`. More data does not eventually expose a
+defaulting factor; it deepens the impression that there is nothing to expose.
+
+**So the S-track does not supersede enumeration - it relocates what enumeration is for.** Measurement
+covers what the corpus exercised; **enumeration covers the rest**, and only enumeration separates
+*always known* from *always known by default*. That is the concrete vindication of auditing all seven
+factors rather than the three the report revealed: the measurement could not have found the fourth.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
