@@ -1,8 +1,12 @@
-"""S-003 read-only collection for a real, owner-declared estate.
+"""S-003 non-mutating collection for a real, owner-declared estate.
 
 This module deliberately lives outside ``src/aqelyn``. It invokes host tools and
 hands their documents to the platform; no analytical engine learns how to collect
-from a host.
+from a host. Collection does not install, enable, reconfigure, restart, or scan a
+customer service. When Syft is not installed, the collector may consume one
+checksum-pinned executable handed in under the system temporary directory. Its
+executable and isolated runtime files are removed and their absence verified
+before collection can succeed.
 
 Asset identity is a deployable service boundary:
 
@@ -17,14 +21,17 @@ declaration while keeping transient listener details out of object identity.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping, Sequence
-from contextlib import suppress
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,9 +41,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MAX_OUTPUT_BYTES = 128 * 1024 * 1024
+SYFT_EXECUTABLE_PLACEHOLDER = "{verified-syft-executable}"
+SYFT_EXCLUDE_PATTERNS: tuple[str, ...] = (
+    "./proc/**",
+    "./sys/**",
+    "./dev/**",
+    "./run/**",
+    "./tmp/**",
+    "./var/tmp/**",
+    "./var/cache/**",
+)
 
 EstateAssetKind = Literal["systemd_unit", "nginx_vhost"]
 CommandName = Literal["syft", "systemctl", "ss", "nft", "nginx"]
+ToolLookup = Callable[[str], str | None]
 
 
 class S003CollectionError(RuntimeError):
@@ -168,6 +186,12 @@ class CommandResult:
     stderr: bytes
 
 
+@dataclass(frozen=True)
+class SyftRuntime:
+    executable: str
+    environment: Mapping[str, str]
+
+
 class CommandRunner(Protocol):
     def run(
         self,
@@ -175,6 +199,7 @@ class CommandRunner(Protocol):
         *,
         timeout_seconds: int,
         max_output_bytes: int,
+        environment: Mapping[str, str] | None = None,
     ) -> CommandResult: ...
 
 
@@ -187,6 +212,7 @@ class SubprocessCommandRunner:
         *,
         timeout_seconds: int,
         max_output_bytes: int,
+        environment: Mapping[str, str] | None = None,
     ) -> CommandResult:
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             process = subprocess.Popen(
@@ -195,7 +221,7 @@ class SubprocessCommandRunner:
                 stdout=stdout,
                 stderr=stderr,
                 shell=False,
-                env=_bounded_environment(),
+                env=_bounded_environment(environment),
             )
             deadline = time.monotonic() + timeout_seconds
             while process.poll() is None:
@@ -233,8 +259,17 @@ class SubprocessCommandRunner:
 COMMAND_TEMPLATES: tuple[CommandTemplate, ...] = (
     CommandTemplate(
         name="syft",
-        argv=("syft", "dir:/", "-o", "cyclonedx-json"),
-        purpose="Produce a package inventory of the local filesystem.",
+        argv=(
+            SYFT_EXECUTABLE_PLACEHOLDER,
+            "dir:/",
+            "-o",
+            "cyclonedx-json",
+            *(argument for pattern in SYFT_EXCLUDE_PATTERNS for argument in ("--exclude", pattern)),
+        ),
+        purpose=(
+            "Produce a package inventory of the local filesystem while excluding "
+            "pseudo-filesystems, transient runtime trees, and caches."
+        ),
         required=True,
         timeout_seconds=300,
         output_name="sbom.json",
@@ -333,6 +368,19 @@ def collection_command_templates() -> tuple[CommandTemplate, ...]:
     )
 
 
+def command_with_executable(command: CommandTemplate, executable: str) -> CommandTemplate:
+    if not executable.strip():
+        raise S003CollectionError(f"{command.name} executable path must not be empty")
+    return CommandTemplate(
+        name=command.name,
+        argv=(executable, *command.argv[1:]),
+        purpose=command.purpose,
+        required=command.required,
+        timeout_seconds=command.timeout_seconds,
+        output_name=command.output_name,
+    )
+
+
 def canonical_asset_key(kind: EstateAssetKind, native_id: str) -> str:
     selected = native_id.strip()
     if not selected:
@@ -340,17 +388,27 @@ def canonical_asset_key(kind: EstateAssetKind, native_id: str) -> str:
     return f"{kind}:{selected}"
 
 
-def validate_read_only_command(argv: Sequence[str]) -> None:
+def validate_read_only_command(
+    argv: Sequence[str],
+    *,
+    syft_executable: str | None = None,
+) -> None:
     """Fail closed unless ``argv`` is one of S-003's enumerated read paths."""
 
     selected = tuple(argv)
     if not selected:
         raise S003CollectionError("empty command is not allowed")
     executable = Path(selected[0]).name
-    if executable == "syft" and selected == COMMAND_TEMPLATES[0].argv:
-        return
+    if selected[1:] == COMMAND_TEMPLATES[0].argv[1:]:
+        if syft_executable is not None and selected[0] == syft_executable:
+            return
+        if syft_executable is None and selected[0] in {
+            "syft",
+            SYFT_EXECUTABLE_PLACEHOLDER,
+        }:
+            return
     if executable == "systemctl":
-        if selected == COMMAND_TEMPLATES[1].argv:
+        if selected[1:] == COMMAND_TEMPLATES[1].argv[1:]:
             return
         if (
             len(selected) == 5
@@ -360,11 +418,11 @@ def validate_read_only_command(argv: Sequence[str]) -> None:
         ):
             _unit_name(selected[2])
             return
-    if executable == "ss" and selected == COMMAND_TEMPLATES[2].argv:
+    if executable == "ss" and selected[1:] == COMMAND_TEMPLATES[2].argv[1:]:
         return
-    if executable == "nft" and selected == COMMAND_TEMPLATES[3].argv:
+    if executable == "nft" and selected[1:] == COMMAND_TEMPLATES[3].argv[1:]:
         return
-    if executable == "nginx" and selected == COMMAND_TEMPLATES[4].argv:
+    if executable == "nginx" and selected[1:] == COMMAND_TEMPLATES[4].argv[1:]:
         return
     raise S003CollectionError(f"command is outside the S-003 read-only allowlist: {selected!r}")
 
@@ -386,6 +444,206 @@ def ensure_private_workdir(workdir: Path, *, repository_root: Path = REPOSITORY_
     selected.mkdir(parents=True, exist_ok=True, mode=0o700)
     with suppress(OSError):
         os.chmod(selected, 0o700)
+    return selected
+
+
+@contextmanager
+def prepared_syft_runtime(
+    *,
+    transient_syft: Path | None,
+    syft_sha256: str | None,
+    transient_root: Path | None,
+    tool_lookup: ToolLookup,
+) -> Iterator[SyftRuntime]:
+    """Resolve Syft and isolate every runtime write it may make.
+
+    A handed-in executable is consumed: successful or failed collection removes it.
+    An installed executable is never modified.
+    """
+
+    artifact = _transient_syft_candidate(
+        transient_syft=transient_syft,
+        transient_root=transient_root,
+    )
+    runtime_root: Path | None = None
+    active_error: BaseException | None = None
+    phase = "preflight"
+    try:
+        expected_checksum = _verify_transient_syft(
+            artifact=artifact,
+            syft_sha256=syft_sha256,
+        )
+        installed_executable = None if artifact is not None else tool_lookup("syft")
+        if artifact is None and installed_executable is None:
+            raise S003CollectionError(
+                "required tool syft is not in PATH; hand in --transient-syft under the "
+                "system temporary directory together with --syft-sha256"
+            )
+
+        phase = "runtime setup"
+        root_parent = _transient_root(transient_root)
+        root_parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        runtime_root = Path(tempfile.mkdtemp(prefix="aqelyn-s003-syft-", dir=root_parent)).resolve()
+        with suppress(OSError):
+            os.chmod(runtime_root, 0o700)
+        runtime_paths = {
+            key: runtime_root / name
+            for key, name in {
+                "HOME": "home",
+                "XDG_CACHE_HOME": "cache",
+                "XDG_CONFIG_HOME": "config",
+                "XDG_DATA_HOME": "data",
+                "TMPDIR": "tmp",
+            }.items()
+        }
+        for path in runtime_paths.values():
+            path.mkdir(mode=0o700)
+            with suppress(OSError):
+                os.chmod(path, 0o700)
+
+        if artifact is not None:
+            runtime_executable = runtime_root / "syft"
+            shutil.copyfile(artifact, runtime_executable)
+            with suppress(OSError):
+                os.chmod(runtime_executable, 0o700)
+            if expected_checksum is None or _sha256(runtime_executable) != expected_checksum:
+                raise S003CollectionError(
+                    "the isolated Syft executable does not match the verified handoff"
+                )
+            executable = str(runtime_executable)
+        else:
+            if installed_executable is None:
+                raise S003CollectionError("required tool syft disappeared during preflight")
+            executable = installed_executable
+
+        phase = "collection"
+        environment = {key: str(path) for key, path in runtime_paths.items()}
+        environment.update(
+            {
+                "GOMAXPROCS": "2",
+                "SYFT_PARALLELISM": "2",
+            }
+        )
+        yield SyftRuntime(
+            executable=executable,
+            environment=environment,
+        )
+    except OSError as exc:
+        active_error = exc
+        raise S003CollectionError(f"S-003 {phase} failed: {exc}") from exc
+    except BaseException as exc:
+        active_error = exc
+        raise
+    finally:
+        try:
+            _remove_syft_runtime(runtime_root=runtime_root, transient_syft=artifact)
+        except S003CollectionError as cleanup_error:
+            if active_error is not None:
+                raise S003CollectionError(
+                    "S-003 run failed and transient Syft cleanup also failed"
+                ) from cleanup_error
+            raise
+
+
+def _transient_syft_candidate(
+    *,
+    transient_syft: Path | None,
+    transient_root: Path | None,
+) -> Path | None:
+    if transient_syft is None:
+        return None
+
+    selected = transient_syft.expanduser()
+    if selected.is_symlink():
+        raise S003CollectionError("the transient Syft executable must not be a symbolic link")
+    try:
+        resolved = selected.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise S003CollectionError("the transient Syft executable does not exist") from exc
+    root = _transient_root(transient_root)
+    if not root.is_dir():
+        raise S003CollectionError("the configured transient root is not a directory")
+    if resolved == root or root not in resolved.parents:
+        raise S003CollectionError(
+            "the transient Syft executable must be handed in under the system temporary directory"
+        )
+    if not stat.S_ISREG(resolved.stat().st_mode):
+        raise S003CollectionError("the transient Syft executable must be a regular file")
+    return resolved
+
+
+def _verify_transient_syft(
+    *,
+    artifact: Path | None,
+    syft_sha256: str | None,
+) -> str | None:
+    if artifact is None and syft_sha256 is None:
+        return None
+    if artifact is None or syft_sha256 is None:
+        raise S003CollectionError("--transient-syft and --syft-sha256 must be supplied together")
+    checksum = syft_sha256.strip().lower()
+    if len(checksum) != 64 or any(character not in "0123456789abcdef" for character in checksum):
+        raise S003CollectionError("--syft-sha256 must be a 64-character hexadecimal digest")
+    if _sha256(artifact) != checksum:
+        raise S003CollectionError("the transient Syft executable checksum does not match")
+    return checksum
+
+
+def _transient_root(selected: Path | None) -> Path:
+    system_root = Path(tempfile.gettempdir()).resolve()
+    root = selected.expanduser().resolve() if selected is not None else system_root
+    if root != system_root and system_root not in root.parents:
+        raise S003CollectionError(
+            "the transient root must be the system temporary directory or a child of it"
+        )
+    if any((ancestor / ".git").exists() for ancestor in (root, *root.parents)):
+        raise S003CollectionError("the transient root must not be inside a Git working tree")
+    return root
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _remove_syft_runtime(
+    *,
+    runtime_root: Path | None,
+    transient_syft: Path | None,
+) -> None:
+    errors: list[str] = []
+    if transient_syft is not None:
+        try:
+            transient_syft.unlink(missing_ok=True)
+        except OSError as exc:
+            errors.append(f"could not remove handed-in Syft executable: {exc}")
+    if runtime_root is not None:
+        try:
+            shutil.rmtree(runtime_root)
+        except OSError as exc:
+            errors.append(f"could not remove isolated Syft runtime: {exc}")
+    if transient_syft is not None and transient_syft.exists():
+        errors.append("handed-in Syft executable remains after cleanup")
+    if runtime_root is not None and runtime_root.exists():
+        errors.append("isolated Syft runtime remains after cleanup")
+    if errors:
+        raise S003CollectionError("; ".join(errors))
+
+
+def _host_executable(
+    name: CommandName,
+    *,
+    required: bool,
+    tool_lookup: ToolLookup,
+) -> str | None:
+    selected = tool_lookup(name)
+    if selected is None and required:
+        raise S003CollectionError(
+            f"required tool {name} is not in PATH; no collection command was run"
+        )
     return selected
 
 
@@ -445,20 +703,76 @@ class EstateCollector:
         runner: CommandRunner,
         *,
         max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+        tool_lookup: ToolLookup = shutil.which,
     ) -> None:
         if max_output_bytes < 1:
             raise S003CollectionError("max_output_bytes must be positive")
         self.runner = runner
         self.max_output_bytes = max_output_bytes
+        self.tool_lookup = tool_lookup
 
-    def collect(self, workdir: Path, *, reuse: bool = False) -> CollectionManifest:
+    def collect(
+        self,
+        workdir: Path,
+        *,
+        reuse: bool = False,
+        transient_syft: Path | None = None,
+        syft_sha256: str | None = None,
+        transient_root: Path | None = None,
+    ) -> CollectionManifest:
         selected_workdir = ensure_private_workdir(workdir)
+        with prepared_syft_runtime(
+            transient_syft=transient_syft,
+            syft_sha256=syft_sha256,
+            transient_root=transient_root,
+            tool_lookup=self.tool_lookup,
+        ) as syft:
+            return self._collect_with_runtime(
+                selected_workdir,
+                syft=syft,
+                reuse=reuse,
+            )
+
+    def _collect_with_runtime(
+        self,
+        selected_workdir: Path,
+        *,
+        syft: SyftRuntime,
+        reuse: bool,
+    ) -> CollectionManifest:
+        executables: dict[CommandName, str | None] = {
+            "syft": syft.executable,
+            "systemctl": _host_executable("systemctl", required=True, tool_lookup=self.tool_lookup),
+            "ss": _host_executable("ss", required=False, tool_lookup=self.tool_lookup),
+            "nft": _host_executable("nft", required=False, tool_lookup=self.tool_lookup),
+            "nginx": _host_executable("nginx", required=False, tool_lookup=self.tool_lookup),
+        }
         collected_at = datetime.now(UTC)
         entries: list[CollectionManifestEntry] = []
 
         outputs: dict[str, bytes] = {}
-        for command in COMMAND_TEMPLATES:
-            result = self._execute(command, selected_workdir, reuse=reuse)
+        for template in COMMAND_TEMPLATES:
+            executable = executables[template.name]
+            if executable is None:
+                entry = CollectionManifestEntry(
+                    name=template.name,
+                    argv=list(template.argv),
+                    required=template.required,
+                    returncode=127,
+                    stdout_bytes=0,
+                    stderr=f"optional tool {template.name} is not in PATH",
+                )
+                entries.append(entry)
+                outputs[template.output_name] = b""
+                continue
+            command = command_with_executable(template, executable)
+            result = self._execute(
+                command,
+                selected_workdir,
+                reuse=reuse,
+                environment=syft.environment if command.name == "syft" else None,
+                syft_executable=syft.executable,
+            )
             entries.append(result[0])
             outputs[command.output_name] = result[1]
 
@@ -466,8 +780,20 @@ class EstateCollector:
         detailed_units: list[UnitRecord] = []
         unavailable: dict[str, str] = {}
         for unit in units:
-            command = unit_detail_command(unit.native_id)
-            entry, output = self._execute(command, selected_workdir, reuse=reuse)
+            systemctl = executables["systemctl"]
+            if systemctl is None:
+                raise S003CollectionError("required tool systemctl disappeared after preflight")
+            command = command_with_executable(
+                unit_detail_command(unit.native_id),
+                systemctl,
+            )
+            entry, output = self._execute(
+                command,
+                selected_workdir,
+                reuse=reuse,
+                environment=None,
+                syft_executable=syft.executable,
+            )
             entries.append(entry)
             if entry.returncode != 0:
                 unavailable[unit.asset_key] = entry.stderr or "systemctl show failed"
@@ -525,8 +851,10 @@ class EstateCollector:
         workdir: Path,
         *,
         reuse: bool,
+        environment: Mapping[str, str] | None,
+        syft_executable: str,
     ) -> tuple[CollectionManifestEntry, bytes]:
-        validate_read_only_command(command.argv)
+        validate_read_only_command(command.argv, syft_executable=syft_executable)
         path = workdir / command.output_name
         if reuse and path.exists():
             output = path.read_bytes()
@@ -547,11 +875,18 @@ class EstateCollector:
                 command.argv,
                 timeout_seconds=command.timeout_seconds,
                 max_output_bytes=self.max_output_bytes,
+                environment=environment,
             )
         except subprocess.TimeoutExpired as exc:
             raise S003CollectionError(
                 f"{command.name} exceeded its {command.timeout_seconds}s collection bound"
             ) from exc
+        except OSError as exc:
+            if command.required:
+                raise S003CollectionError(
+                    f"required command {command.name} could not start: {exc}"
+                ) from exc
+            result = CommandResult(returncode=127, stdout=b"", stderr=str(exc).encode())
         if len(result.stdout) > self.max_output_bytes:
             raise S003CollectionError(f"{command.name} output exceeds the size bound")
         stderr = result.stderr.decode("utf-8", errors="replace").strip()
@@ -564,7 +899,7 @@ class EstateCollector:
             output = result.stderr
             stderr = ""
         if result.returncode == 0:
-            path.write_bytes(output)
+            _write_private_bytes(path, output)
         return (
             CollectionManifestEntry(
                 name=command.name,
@@ -623,12 +958,22 @@ def _write_private_json(path: Path, model: BaseModel) -> None:
         os.chmod(path, 0o600)
 
 
-def _bounded_environment() -> dict[str, str]:
+def _write_private_bytes(path: Path, content: bytes) -> None:
+    path.write_bytes(content)
+    with suppress(OSError):
+        os.chmod(path, 0o600)
+
+
+def _bounded_environment(
+    overrides: Mapping[str, str] | None = None,
+) -> dict[str, str]:
     selected = {
         key: value
         for key, value in os.environ.items()
         if key in {"HOME", "LANG", "LC_ALL", "PATH", "SYSTEMD_PAGER"}
     }
+    if overrides is not None:
+        selected.update(overrides)
     selected["SYSTEMD_PAGER"] = ""
     selected["SYFT_CHECK_FOR_APP_UPDATE"] = "false"
     return selected
@@ -677,12 +1022,35 @@ def _main(argv: Sequence[str] | None = None) -> int:
     collect_parser = subparsers.add_parser("collect", help="Collect the three private documents")
     collect_parser.add_argument("--workdir", type=Path, required=True)
     collect_parser.add_argument("--reuse", action="store_true")
+    collect_parser.add_argument(
+        "--transient-syft",
+        type=Path,
+        help=(
+            "Owner-approved Syft executable handed in under the system temporary "
+            "directory; consumed and removed by this run"
+        ),
+    )
+    collect_parser.add_argument(
+        "--syft-sha256",
+        help="Expected SHA-256 digest for --transient-syft",
+    )
+    collect_parser.add_argument(
+        "--transient-root",
+        type=Path,
+        help="System temporary root containing the handed-in executable (default: OS temp)",
+    )
     args = parser.parse_args(argv)
     if args.command == "plan":
         _plan()
         return 0
     collector = EstateCollector(SubprocessCommandRunner())
-    manifest = collector.collect(args.workdir, reuse=bool(args.reuse))
+    manifest = collector.collect(
+        args.workdir,
+        reuse=bool(args.reuse),
+        transient_syft=args.transient_syft,
+        syft_sha256=args.syft_sha256,
+        transient_root=args.transient_root,
+    )
     print(
         json.dumps(
             {
