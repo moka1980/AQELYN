@@ -153,6 +153,7 @@ class KevExploitationProvider:
                     "vulnerability is unexploited -- the source cannot assert for this record."
                 ),
                 status="unknown",
+                unknown_cause="source_cannot_assert",
             )
         ransomware = (
             " (known ransomware campaign use)" if entry.known_ransomware_campaign_use else ""

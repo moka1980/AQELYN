@@ -29,7 +29,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -42,7 +42,12 @@ from aqelyn.evidence.models import EvidenceRecord
 from aqelyn.supplychain import SBOMDocument
 from aqelyn.supplychain.parse import parse_sbom
 from aqelyn.threat.parse import KevExploitationProvider, parse_kev
-from aqelyn.vuln import PostgresVulnerabilityStore, VulnerabilityIntelligenceEngine
+from aqelyn.vuln import (
+    VALID_FACTOR_UNKNOWN_CAUSES,
+    FactorUnknownCause,
+    PostgresVulnerabilityStore,
+    VulnerabilityIntelligenceEngine,
+)
 from aqelyn.vuln.parse import parse_grype
 
 KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
@@ -233,25 +238,38 @@ class FactorReading:
     status: str
     reason: str
     source: str
+    unknown_cause: FactorUnknownCause | None
 
     @property
     def closable(self) -> bool:
-        """Whether wiring a provider would close this unknown.
+        """Whether this unknown represents actionable roadmap work.
 
         S-002/§3, the third reason category. Two unknowns look identical in a count
         and mean opposite things:
 
-        * **no provider supplied** -- source ends `:unavailable`. Closable: wire it.
-        * **provider supplied, cannot assert** -- e.g. CISA KEV, a positive-only
-          catalog that says nothing about CVEs it omits. **Not closable by wiring**,
-          because nothing in threat intelligence asserts "we checked, and this is not
-          being exploited".
+        The engine carries a typed cause. The reporter owns the exhaustive mapping
+        from that fact to roadmap treatment; it never interprets display-oriented
+        `source` text.
 
         The density report ranks by unknown count on the premise that unknowns are
         closable. Without this distinction, a factor that is wired and working sits
         near the top of the roadmap forever, recommending work that cannot be done.
         """
-        return self.status == "unknown" and self.source.endswith(":unavailable")
+        return (
+            self.status == "unknown"
+            and self.unknown_cause is not None
+            and _UNKNOWN_ROADMAP_CLASS[self.unknown_cause] == "closable"
+        )
+
+
+_UNKNOWN_ROADMAP_CLASS: dict[FactorUnknownCause, Literal["closable", "structural"]] = {
+    "provider_unconfigured": "closable",
+    "input_missing": "closable",
+    "assessment_incomplete": "closable",
+    "source_cannot_assert": "structural",
+}
+if frozenset(_UNKNOWN_ROADMAP_CLASS) != VALID_FACTOR_UNKNOWN_CAUSES:
+    raise RuntimeError("density report must classify every registered factor unknown cause")
 
 
 def read_factors(finding: Any) -> list[FactorReading]:
@@ -278,12 +296,27 @@ def read_factors(finding: Any) -> list[FactorReading]:
         reason = str(factor.get("reason") or "")
         if status == "unknown" and not reason.strip():
             raise UnreadableFactor(f"factor {name!r} is unknown but carries no reason")
+        raw_unknown_cause = factor.get("unknown_cause")
+        if status == "unknown":
+            if raw_unknown_cause not in VALID_FACTOR_UNKNOWN_CAUSES:
+                raise UnreadableFactor(
+                    f"factor {name!r} is unknown but carries unregistered "
+                    f"unknown_cause {raw_unknown_cause!r}"
+                )
+            unknown_cause = cast(FactorUnknownCause, raw_unknown_cause)
+        else:
+            if raw_unknown_cause is not None:
+                raise UnreadableFactor(
+                    f"factor {name!r} is known but carries unknown_cause {raw_unknown_cause!r}"
+                )
+            unknown_cause = None
         readings.append(
             FactorReading(
                 name=name,
                 status=status,
                 reason=reason,
                 source=str(factor.get("source") or ""),
+                unknown_cause=unknown_cause,
             )
         )
     return readings

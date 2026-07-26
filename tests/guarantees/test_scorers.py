@@ -6,24 +6,35 @@ import asyncio
 import os
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from aqelyn.assetconfig import InMemoryDriftSnapshotStore
 from aqelyn.conventions import new_id
-from aqelyn.exposure import AssetRef
+from aqelyn.conventions.errors import VulnConfigInvalid
+from aqelyn.exposure import AssetRef, InMemoryExposureStore
 from aqelyn.ispm import PostureFactor
 from aqelyn.ispm.scoring import posture_score_result
+from aqelyn.mission import MissionImpactResult
 from aqelyn.risk.scoring import score_risk
 from aqelyn.secrets import GovernanceFactor
 from aqelyn.secrets.models import LEGACY_GOVERNANCE_FACTOR_NAMES
 from aqelyn.secrets.scoring import governance_score_result
+from aqelyn.threat.parse import KevCatalog, KevExploitationProvider
 from aqelyn.vuln import (
+    VALID_FACTOR_UNKNOWN_CAUSES,
     CarriedScore,
+    DriftSnapshotBlockingProvider,
+    ExposureStoreReachabilityProvider,
     InMemoryVulnerabilityStore,
     PriorityFactor,
+    ThreatExploitProvider,
+    ThreatSignalFactorProvider,
     VulnBasis,
     VulnConfig,
     VulnerabilityIntelligenceEngine,
@@ -36,7 +47,9 @@ from guarantees.discovery import (
     ScorerObservation,
     assert_scorer_registry_complete,
     assert_unknown_less_favourable,
+    assert_vulnerability_factor_provider_registry_complete,
     discover_composition_scorer_packages,
+    discover_vulnerability_factor_providers,
 )
 
 NOW = datetime(2026, 7, 23, 12, 0, tzinfo=UTC)
@@ -51,6 +64,14 @@ SCORER_EXCLUSIONS = {
         "unknown belongs to its factor producers."
     )
 }
+
+
+@dataclass(frozen=True)
+class _FactorProviderCase:
+    factor_name: str
+    observe: Callable[[VulnerabilityRecord], Awaitable[PriorityFactor]]
+    expected_status: str
+    expected_cause: str | None
 
 
 def test_gc_scorer_discovery_complete() -> None:
@@ -118,8 +139,10 @@ def test_gc_guards_survive_optimized_python() -> None:
 import asyncio
 import inspect
 from pathlib import Path
+from aqelyn.conventions.errors import VulnConfigInvalid
 from aqelyn.risk import SignalRef
 from aqelyn.kernel import create_inmemory_runtime
+from aqelyn.vuln import PriorityFactor
 from guarantees.controls import PermissiveSignal, RogueEngine, unsafe_status_score
 from guarantees.discovery import (
     GuaranteeViolation,
@@ -128,6 +151,10 @@ from guarantees.discovery import (
     assert_runtime_action_authority,
     assert_runtime_rejects_kind,
     assert_unknown_less_favourable,
+)
+from guarantees.test_scorers import (
+    VULNERABILITY_FACTOR_PROVIDER_CASES,
+    _assert_provider_case,
 )
 
 assert_runtime_rejects_kind(
@@ -140,6 +167,21 @@ except GuaranteeViolation:
     pass
 else:
     raise SystemExit('optimized Python bypassed the SignalKind negative control')
+
+try:
+    PriorityFactor(
+        0.0,
+        'optimized:unknown',
+        'Unknown factor without a cause.',
+        status='unknown',
+    )
+except VulnConfigInvalid:
+    pass
+else:
+    raise SystemExit('optimized Python bypassed the factor unknown-cause invariant')
+
+for provider_name in sorted(VULNERABILITY_FACTOR_PROVIDER_CASES):
+    asyncio.run(_assert_provider_case(provider_name))
 
 bad = ScorerObservation(
     name='optimized-control',
@@ -328,6 +370,7 @@ def _vulnerability_score(state: str) -> float:
         "gc:exposure",
         "Reachability is varied by the central scorer check.",
         status="unknown" if state == "unknown" else "known",
+        unknown_cause="input_missing" if state == "unknown" else None,
     )
     score, _ = vuln_engine._compose_score(
         _vulnerability(),
@@ -442,6 +485,14 @@ def test_gc_every_factor_reports_unknown_when_unsupplied() -> None:
     # `trust` is excluded deliberately: it always has a provider
     # (`_StoredScannerTrustProvider`), so its `known` is earned rather than defaulted.
     assert factors["trust"].status == "known"
+    assert {name: factors[name].unknown_cause for name in sorted(unsupplied)} == {
+        "baseline": "provider_unconfigured",
+        "cvss": "input_missing",
+        "epss": "input_missing",
+        "exposure": "provider_unconfigured",
+        "mission": "provider_unconfigured",
+        "threat": "provider_unconfigured",
+    }
 
 
 def test_gc_negative_control_factor_defaulting_to_known() -> None:
@@ -455,8 +506,278 @@ def test_gc_negative_control_factor_defaulting_to_known() -> None:
 
     assert defaulted.status == "known", "the control no longer models the defect"
 
-    explicit = PriorityFactor(0.0, "control:unavailable", "No provider supplied.", status="unknown")
+    explicit = PriorityFactor(
+        0.0,
+        "control:unavailable",
+        "No provider supplied.",
+        status="unknown",
+        unknown_cause="provider_unconfigured",
+    )
     assert explicit.status == "unknown"
     # mypy narrows both literals, so the inequality is asserted on the values rather
     # than the types -- the point is that the default differs from the explicit form.
     assert str(defaulted.status) != str(explicit.status)
+
+
+def test_gc_priority_factor_unknown_cause_is_structural() -> None:
+    assert {
+        "provider_unconfigured",
+        "input_missing",
+        "assessment_incomplete",
+        "source_cannot_assert",
+    } == VALID_FACTOR_UNKNOWN_CAUSES
+
+    with pytest.raises(VulnConfigInvalid, match="requires a registered unknown_cause"):
+        PriorityFactor(
+            0.0,
+            "control:missing-cause",
+            "The factor is unknown but its cause was omitted.",
+            status="unknown",
+        )
+    with pytest.raises(VulnConfigInvalid, match="known priority factor"):
+        PriorityFactor(
+            0.0,
+            "control:known",
+            "The factor is known and must not carry an unknown cause.",
+            unknown_cause="input_missing",
+        )
+
+
+class _EmptyMissionProvider:
+    async def mission_impact(self, object_id: str) -> MissionImpactResult:
+        _ = object_id
+        return MissionImpactResult()
+
+
+class _MalformedThreatProvider:
+    async def exploitation_factor(self, vulnerability: VulnerabilityRecord) -> PriorityFactor:
+        _ = vulnerability
+        return cast(PriorityFactor, None)
+
+
+class _TimeoutThreatProvider:
+    async def exploitation_factor(self, vulnerability: VulnerabilityRecord) -> PriorityFactor:
+        _ = vulnerability
+        raise TimeoutError("threat provider timed out")
+
+
+async def _observe_kev_absence(record: VulnerabilityRecord) -> PriorityFactor:
+    catalog = KevCatalog(
+        catalog_version="gc-empty",
+        date_released="2026-07-26",
+        entries={},
+    )
+    return cast(
+        PriorityFactor,
+        await KevExploitationProvider(catalog).exploitation_factor(record),
+    )
+
+
+async def _observe_threat_signal_absence(record: VulnerabilityRecord) -> PriorityFactor:
+    return await ThreatSignalFactorProvider(object()).exploitation_factor(record)
+
+
+async def _observe_exposure_absence(record: VulnerabilityRecord) -> PriorityFactor:
+    return await ExposureStoreReachabilityProvider(
+        InMemoryExposureStore(mode="local")
+    ).reachability_factor(record)
+
+
+async def _observe_baseline_absence(record: VulnerabilityRecord) -> PriorityFactor:
+    return await DriftSnapshotBlockingProvider(InMemoryDriftSnapshotStore()).blocking_factor(record)
+
+
+async def _observe_stored_trust(record: VulnerabilityRecord) -> PriorityFactor:
+    return await vuln_engine._StoredScannerTrustProvider().scanner_trust(record)
+
+
+VULNERABILITY_FACTOR_PROVIDER_CASES = {
+    "aqelyn.threat.parse.KevExploitationProvider.exploitation_factor": _FactorProviderCase(
+        "threat",
+        _observe_kev_absence,
+        "unknown",
+        "source_cannot_assert",
+    ),
+    "aqelyn.vuln.engine._StoredScannerTrustProvider.scanner_trust": _FactorProviderCase(
+        "trust",
+        _observe_stored_trust,
+        "known",
+        None,
+    ),
+    "aqelyn.vuln.service.DriftSnapshotBlockingProvider.blocking_factor": _FactorProviderCase(
+        "baseline",
+        _observe_baseline_absence,
+        "unknown",
+        "input_missing",
+    ),
+    "aqelyn.vuln.service.ExposureStoreReachabilityProvider.reachability_factor": (
+        _FactorProviderCase(
+            "exposure",
+            _observe_exposure_absence,
+            "unknown",
+            "input_missing",
+        )
+    ),
+    "aqelyn.vuln.service.ThreatSignalFactorProvider.exploitation_factor": _FactorProviderCase(
+        "threat",
+        _observe_threat_signal_absence,
+        "unknown",
+        "source_cannot_assert",
+    ),
+}
+VULNERABILITY_FACTOR_PROVIDER_EXCLUSIONS = {
+    "VulnerabilityMissionProvider": (
+        "mission_impact is a shared owner API returning MissionImpactResult, not a "
+        "PriorityFactor. EA-0024 adapts it internally, so its empty result is covered "
+        "by test_gc_wired_mission_absence_is_unknown_and_excluded."
+    )
+}
+
+
+def test_gc_vulnerability_factor_provider_discovery_complete() -> None:
+    assert discover_vulnerability_factor_providers() == frozenset(
+        VULNERABILITY_FACTOR_PROVIDER_CASES
+    )
+    assert_vulnerability_factor_provider_registry_complete(VULNERABILITY_FACTOR_PROVIDER_CASES)
+    [mission_reason] = VULNERABILITY_FACTOR_PROVIDER_EXCLUSIONS.values()
+    assert "shared owner API" in mission_reason
+    assert "covered" in mission_reason
+
+
+def test_gc_vulnerability_factor_provider_discovery_detects_new_provider(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "aqelyn"
+    package = root / "future_threat"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text('"""Future provider control."""\n', encoding="utf-8")
+    (package / "provider.py").write_text(
+        "\n".join(
+            (
+                "from aqelyn.vuln import PriorityFactor",
+                "class FutureThreatProvider:",
+                "    async def exploitation_factor(self, vulnerability: object) -> PriorityFactor:",
+                "        return PriorityFactor(0.0, 'future:none', 'No matching signal.')",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    discovered = discover_vulnerability_factor_providers(root)
+
+    assert discovered == frozenset(
+        ("aqelyn.future_threat.provider.FutureThreatProvider.exploitation_factor",)
+    )
+    with pytest.raises(GuaranteeViolation, match="FutureThreatProvider"):
+        assert_vulnerability_factor_provider_registry_complete({}, aqelyn_root=root)
+
+
+def _known_factors() -> dict[str, PriorityFactor]:
+    return {
+        name: PriorityFactor(
+            0.8,
+            f"gc:{name}",
+            f"{name} is known for the provider-state check.",
+        )
+        for name in ("cvss", "epss", "threat", "exposure", "mission", "baseline", "trust")
+    }
+
+
+async def _assert_provider_case(provider_name: str) -> PriorityFactor:
+    case = VULNERABILITY_FACTOR_PROVIDER_CASES[provider_name]
+    record = _vulnerability()
+    factor = await case.observe(record)
+    if factor.status != case.expected_status or factor.unknown_cause != case.expected_cause:
+        raise GuaranteeViolation(
+            f"{provider_name} produced status={factor.status!r}, "
+            f"unknown_cause={factor.unknown_cause!r}; expected "
+            f"status={case.expected_status!r}, unknown_cause={case.expected_cause!r}"
+        )
+    factors = _known_factors()
+    factors[case.factor_name] = factor
+    _, payload = vuln_engine._compose_score(record, factors=factors, config=VulnConfig())
+    normalized_weight = cast(float, payload[case.factor_name]["weight"])
+    if factor.status == "unknown" and normalized_weight != 0.0:
+        raise GuaranteeViolation(
+            f"{provider_name} unknown factor received normalized weight {normalized_weight}"
+        )
+    if factor.status == "known" and normalized_weight <= 0.0:
+        raise GuaranteeViolation(
+            f"{provider_name} earned known factor received no normalized weight"
+        )
+    return factor
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "provider_name",
+    sorted(VULNERABILITY_FACTOR_PROVIDER_CASES),
+)
+async def test_gc_discovered_vulnerability_factor_provider_state(
+    provider_name: str,
+) -> None:
+    await _assert_provider_case(provider_name)
+
+
+@pytest.mark.asyncio
+async def test_gc_wired_mission_absence_is_unknown_and_excluded() -> None:
+    engine = VulnerabilityIntelligenceEngine(
+        InMemoryVulnerabilityStore(mode="local"),
+        mission_provider=_EmptyMissionProvider(),
+    )
+    factors = await engine._factors_for(_vulnerability())
+    mission = factors["mission"]
+
+    assert mission.status == "unknown"
+    assert mission.unknown_cause == "input_missing"
+    _, payload = vuln_engine._compose_score(
+        _vulnerability(),
+        factors=factors,
+        config=VulnConfig(),
+    )
+    assert payload["mission"]["weight"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_gc_negative_control_discovered_provider_defaulting_to_known(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def favourable_kev_absence(
+        self: KevExploitationProvider,
+        vulnerability: object,
+    ) -> PriorityFactor:
+        _ = (self, vulnerability)
+        return PriorityFactor(
+            0.0,
+            "control:kev:none",
+            "Incorrectly claims KEV absence is known-safe.",
+        )
+
+    monkeypatch.setattr(KevExploitationProvider, "exploitation_factor", favourable_kev_absence)
+    provider_name = "aqelyn.threat.parse.KevExploitationProvider.exploitation_factor"
+
+    with pytest.raises(GuaranteeViolation, match="expected status='unknown'"):
+        await _assert_provider_case(provider_name)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "error"),
+    [
+        (_MalformedThreatProvider(), VulnConfigInvalid),
+        (_TimeoutThreatProvider(), TimeoutError),
+    ],
+    ids=["malformed", "timeout"],
+)
+async def test_gc_wired_provider_failure_emits_no_factor(
+    provider: object,
+    error: type[Exception],
+) -> None:
+    engine = VulnerabilityIntelligenceEngine(
+        InMemoryVulnerabilityStore(mode="local"),
+        threat_provider=cast(ThreatExploitProvider, provider),
+    )
+
+    with pytest.raises(error):
+        await engine._factors_for(_vulnerability())

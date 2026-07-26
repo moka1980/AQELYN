@@ -135,10 +135,32 @@ Record the exclusion reason in the test.
 
 **Negative control (must FAIL):** a stub composition scorer that maps unknown to
 the favourable known result.
+
+**ECR-0068 follow-on:** enumerate every EA-0024 factor state reached after
+providers are wired. Provider-unconfigured, input-missing (including a missing
+owner record), source-cannot-assert, and incomplete-assessment paths must all
+remain explicit unknowns and receive zero normalized weight. Exceptions, timeouts, and malformed
+returns refuse instead of becoming factors. Every unknown carries a typed cause;
+the S-track roadmap maps that cause exhaustively and never parses `source` text.
+
+Discover every concrete factor-returning EA-0024 provider structurally and require
+an exact behavior-case registry. A provider added tomorrow without a case must fail
+the completeness check. Record the generic mission-provider exclusion explicitly:
+its shared API returns `MissionImpactResult`, and EA-0024's internal adapter receives
+its own case.
+
+**Negative controls (must FAIL):** a future discovered provider without a case;
+the real discovered KEV provider mutated to turn absence into favourable `known`.
 **Depends on:** GC1.
 **Acceptance:** `test_gc_scorer_unknown_not_favourable`,
 `test_gc_scorer_exclusion_documented`,
-`test_gc_negative_control_unguarded_scorer`.
+`test_gc_negative_control_unguarded_scorer`,
+`test_gc_vulnerability_factor_provider_discovery_complete`,
+`test_gc_vulnerability_factor_provider_discovery_detects_new_provider`,
+`test_gc_discovered_vulnerability_factor_provider_state`,
+`test_gc_negative_control_discovered_provider_defaulting_to_known`,
+`test_gc_wired_mission_absence_is_unknown_and_excluded`,
+`test_gc_wired_provider_failure_emits_no_factor`.
 
 ---
 

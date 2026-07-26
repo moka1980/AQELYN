@@ -78,7 +78,13 @@ class ThreatSignalFactorProvider:
             return PriorityFactor(
                 0.0,
                 "threat:none",
-                "EA-0014 threat fusion has no matching exploitation signal.",
+                (
+                    "EA-0014 threat fusion has no matching exploitation signal. "
+                    "A positive signal source cannot assert that the vulnerability "
+                    "is not exploited."
+                ),
+                status="unknown",
+                unknown_cause="source_cannot_assert",
             )
         selected = max(
             matching,
@@ -109,6 +115,8 @@ class ExposureStoreReachabilityProvider:
                 0.0,
                 "exposure:none",
                 "EA-0023 exposure has no matching reachability record.",
+                status="unknown",
+                unknown_cause="input_missing",
             )
         selected = max(
             matching,
@@ -132,6 +140,8 @@ class DriftSnapshotBlockingProvider:
                 0.0,
                 "baseline:none",
                 "EA-0012 has no drift snapshot for this tenant.",
+                status="unknown",
+                unknown_cause="input_missing",
             )
         return _blocking_from_snapshot(snapshot, vulnerability)
 
@@ -387,6 +397,8 @@ def _blocking_from_snapshot(
             0.0,
             f"baseline:{snapshot.id}",
             "EA-0012 latest drift snapshot has no matching asset drift.",
+            status="unknown",
+            unknown_cause="input_missing",
         )
     selected = max(matching, key=lambda drift: (drift.score, drift.baseline_id))
     return PriorityFactor(

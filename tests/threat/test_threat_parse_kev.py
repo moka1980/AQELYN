@@ -98,6 +98,7 @@ def test_threat_parse_absence_is_unknown() -> None:
         "absence produced a known factor -- KEV is positive-only and says nothing "
         "about CVEs it omits"
     )
+    assert factor.unknown_cause == "source_cannot_assert"
     assert "positive-only" in factor.reason
     assert "not evidence" in factor.reason
 

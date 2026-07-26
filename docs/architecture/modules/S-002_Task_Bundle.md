@@ -4,7 +4,8 @@
 **Milestone:** S-002 (close the highest-ranked closable unknown)
 **For:** Claude Code (implementer **and** reviewer during the Codex outage) · Codex (retroactive re-review on return)
 **Prerequisites:** S-001 closed; **ECR-0066 implemented** (four factors + wrapper); **ECR-0067 implemented** (exposure replay compares); `S-001_Addendum_II_Report_Limits.md` read; environment warm, `postgres:16` scans cached (`--reuse` free).
-**ECR:** **none by default.** One is required only if the reviewer judges §3's reason-taxonomy extension a semantic change rather than a refinement of ECR-0066's — see §3.
+**ECR:** **ECR-0068** (raised after S-002 exposed provider-state coverage decay and
+the roadmap's string-derived unknown taxonomy).
 **Definition of Done (AMENDED after the join check):** ~~`threat` moves off 200/200
 unknown~~ — **that line encoded a premise the data falsified and is unsatisfiable by
 any correct implementation.** The CVE join returns **zero** hits against `postgres:16`
@@ -114,9 +115,10 @@ be done.**
 The third is what KEV absence produces. Without it, S-002's success would make
 `threat` look like S-003's most urgent target.
 
-**Reviewer's call:** if this is a refinement of ECR-0066's taxonomy, record it
-there. If it is a semantic change, it needs **ECR-0068**. Do not proceed on the
-assumption that it is the former.
+**ECR-0068 resolution:** these facts are carried as typed `unknown_cause` values,
+not inferred from reason/source prose. Scoring excludes every unknown identically;
+the S-track maps causes to roadmap treatment through an exhaustive table that
+refuses when a future cause is unclassified.
 
 ---
 

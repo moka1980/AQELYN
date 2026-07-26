@@ -258,6 +258,7 @@ async def test_sc_vulns_to_ea0024() -> None:
     exposure = factors["exposure"]
     assert finding.expert_details["vulnerability_id"] == vulnerability.id
     assert exposure["status"] == "unknown"
+    assert exposure["unknown_cause"] == "assessment_incomplete"
     assert exposure["value"] == 0.0
     assert exposure["weight"] == 0.0
     assert cast(float, exposure["raw_weight"]) > 0.0

@@ -40,6 +40,9 @@ class DirectInvocation:
 
 
 ScoreOrientation = Literal["higher_is_favourable", "lower_is_favourable"]
+_VULNERABILITY_FACTOR_METHODS = frozenset(
+    ("exploitation_factor", "reachability_factor", "blocking_factor", "scanner_trust")
+)
 
 
 @dataclass(frozen=True)
@@ -174,6 +177,51 @@ def assert_scorer_registry_complete(
     if missing or extra:
         raise GuaranteeViolation(
             f"composition scorer registry mismatch: missing={missing}, extra={extra}"
+        )
+
+
+def discover_vulnerability_factor_providers(
+    aqelyn_root: Path | None = None,
+) -> frozenset[str]:
+    """Discover concrete EA-0024 factor-provider implementations.
+
+    A provider is a concrete class that implements one of EA-0024's factor-returning
+    protocol methods and either annotates or constructs a ``PriorityFactor``. The
+    structural signature catches the shipped KEV adapter even though its public
+    boundary deliberately uses ``Any`` to avoid a threat -> vuln import cycle.
+    """
+
+    root = aqelyn_root or aqelyn_source_root()
+    providers: set[str] = set()
+    for path in source_python_files(root):
+        tree = _parse(path)
+        relative = path.relative_to(root).with_suffix("")
+        module = ".".join(("aqelyn", *relative.parts))
+        for node in tree.body:
+            if not isinstance(node, ast.ClassDef) or _class_is_protocol(node):
+                continue
+            for item in node.body:
+                if (
+                    isinstance(item, ast.AsyncFunctionDef)
+                    and item.name in _VULNERABILITY_FACTOR_METHODS
+                    and _returns_priority_factor(item)
+                ):
+                    providers.add(f"{module}.{node.name}.{item.name}")
+    return frozenset(providers)
+
+
+def assert_vulnerability_factor_provider_registry_complete(
+    registered: Mapping[str, object],
+    *,
+    aqelyn_root: Path | None = None,
+) -> None:
+    discovered = discover_vulnerability_factor_providers(aqelyn_root)
+    selected = frozenset(registered)
+    missing = sorted(discovered - selected)
+    extra = sorted(selected - discovered)
+    if missing or extra:
+        raise GuaranteeViolation(
+            f"vulnerability factor-provider registry mismatch: missing={missing}, extra={extra}"
         )
 
 
@@ -336,6 +384,19 @@ def _tree_has_known_unknown_factor(tree: ast.Module, *, aliases: set[str]) -> bo
             ):
                 return True
     return False
+
+
+def _class_is_protocol(node: ast.ClassDef) -> bool:
+    return any(_expression_tail(base) == "Protocol" for base in node.bases)
+
+
+def _returns_priority_factor(node: ast.AsyncFunctionDef) -> bool:
+    if _annotation_tail(node.returns) == "PriorityFactor":
+        return True
+    return any(
+        isinstance(item, ast.Call) and _expression_tail(item.func) == "PriorityFactor"
+        for item in ast.walk(node)
+    )
 
 
 def _literal_values(node: ast.expr) -> set[str]:
