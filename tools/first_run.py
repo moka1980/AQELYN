@@ -41,8 +41,14 @@ from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.evidence.models import EvidenceRecord
 from aqelyn.supplychain import SBOMDocument
 from aqelyn.supplychain.parse import parse_sbom
+from aqelyn.threat.parse import KevExploitationProvider, parse_kev
 from aqelyn.vuln import PostgresVulnerabilityStore, VulnerabilityIntelligenceEngine
 from aqelyn.vuln.parse import parse_grype
+
+KEV_URL = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+"""S-002/T3: the driver knows this URL. **Nothing under `src/aqelyn/` does** -- the
+engine receives a document, exactly as it receives the SBOM. The boundary is
+architectural (live collection is what every spec defers), not mechanical."""
 
 SYFT_SOURCE_ID = "src_019f9a2008d17161979fdb07ebec82e3"
 """Stable registry id for the syft source. Fixed rather than minted per run, so the
@@ -86,6 +92,27 @@ def collect(target: str, workdir: Path, *, reuse: bool) -> tuple[dict[str, Any],
     return json.loads(sbom_path.read_text()), json.loads(vuln_path.read_text())
 
 
+def collect_kev(workdir: Path, *, reuse: bool) -> dict[str, Any]:
+    """Fetch the KEV catalog once and cache it, exactly as the scans are cached."""
+    path = workdir / "kev.json"
+    if not (reuse and path.exists()):
+        _run(["curl", "-sSfL", KEV_URL], path)
+    return json.loads(path.read_text())  # type: ignore[no-any-return]
+
+
+def check_cve_join(catalog: Any, vulns: dict[str, Any]) -> tuple[int, int]:
+    """Check the CVE join explicitly -- *because* it is easy.
+
+    CVE->CVE is far simpler than S-001's purl join, which is exactly why it would be
+    assumed rather than verified. A silent zero here is indistinguishable from a
+    correct implementation finding nothing.
+    """
+    cves = {m.get("vulnerability", {}).get("id") for m in vulns.get("matches", [])}
+    cves.discard(None)
+    hits = sum(1 for cve in cves if catalog.lookup(str(cve)) is not None)
+    return len(cves), hits
+
+
 def check_purl_join(sbom: dict[str, Any], vulns: dict[str, Any]) -> tuple[int, int]:
     """Check the join explicitly. Inferring it from a finding count hides an orphan."""
     sbom_purls = {c.get("purl") for c in sbom.get("components", []) if c.get("purl")}
@@ -108,6 +135,12 @@ async def drive(target: str, tenant_mode: str, workdir: Path, *, reuse: bool) ->
         raise SystemExit("purl join is empty: every vulnerability orphaned")
 
     print("[3/5] parsing handed-in documents")
+    catalog = parse_kev(collect_kev(workdir, reuse=reuse))
+    cve_total, cve_hits = check_cve_join(catalog, vulns_raw)
+    print(
+        f"      KEV catalog            : {catalog.catalog_version} ({len(catalog.entries)} entries)"
+    )
+    print(f"      CVE join               : {cve_hits} of {cve_total} distinct CVEs listed in KEV")
     # The SBOM file itself is the evidence. Recorded properly rather than minting a
     # bare id: a fabricated evidence reference would be exactly the kind of plausible
     # fill this milestone exists to avoid.
@@ -159,7 +192,9 @@ async def drive(target: str, tenant_mode: str, workdir: Path, *, reuse: bool) ->
     store = await PostgresVulnerabilityStore.connect(
         "postgresql://aqelyn:aqelyn@localhost:5432/aqelyn", mode=tenant_mode
     )
-    engine = VulnerabilityIntelligenceEngine(store)
+    engine = VulnerabilityIntelligenceEngine(
+        store, threat_provider=KevExploitationProvider(catalog=catalog)
+    )
     stored = await engine.ingest(records=list(parsed_vulns.records), tenant_id=tenant_id)
     print(f"      stored: {len(stored)}")
 
@@ -197,6 +232,26 @@ class FactorReading:
     name: str
     status: str
     reason: str
+    source: str
+
+    @property
+    def closable(self) -> bool:
+        """Whether wiring a provider would close this unknown.
+
+        S-002/§3, the third reason category. Two unknowns look identical in a count
+        and mean opposite things:
+
+        * **no provider supplied** -- source ends `:unavailable`. Closable: wire it.
+        * **provider supplied, cannot assert** -- e.g. CISA KEV, a positive-only
+          catalog that says nothing about CVEs it omits. **Not closable by wiring**,
+          because nothing in threat intelligence asserts "we checked, and this is not
+          being exploited".
+
+        The density report ranks by unknown count on the premise that unknowns are
+        closable. Without this distinction, a factor that is wired and working sits
+        near the top of the roadmap forever, recommending work that cannot be done.
+        """
+        return self.status == "unknown" and self.source.endswith(":unavailable")
 
 
 def read_factors(finding: Any) -> list[FactorReading]:
@@ -223,7 +278,14 @@ def read_factors(finding: Any) -> list[FactorReading]:
         reason = str(factor.get("reason") or "")
         if status == "unknown" and not reason.strip():
             raise UnreadableFactor(f"factor {name!r} is unknown but carries no reason")
-        readings.append(FactorReading(name=name, status=status, reason=reason))
+        readings.append(
+            FactorReading(
+                name=name,
+                status=status,
+                reason=reason,
+                source=str(factor.get("source") or ""),
+            )
+        )
     return readings
 
 
@@ -294,6 +356,7 @@ def density_report(report: RunReport) -> None:
 
     known: Counter[str] = Counter()
     unknown: Counter[str] = Counter()
+    structural: Counter[str] = Counter()
     reasons: dict[str, Counter[str]] = {}
     for readings in per_finding:
         for reading in readings:
@@ -301,6 +364,8 @@ def density_report(report: RunReport) -> None:
                 known[reading.name] += 1
             else:
                 unknown[reading.name] += 1
+                if not reading.closable:
+                    structural[reading.name] += 1
                 reasons.setdefault(reading.name, Counter())[reading.reason] += 1
 
     total_factors = sum(known.values()) + sum(unknown.values())
@@ -309,12 +374,13 @@ def density_report(report: RunReport) -> None:
     # breaking it by sort stability would make an owner's decision invisibly. The
     # report states the tie and stops there; the tie-break -- cheapest-to-wire, or
     # largest effect on score usefulness -- is not the tool's to make.
-    if unknown:
-        top = max(unknown.values())
-        tied = sorted(name for name, count in unknown.items() if count == top)
+    closable = Counter({n: unknown[n] - structural[n] for n in unknown})
+    if any(closable.values()):
+        top = max(closable.values())
+        tied = sorted(name for name, count in closable.items() if count == top and count > 0)
         if top > 0 and len(tied) > 1:
             print(
-                f"\n  ** {len(tied)}-WAY TIE at {top} unknown: {', '.join(tied)}\n"
+                f"\n  ** {len(tied)}-WAY TIE at {top} closable unknown: {', '.join(tied)}\n"
                 "     The ordering below does NOT rank these. Choosing between them\n"
                 "     is an owner decision, not a property of the data.\n"
             )
@@ -322,11 +388,19 @@ def density_report(report: RunReport) -> None:
     # added, because a recommendation would be the tool making the owner's decision
     # and would obscure the one property that makes the ordering trustworthy -- that
     # it is mechanical.
-    for name in sorted(set(known) | set(unknown), key=lambda n: (-unknown[n], n)):
+    # Ranked by CLOSABLE unknowns. A structural unknown is not a roadmap entry: the
+    # factor is wired and working, and the source cannot speak to that record.
+    for name in sorted(set(known) | set(unknown), key=lambda n: (-closable[n], n)):
         total = known[name] + unknown[name]
         pct = unknown[name] / total * 100 if total else 0.0
+        mark = (
+            f"  [{structural[name]} structural: wired, source cannot assert]"
+            if structural[name]
+            else ""
+        )
         print(
-            f"  {name:12s} known={known[name]:4d} unknown={unknown[name]:4d} ({pct:3.0f}% unknown)"
+            f"  {name:12s} known={known[name]:4d} unknown={unknown[name]:4d} "
+            f"({pct:3.0f}% unknown){mark}"
         )
         for reason, count in reasons.get(name, Counter()).most_common(2):
             print(f"       {count:4d}x {reason[:78]}")
