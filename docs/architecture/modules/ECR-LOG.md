@@ -72,7 +72,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Proposed | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
 | ECR-0066 | EA-0024 (+ GC-001 AC-3) | Proposed | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
 | ECR-0067 | EA-0023 + EA-0020 | Accepted | **A replay check that asserts less than its name.** `replay()` was called and its return discarded; comparison absent entirely. |
-| ECR-0068 | GC-001 | Proposed | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
+| ECR-0068 | GC-001 | Accepted | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
+| ECR-0069 | S-track tooling | Proposed | **Data-handling boundary for real-estate milestones.** Aggregate counts may leave; per-asset detail may not — structurally, not by convention. |
 
 ---
 
@@ -4029,3 +4030,64 @@ reality moved and the guarantee did not.**
 - **The reason taxonomy** and the closable-versus-unclosable ranking - both landed
   in S-002.
 - **The S-003 target decision** - a product question, not this ECR's.
+
+## ECR-0069 - Data-handling boundary for real-estate milestones
+
+**Raised by:** **S-003**, the first milestone against an estate the owner controls.
+**Status:** Proposed.
+**Durability:** this constraint is **inherited by S-004 and every later
+real-estate milestone**, which is why it is an ECR rather than a line in one
+bundle.
+
+### Why it did not exist before
+
+S-001 and S-002 scanned **public artefacts** - `postgres:16` and the CISA KEV
+catalogue. Nothing collected was sensitive, so nothing constrained where it went:
+findings could appear in a PR body, a fixture could be committed, a report could
+be shared, and none of it disclosed anything.
+
+**S-003 collects a real host.** The inventory carries hostnames, addresses,
+service topology, and versions of software the owner actually runs - on a live
+production box. The absence of a rule was correct until now and is not correct any
+longer.
+
+### The boundary
+
+> **Aggregate counts may leave the estate. Per-asset detail may not.**
+
+| Artefact | Contains | May it leave? |
+|---|---|---|
+| density report | factor counts, reasons | **yes** |
+| findings dump | asset names, ports, versions | **no** - local store only |
+| collection documents | full host inventory | **no** - local disk only |
+| criticality declaration | service names and tiers | **no** |
+
+### Structural, not remembered
+
+**The density report emitter SHALL be incapable of carrying per-asset detail** -
+it takes counts and reasons, and has **no code path** from a finding's identifying
+fields to its output.
+
+A rule someone must remember is the wrong shape for this. The platform already
+holds the correct idiom in three places - **no person-level score type** (EA-0027,
+EA-0033), **no secret-value field** (EA-0032's `_ValueFreeModel`), **no un-gated
+execution** (EA-0008) - and each works because the wrong thing is
+**unconstructible**, not because it is discouraged. The tooling gets the same
+treatment.
+
+**Corollary: never commit a collection document as a fixture.** The temptation is
+real - it would make the run reproducible, and reproducibility has been a virtue
+in every previous milestone. It would also commit the owner's infrastructure to a
+git history permanently, and **a fixture is the one artefact in this project
+designed to be shared**.
+
+### What this does not restrict
+
+**Nothing about what the platform stores.** The local Postgres holds the full
+findings, with full detail, as it must - the whole point is that the platform can
+answer questions about the estate. The boundary is on **what leaves**, not on what
+is known.
+
+**And nothing about the density report's usefulness.** Counts and reasons are
+exactly what the roadmap needs; the per-asset detail was never what made it
+decision-grade. This constraint costs the report nothing.
