@@ -28,6 +28,7 @@ from aqelyn.risk.models import RiskSnapshot
 from aqelyn.supplychain.models import (
     ComponentConflict,
     ComponentConflictCandidate,
+    ComponentIdentity,
     DependencyPathResult,
     DependencyRelationship,
     ProvenanceAttestation,
@@ -188,7 +189,7 @@ class SupplyChainEngine:
         stored: list[SoftwareComponent] = []
         for component in parsed.components:
             existing = await self.store.get_component(
-                component.purl,
+                component.identity,
                 tenant_id=selected_tenant,
             )
             if existing is None:
@@ -228,7 +229,7 @@ class SupplyChainEngine:
 
     async def dependency_paths(
         self,
-        purl: str,
+        identity: ComponentIdentity | str,
         *,
         direction: str,
         tenant_id: str | None,
@@ -236,9 +237,10 @@ class SupplyChainEngine:
         selected_tenant = require_tenant_id(tenant_id)
         if direction not in {"up", "down"}:
             raise SupplyChainConfigInvalid("dependency direction must be 'up' or 'down'")
-        component = await self.store.get_component(purl, tenant_id=selected_tenant)
+        component = await self.store.get_component(identity, tenant_id=selected_tenant)
         if component is None:
-            raise ComponentNotFound(purl)
+            reference = identity if isinstance(identity, str) else identity.value
+            raise ComponentNotFound(reference)
         result = await self.graph.impact(
             component.object_id,
             direction="in" if direction == "up" else "out",
@@ -378,7 +380,8 @@ class SupplyChainEngine:
                 actor=_SUPPLYCHAIN_ACTOR,
             )
             results.append(result)
-            statuses.setdefault(component.purl, []).append(result.status)
+            purl = _required_component_purl(component, operation="provenance verification")
+            statuses.setdefault(purl, []).append(result.status)
 
         for purl in sorted(statuses):
             component = components[purl]
@@ -430,7 +433,10 @@ class SupplyChainEngine:
         for vulnerability in vulnerabilities:
             component = by_object_id[vulnerability.asset_ref.ref_id]
             signal = await self.reachability(
-                component.purl,
+                _required_component_purl(
+                    component,
+                    operation="component vulnerability prioritization",
+                ),
                 vulnerability.cve_id,
                 tenant_id=selected_tenant,
             )
@@ -657,7 +663,10 @@ class SupplyChainEngine:
         doc: SBOMDocument,
         relationship_confidence: float,
     ) -> None:
-        by_purl = {component.purl: component for component in components}
+        by_identity = {
+            (component.identity.kind, component.identity.value): component
+            for component in components
+        }
         for component in components:
             component_confidence = (
                 await self.source_registry.get(source_id=component.source_id)
@@ -667,7 +676,7 @@ class SupplyChainEngine:
             )
             if stored.id != component.object_id:
                 raise StoreUnavailable(
-                    "EA-0002 resolved the component purl to a different object id"
+                    "EA-0002 resolved the component identity to a different object id"
                 )
 
         source = SourceRef(
@@ -677,8 +686,12 @@ class SupplyChainEngine:
             method="supplychain.sbom_dependency/v1",
         )
         for relationship in relationships:
-            from_component = by_purl.get(relationship.from_purl)
-            to_component = by_purl.get(relationship.to_purl)
+            from_component = by_identity.get(
+                (relationship.from_identity.kind, relationship.from_identity.value)
+            )
+            to_component = by_identity.get(
+                (relationship.to_identity.kind, relationship.to_identity.value)
+            )
             if from_component is None or to_component is None:
                 raise StoreUnavailable("parsed dependency endpoint was not stored")
             existing = await self.object_store.relationships(
@@ -730,6 +743,7 @@ class SupplyChainEngine:
                 update={
                     "object_id": existing.object_id,
                     "tenant_id": existing.tenant_id,
+                    "locations": sorted({*existing.locations, *incoming.locations}),
                     "conflicts": copy.deepcopy(existing.conflicts),
                 },
                 deep=True,
@@ -767,6 +781,7 @@ class SupplyChainEngine:
             update={
                 "object_id": existing.object_id,
                 "tenant_id": existing.tenant_id,
+                "locations": sorted({*existing.locations, *incoming.locations}),
                 "conflicts": conflicts,
             },
             deep=True,
@@ -787,10 +802,13 @@ def _component_object(component: SoftwareComponent, *, confidence: float) -> AQO
         tenant_id=component.tenant_id,
         display_name=f"{component.name}@{component.version}",
         attributes={
+            "identity_kind": component.identity_kind,
             "purl": component.purl,
+            "cpe": component.cpe,
             "name": component.name,
             "version": component.version,
             "component_type": component.component_type,
+            "locations": list(component.locations),
             "licenses": list(component.licenses),
             "supplier": component.supplier,
             "hashes": dict(component.hashes),
@@ -798,7 +816,12 @@ def _component_object(component: SoftwareComponent, *, confidence: float) -> AQO
             "direct": component.direct,
         },
         labels={"module": "EA-0030", "kind": SOFTWARE_COMPONENT_OBJECT_TYPE},
-        natural_keys=[NaturalKey(namespace="purl", value=component.purl)],
+        natural_keys=[
+            NaturalKey(
+                namespace=component.identity.kind,
+                value=component.identity.value,
+            )
+        ],
         sources=[source],
         confidence=confidence,
         first_seen_at=component.observed_at,
@@ -843,16 +866,21 @@ def _inventory_report(component: SoftwareComponent) -> dict[str, Any]:
     prefix, payload = parse_id(component.object_id)
     if prefix != "obj":
         raise StoreUnavailable("software component object_id must use obj_ prefix")
+    identity = component.identity
     return {
         "id": f"ast_{payload}",
         "asset_type": "software_component",
         "classification": component.component_type,
         "lifecycle_state": "active",
         "evidence_id": component.evidence_id,
-        "ref": f"supplychain:{component.purl}",
+        "ref": f"supplychain:{identity.kind}:{identity.value}",
+        "identity_kind": identity.kind,
+        "identity_value": identity.value,
         "purl": component.purl,
+        "cpe": component.cpe,
         "name": component.name,
         "version": component.version,
+        "locations": list(component.locations),
         "licenses": list(component.licenses),
         "supplier": component.supplier,
         "hashes": dict(component.hashes),
@@ -890,13 +918,17 @@ def _reachability_factor(signal: ReachabilitySignal) -> PriorityFactor:
 
 
 def _license_resource(component: SoftwareComponent) -> dict[str, Any]:
+    identity = component.identity
     return {
         "id": component.object_id,
         "type": SOFTWARE_COMPONENT_OBJECT_TYPE,
         "object_type": SOFTWARE_COMPONENT_OBJECT_TYPE,
         "tenant_id": component.tenant_id,
         "attributes": {
+            "identity_kind": identity.kind,
+            "identity_value": identity.value,
             "purl": component.purl,
+            "cpe": component.cpe,
             "name": component.name,
             "version": component.version,
             "licenses": list(component.licenses),
@@ -916,6 +948,7 @@ def _license_evidence(
     by: ActorRef,
 ) -> EvidenceRecord:
     now = utc_now()
+    identity = component.identity
     return EvidenceRecord(
         id="",
         tenant_id=component.tenant_id,
@@ -928,7 +961,7 @@ def _license_evidence(
         source_id=component.source_id,
         method="supplychain.license_findings/v1",
         content={
-            "component_purl": component.purl,
+            "component_identity": identity.model_dump(mode="json"),
             "licenses": list(component.licenses),
             "policy_id": policy_id,
             "compliant": result.compliant,
@@ -954,6 +987,7 @@ def _license_finding(
     by: ActorRef,
 ) -> Finding:
     now = utc_now()
+    identity = component.identity
     requirements = sorted({item.requirement for item in result.violations})
     return Finding(
         id=new_id("fnd"),
@@ -967,7 +1001,7 @@ def _license_finding(
         status="open",
         what_happened=(
             f"EA-0010 policy {policy_id} found {len(result.violations)} license "
-            f"violation(s) for {component.purl}."
+            f"violation(s) for {identity.kind} {identity.value}."
         ),
         why_it_matters=(
             "A dependency license can impose obligations or restrictions that conflict "
@@ -984,7 +1018,7 @@ def _license_finding(
         evidence_ids=[evidence_id],
         affected_object_ids=[component.object_id],
         expert_details={
-            "component_purl": component.purl,
+            "component_identity": identity.model_dump(mode="json"),
             "licenses": list(component.licenses),
             "policy_id": policy_id,
             "violations": [item.model_dump(mode="json") for item in result.violations],
@@ -999,7 +1033,7 @@ def _license_finding(
             ],
             difficulty="medium",
             expected_outcome="The dependency satisfies the approved license policy.",
-            references=[policy_id, component.purl, *requirements],
+            references=[policy_id, identity.value, *requirements],
         ),
         automation=Automation(
             eligibility="none",
@@ -1051,6 +1085,7 @@ def _assessment_evidence(
 
 
 def _remediation_playbook(component: SoftwareComponent, *, action: str) -> Playbook:
+    purl = _required_component_purl(component, operation="dependency remediation")
     return Playbook(
         id=f"supplychain-{action}-{component.object_id}",
         version=1,
@@ -1065,7 +1100,7 @@ def _remediation_playbook(component: SoftwareComponent, *, action: str) -> Playb
                 id=f"{action}-dependency",
                 action_type=f"supplychain.dependency.{action}",
                 inputs={
-                    "component_purl": component.purl,
+                    "component_purl": purl,
                     "component_object_id": component.object_id,
                     "current_version": component.version,
                 },
@@ -1078,6 +1113,9 @@ def _remediation_playbook(component: SoftwareComponent, *, action: str) -> Playb
 
 def _component_values(component: SoftwareComponent) -> dict[str, Any]:
     return {
+        "identity_kind": component.identity_kind,
+        "purl": component.purl,
+        "cpe": component.cpe,
         "name": component.name,
         "version": component.version,
         "component_type": component.component_type,
@@ -1086,6 +1124,19 @@ def _component_values(component: SoftwareComponent) -> dict[str, Any]:
         "hashes": dict(component.hashes),
         "direct": component.direct,
     }
+
+
+def _required_component_purl(
+    component: SoftwareComponent,
+    *,
+    operation: str,
+) -> str:
+    if component.purl is None:
+        raise SupplyChainConfigInvalid(
+            f"{operation} requires a purl-identified component; "
+            f"{component.identity.value!r} is identified by cpe"
+        )
+    return component.purl
 
 
 def _conflict_candidate(

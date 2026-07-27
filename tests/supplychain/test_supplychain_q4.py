@@ -36,6 +36,7 @@ from aqelyn.supplychain import (
     SBOMDocument,
     SoftwareComponent,
     SupplyChainEngine,
+    verify_attestation,
 )
 from aqelyn.trust import InMemorySourceReliabilityRegistry
 
@@ -62,7 +63,7 @@ class _Verifier:
         *,
         component: SoftwareComponent,
     ) -> ProvenanceCheck:
-        self.calls.append((attestation.kind, component.purl))
+        self.calls.append((attestation.kind, component.identity.value))
         return ProvenanceCheck(valid=self.valid, detail=self.detail)
 
 
@@ -189,6 +190,36 @@ async def _basis_evidence(
             record_hash="",
         )
     )
+
+
+async def test_sc_cpe_provenance_refuses_purl_only_seam() -> None:
+    component = SoftwareComponent(
+        object_id=new_id("obj"),
+        tenant_id=TENANT,
+        identity_kind="cpe",
+        purl=None,
+        cpe="cpe:2.3:a:example:launcher:1.0:*:*:*:*:*:*:*",
+        name="launcher",
+        version="1.0",
+        component_type="library",
+        direct=False,
+        source_id=new_id("src"),
+        observed_at=NOW,
+        evidence_id=new_id("evd"),
+    )
+    evidence_store = InMemoryEvidenceStore(mode="enterprise")
+    with pytest.raises(SupplyChainConfigInvalid, match="requires the attestation purl"):
+        await verify_attestation(
+            ProvenanceAttestation(
+                component_purl=PURL,
+                kind="signature",
+                raw={"signature": "handed-in"},
+            ),
+            component=component,
+            evidence_store=evidence_store,
+            verifier=None,
+            actor=ACTOR,
+        )
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])

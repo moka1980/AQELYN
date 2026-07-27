@@ -8,6 +8,7 @@ from aqelyn.conventions import require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import SupplyChainConfigInvalid, TenantScopeRequired
 from aqelyn.supplychain.models import (
     VALID_PROVENANCE_STATUSES,
+    ComponentIdentity,
     ProvenanceStatus,
     QuarantinedSBOM,
     SoftwareComponent,
@@ -20,7 +21,7 @@ class SBOMStore(Protocol):
 
     async def get_component(
         self,
-        purl: str,
+        identity: ComponentIdentity | str,
         *,
         tenant_id: str | None,
     ) -> SoftwareComponent | None: ...
@@ -57,6 +58,12 @@ def validate_component(component: SoftwareComponent) -> SoftwareComponent:
     stored = SoftwareComponent.model_validate(component.model_dump(mode="json"))
     require_typed_id(stored.object_id, "obj", field="object_id")
     return stored
+
+
+def validate_component_identity(value: ComponentIdentity | str) -> ComponentIdentity:
+    if isinstance(value, str):
+        return ComponentIdentity(kind="purl", value=validate_purl(value))
+    return ComponentIdentity.model_validate(value.model_dump(mode="json"))
 
 
 def validate_assessment(assessment: SupplyChainAssessment) -> SupplyChainAssessment:

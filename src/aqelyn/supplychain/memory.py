@@ -10,6 +10,7 @@ from aqelyn.conventions.errors import (
     SupplyChainConfigInvalid,
 )
 from aqelyn.supplychain.models import (
+    ComponentIdentity,
     ProvenanceStatus,
     QuarantinedSBOM,
     SoftwareComponent,
@@ -19,9 +20,9 @@ from aqelyn.supplychain.store import (
     validate_assessment,
     validate_assessment_id,
     validate_component,
+    validate_component_identity,
     validate_doc_id,
     validate_provenance_filter,
-    validate_purl,
     validate_quarantine,
     validate_query_cursor,
     validate_query_limit,
@@ -33,35 +34,46 @@ from aqelyn.supplychain.store import (
 class InMemorySBOMStore:
     def __init__(self, *, mode: str = "local") -> None:
         self.mode = mode
-        self._components: dict[tuple[str | None, str], SoftwareComponent] = {}
-        self._component_ids: dict[str, tuple[str | None, str]] = {}
+        self._components: dict[tuple[str | None, str, str], SoftwareComponent] = {}
+        self._component_ids: dict[str, tuple[str | None, str, str]] = {}
         self._assessments: dict[str, SupplyChainAssessment] = {}
         self._quarantine: dict[str, QuarantinedSBOM] = {}
 
     async def put_component(self, component: SoftwareComponent) -> SoftwareComponent:
         stored = validate_component(component)
         validate_write_tenant(stored.tenant_id, mode=self.mode)
-        key = (stored.tenant_id, stored.purl)
+        key = (stored.tenant_id, stored.identity.kind, stored.identity.value)
         id_key = self._component_ids.get(stored.object_id)
         if id_key is not None and id_key != key:
             if id_key[0] != stored.tenant_id:
                 raise CrossTenantReference("software component tenant_id cannot change")
-            raise SupplyChainConfigInvalid("software component object_id cannot change purl")
+            raise SupplyChainConfigInvalid(
+                "software component object_id cannot change identity kind or value"
+            )
         existing = self._components.get(key)
         if existing is not None:
-            stored = stored.model_copy(update={"object_id": existing.object_id}, deep=True)
+            stored = stored.model_copy(
+                update={
+                    "object_id": existing.object_id,
+                    "locations": sorted({*existing.locations, *stored.locations}),
+                },
+                deep=True,
+            )
         self._components[key] = stored.model_copy(deep=True)
         self._component_ids[stored.object_id] = key
         return stored.model_copy(deep=True)
 
     async def get_component(
         self,
-        purl: str,
+        identity: ComponentIdentity | str,
         *,
         tenant_id: str | None,
     ) -> SoftwareComponent | None:
         selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
-        record = self._components.get((selected_tenant, validate_purl(purl)))
+        selected_identity = validate_component_identity(identity)
+        record = self._components.get(
+            (selected_tenant, selected_identity.kind, selected_identity.value)
+        )
         return None if record is None else record.model_copy(deep=True)
 
     async def put_assessment(self, assessment: SupplyChainAssessment) -> SupplyChainAssessment:

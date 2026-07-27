@@ -245,6 +245,12 @@ a component/CVE as `direct` / `transitive` (with depth + the exact EA-0005
 is never rendered as `unreachable` (the empty-means-safe trap: absence of a
 computed path is not proof of no path) (S2).
 
+`dependency_paths` accepts either semantic identity because EA-0005 traverses
+the stored component object graph independent of coordinate namespace.
+`reachability` remains purl-specific because its component-to-CVE owner seam is
+currently keyed by package URL and version; widening that API to CPE without a
+typed vulnerability provider would invent coverage the platform does not have.
+
 **Component vulns → EA-0024.** Match component `purl`/version to CVEs;
 `component_vulns_to_prioritization` hands them to **EA-0024** with the
 `ReachabilitySignal` so EA-0024's derivation can weigh "is the vulnerable code

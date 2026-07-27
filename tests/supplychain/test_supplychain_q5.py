@@ -153,6 +153,7 @@ def _component(*, tenant_id: str | None = TENANT) -> SoftwareComponent:
     return SoftwareComponent(
         object_id=new_id("obj"),
         tenant_id=tenant_id,
+        identity_kind="purl",
         purl=PURL,
         name="legacy-parser",
         version="3.0.0",

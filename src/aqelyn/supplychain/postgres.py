@@ -15,6 +15,7 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.supplychain.ddl import DDL
 from aqelyn.supplychain.models import (
+    ComponentIdentity,
     ProvenanceStatus,
     QuarantinedSBOM,
     SoftwareComponent,
@@ -24,9 +25,9 @@ from aqelyn.supplychain.store import (
     validate_assessment,
     validate_assessment_id,
     validate_component,
+    validate_component_identity,
     validate_doc_id,
     validate_provenance_filter,
-    validate_purl,
     validate_quarantine,
     validate_query_cursor,
     validate_query_limit,
@@ -35,8 +36,9 @@ from aqelyn.supplychain.store import (
 )
 
 _COMPONENT_COLUMNS = (
-    "object_id, tenant_id, purl, name, version, component_type, licenses, supplier, "
-    "hashes, provenance_status, direct, source_id, observed_at, evidence_id, conflicts"
+    "object_id, tenant_id, identity_kind, purl, cpe, name, version, component_type, "
+    "locations, licenses, supplier, hashes, provenance_status, direct, source_id, "
+    "observed_at, evidence_id, conflicts"
 )
 _ASSESSMENT_COLUMNS = (
     "id, tenant_id, run_at, subject_ref, components, direct, transitive, "
@@ -77,54 +79,68 @@ class PostgresSBOMStore:
     async def put_component(self, component: SoftwareComponent) -> SoftwareComponent:
         stored = validate_component(component)
         validate_write_tenant(stored.tenant_id, mode=self.mode)
+        identity = stored.identity
         async with self._pool.acquire() as conn, conn.transaction():
             by_id = await conn.fetchrow(
-                "SELECT tenant_id, purl FROM aq_supplychain_component "
+                "SELECT tenant_id, identity_kind, purl, cpe FROM aq_supplychain_component "
                 "WHERE object_id=$1 FOR UPDATE",
                 stored.object_id,
             )
             if by_id is not None:
                 if by_id["tenant_id"] != stored.tenant_id:
                     raise CrossTenantReference("software component tenant_id cannot change")
-                if by_id["purl"] != stored.purl:
+                current_value = by_id["purl"] if by_id["identity_kind"] == "purl" else by_id["cpe"]
+                if by_id["identity_kind"] != identity.kind or current_value != identity.value:
                     raise SupplyChainConfigInvalid(
-                        "software component object_id cannot change purl"
+                        "software component object_id cannot change identity kind or value"
                     )
-            by_purl = await conn.fetchrow(
+            by_identity = await conn.fetchrow(
                 f"SELECT {_COMPONENT_COLUMNS} FROM aq_supplychain_component "
-                "WHERE tenant_id IS NOT DISTINCT FROM $1 AND purl=$2 FOR UPDATE",
+                "WHERE tenant_id IS NOT DISTINCT FROM $1 AND identity_kind=$2 "
+                "AND (($2='purl' AND purl=$3) OR ($2='cpe' AND cpe=$3)) FOR UPDATE",
                 stored.tenant_id,
-                stored.purl,
+                identity.kind,
+                identity.value,
             )
-            if by_purl is not None:
+            if by_identity is not None:
+                existing = _row_to_component(by_identity)
                 stored = stored.model_copy(
-                    update={"object_id": str(by_purl["object_id"])}, deep=True
+                    update={
+                        "object_id": existing.object_id,
+                        "locations": sorted({*existing.locations, *stored.locations}),
+                    },
+                    deep=True,
                 )
                 await conn.execute(
                     "UPDATE aq_supplychain_component SET "
-                    "purl=$3, name=$4, version=$5, component_type=$6, licenses=$7, supplier=$8, "
-                    "hashes=$9, provenance_status=$10, direct=$11, source_id=$12, "
-                    "observed_at=$13, evidence_id=$14, conflicts=$15 "
+                    "identity_kind=$3, purl=$4, cpe=$5, name=$6, version=$7, "
+                    "component_type=$8, locations=$9, licenses=$10, supplier=$11, "
+                    "hashes=$12, provenance_status=$13, direct=$14, source_id=$15, "
+                    "observed_at=$16, evidence_id=$17, conflicts=$18 "
                     "WHERE object_id=$1 AND tenant_id IS NOT DISTINCT FROM $2",
                     *_component_args(stored),
                 )
             else:
                 await conn.execute(
                     f"INSERT INTO aq_supplychain_component ({_COMPONENT_COLUMNS}) "
-                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+                    "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)",
                     *_component_args(stored),
                 )
         return stored.model_copy(deep=True)
 
     async def get_component(
         self,
-        purl: str,
+        identity: ComponentIdentity | str,
         *,
         tenant_id: str | None,
     ) -> SoftwareComponent | None:
         selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
-        args: list[Any] = [validate_purl(purl)]
-        clauses = ["purl=$1"]
+        selected_identity = validate_component_identity(identity)
+        args: list[Any] = [selected_identity.kind, selected_identity.value]
+        clauses = [
+            "identity_kind=$1",
+            "(($1='purl' AND purl=$2) OR ($1='cpe' AND cpe=$2))",
+        ]
         _add_tenant_clause(clauses, args, mode=self.mode, tenant_id=selected_tenant)
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -271,10 +287,13 @@ def _component_args(component: SoftwareComponent) -> tuple[Any, ...]:
     return (
         component.object_id,
         component.tenant_id,
+        component.identity_kind,
         component.purl,
+        component.cpe,
         component.name,
         component.version,
         component.component_type,
+        json.dumps(component.locations),
         json.dumps(component.licenses),
         component.supplier,
         json.dumps(component.hashes),
@@ -319,7 +338,7 @@ def _quarantine_args(item: QuarantinedSBOM) -> tuple[Any, ...]:
 
 def _row_to_component(row: asyncpg.Record) -> SoftwareComponent:
     data: dict[str, Any] = dict(row)
-    for field in ("licenses", "hashes", "conflicts"):
+    for field in ("locations", "licenses", "hashes", "conflicts"):
         data[field] = _json_value(data[field])
     return SoftwareComponent.model_validate(data)
 

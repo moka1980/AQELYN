@@ -20,6 +20,7 @@ AssessmentStatus = Literal["complete", "truncated", "pending"]
 DependencyScope = Literal["runtime", "dev", "optional"]
 ProvenanceStatus = Literal["verified", "unverified", "failed"]
 ProvenanceKind = Literal["slsa", "sigstore", "signature"]
+ComponentIdentityKind = Literal["purl", "cpe"]
 
 VALID_SBOM_FORMATS: Final[frozenset[str]] = frozenset(("spdx", "cyclonedx"))
 VALID_REACHABILITY_STATUSES: Final[frozenset[str]] = frozenset(
@@ -29,6 +30,7 @@ VALID_ASSESSMENT_STATUSES: Final[frozenset[str]] = frozenset(("complete", "trunc
 VALID_DEPENDENCY_SCOPES: Final[frozenset[str]] = frozenset(("runtime", "dev", "optional"))
 VALID_PROVENANCE_STATUSES: Final[frozenset[str]] = frozenset(("verified", "unverified", "failed"))
 VALID_PROVENANCE_KINDS: Final[frozenset[str]] = frozenset(("slsa", "sigstore", "signature"))
+VALID_COMPONENT_IDENTITY_KINDS: Final[frozenset[str]] = frozenset(("purl", "cpe"))
 
 
 def _nonempty(value: str, *, field: str) -> str:
@@ -76,6 +78,20 @@ def _evidence_id(value: str | None) -> str | None:
     if value is None:
         return None
     return require_typed_id(value, "evd", field="evidence_id")
+
+
+def _purl(value: str, *, field: str) -> str:
+    selected = _nonempty(value, field=field)
+    if not selected.startswith("pkg:"):
+        raise SupplyChainConfigInvalid(f"{field} must be a package URL")
+    return selected
+
+
+def _cpe(value: str, *, field: str) -> str:
+    selected = _nonempty(value, field=field)
+    if not selected.startswith("cpe:"):
+        raise SupplyChainConfigInvalid(f"{field} must be a CPE coordinate")
+    return selected
 
 
 class SBOMDocument(BaseModel):
@@ -206,15 +222,33 @@ class ComponentConflict(BaseModel):
         return self
 
 
+class ComponentIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    kind: ComponentIdentityKind
+    value: str
+
+    @model_validator(mode="after")
+    def _coordinate_matches_kind(self) -> ComponentIdentity:
+        if self.kind == "purl":
+            _purl(self.value, field="component identity")
+        else:
+            _cpe(self.value, field="component identity")
+        return self
+
+
 class SoftwareComponent(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     object_id: str = ""
     tenant_id: str | None = None
-    purl: str
+    identity_kind: ComponentIdentityKind
+    purl: str | None
+    cpe: str | None = None
     name: str
     version: str
     component_type: str
+    locations: list[str] = Field(default_factory=list)
     licenses: list[str] = Field(default_factory=list)
     supplier: str | None = None
     hashes: dict[str, str] = Field(default_factory=dict)
@@ -235,10 +269,29 @@ class SoftwareComponent(BaseModel):
     def _tenant_id(cls, value: str | None) -> str | None:
         return require_tenant_id(value)
 
-    @field_validator("purl", "name", "version", "component_type")
+    @field_validator("name", "version", "component_type")
     @classmethod
     def _required_text(cls, value: str) -> str:
         return _nonempty(value, field="software component field")
+
+    @field_validator("purl")
+    @classmethod
+    def _component_purl(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _purl(value, field="software component purl")
+
+    @field_validator("cpe")
+    @classmethod
+    def _component_cpe(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _cpe(value, field="software component cpe")
+
+    @field_validator("locations")
+    @classmethod
+    def _locations(cls, values: list[str]) -> list[str]:
+        return _unique_nonempty(values, field="locations")
 
     @field_validator("licenses")
     @classmethod
@@ -267,6 +320,22 @@ class SoftwareComponent(BaseModel):
     @classmethod
     def _component_evidence_id(cls, value: str) -> str:
         return require_typed_id(value, "evd", field="evidence_id")
+
+    @model_validator(mode="after")
+    def _identity_consistency(self) -> SoftwareComponent:
+        if self.identity_kind == "purl":
+            if self.purl is None:
+                raise SupplyChainConfigInvalid("purl identity requires a purl")
+        elif self.purl is not None or self.cpe is None:
+            raise SupplyChainConfigInvalid("cpe identity requires purl=null and a cpe coordinate")
+        return self
+
+    @property
+    def identity(self) -> ComponentIdentity:
+        value = self.purl if self.identity_kind == "purl" else self.cpe
+        if value is None:
+            raise SupplyChainConfigInvalid("software component identity is incomplete")
+        return ComponentIdentity(kind=self.identity_kind, value=value)
 
 
 class QuarantinedSBOM(BaseModel):
@@ -317,16 +386,11 @@ class QuarantinedSBOM(BaseModel):
 class DependencyRelationship(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    from_purl: str
-    to_purl: str
+    from_identity: ComponentIdentity
+    to_identity: ComponentIdentity
     version_constraint: str | None = None
     scope: DependencyScope
     edge_id: str = ""
-
-    @field_validator("from_purl", "to_purl")
-    @classmethod
-    def _purl(cls, value: str) -> str:
-        return _nonempty(value, field="dependency purl")
 
     @field_validator("version_constraint")
     @classmethod

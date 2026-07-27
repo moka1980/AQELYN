@@ -9,6 +9,7 @@ from aqelyn.supplychain.engine import (
 from aqelyn.supplychain.memory import InMemorySBOMStore
 from aqelyn.supplychain.models import (
     VALID_ASSESSMENT_STATUSES,
+    VALID_COMPONENT_IDENTITY_KINDS,
     VALID_DEPENDENCY_SCOPES,
     VALID_PROVENANCE_KINDS,
     VALID_PROVENANCE_STATUSES,
@@ -17,6 +18,8 @@ from aqelyn.supplychain.models import (
     AssessmentStatus,
     ComponentConflict,
     ComponentConflictCandidate,
+    ComponentIdentity,
+    ComponentIdentityKind,
     DependencyPathResult,
     DependencyRelationship,
     DependencyScope,
@@ -49,6 +52,7 @@ __all__ = [
     "SOFTWARE_COMPONENT_OBJECT_TYPE",
     "SUPPLYCHAIN_EVENTS",
     "VALID_ASSESSMENT_STATUSES",
+    "VALID_COMPONENT_IDENTITY_KINDS",
     "VALID_DEPENDENCY_SCOPES",
     "VALID_PROVENANCE_KINDS",
     "VALID_PROVENANCE_STATUSES",
@@ -57,6 +61,8 @@ __all__ = [
     "AssessmentStatus",
     "ComponentConflict",
     "ComponentConflictCandidate",
+    "ComponentIdentity",
+    "ComponentIdentityKind",
     "ComponentInventoryOwner",
     "DependencyPathResult",
     "DependencyRelationship",

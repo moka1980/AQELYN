@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -17,11 +20,13 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.supplychain import (
     VALID_ASSESSMENT_STATUSES,
+    VALID_COMPONENT_IDENTITY_KINDS,
     VALID_DEPENDENCY_SCOPES,
     VALID_PROVENANCE_KINDS,
     VALID_PROVENANCE_STATUSES,
     VALID_REACHABILITY_STATUSES,
     VALID_SBOM_FORMATS,
+    ComponentIdentity,
     DependencyRelationship,
     ProvenanceAttestation,
     ProvenanceResult,
@@ -54,6 +59,7 @@ def _component(**overrides: object) -> SoftwareComponent:
     data: dict[str, object] = {
         "object_id": new_id("obj"),
         "tenant_id": TENANT,
+        "identity_kind": "purl",
         "purl": PURL,
         "name": "urllib3",
         "version": "2.5.0",
@@ -176,8 +182,8 @@ def test_sc_assessment_counts_are_coherent(overrides: dict[str, object], message
         lambda: _component(licenses=["MIT", "MIT"]),
         lambda: _component(hashes={"sha256": ""}),
         lambda: DependencyRelationship(
-            from_purl=PURL,
-            to_purl="pkg:pypi/idna@3.10",
+            from_identity=ComponentIdentity(kind="purl", value=PURL),
+            to_identity=ComponentIdentity(kind="purl", value="pkg:pypi/idna@3.10"),
             scope="runtime",
             version_constraint=" ",
         ),
@@ -210,8 +216,11 @@ def test_sc_q1_model_shapes_and_taxonomy() -> None:
     document = _document()
     component = _component()
     relationship = DependencyRelationship(
-        from_purl="pkg:pypi/requests@2.32.4",
-        to_purl=PURL,
+        from_identity=ComponentIdentity(
+            kind="purl",
+            value="pkg:pypi/requests@2.32.4",
+        ),
+        to_identity=ComponentIdentity(kind="purl", value=PURL),
         version_constraint=">=2.0,<3",
         scope="runtime",
         edge_id=new_id("rel"),
@@ -252,6 +261,7 @@ def test_sc_q1_model_shapes_and_taxonomy() -> None:
     assert config.batch_size == 100
 
     assert {"spdx", "cyclonedx"} == VALID_SBOM_FORMATS
+    assert {"purl", "cpe"} == VALID_COMPONENT_IDENTITY_KINDS
     assert {"direct", "transitive", "unreachable", "unknown"} == VALID_REACHABILITY_STATUSES
     assert {"complete", "truncated", "pending"} == VALID_ASSESSMENT_STATUSES
     assert {"runtime", "dev", "optional"} == VALID_DEPENDENCY_SCOPES
@@ -267,3 +277,89 @@ def test_sc_q1_model_shapes_and_taxonomy() -> None:
         ProvenanceUnverifiable,
     ):
         assert error.code in ALL_ERROR_CODES
+
+
+def test_sc_identity_kind_required_no_default() -> None:
+    data = _component().model_dump(mode="json")
+    data.pop("identity_kind")
+
+    with pytest.raises(ValidationError, match="identity_kind"):
+        SoftwareComponent.model_validate(data)
+
+    cpe_value = "cpe:2.3:a:example:launcher:1.0:*:*:*:*:*:*:*"
+    cpe = _component(identity_kind="cpe", purl=None, cpe=cpe_value)
+    assert cpe.identity == ComponentIdentity(kind="cpe", value=cpe_value)
+
+    with pytest.raises(SupplyChainConfigInvalid, match="requires purl=null"):
+        _component(identity_kind="cpe", cpe=cpe_value)
+
+
+def test_sc_both_coordinates_retained() -> None:
+    cpe = "cpe:2.3:a:example:urllib3:2.5.0:*:*:*:*:*:*:*"
+    component = _component(cpe=cpe)
+
+    assert component.identity == ComponentIdentity(kind="purl", value=PURL)
+    assert component.cpe == cpe
+
+
+def test_sc_identity_guards_survive_python_optimized() -> None:
+    script = textwrap.dedent(
+        """
+        from datetime import UTC, datetime
+
+        from pydantic import ValidationError
+
+        from aqelyn.conventions.errors import SBOMParseError
+        from aqelyn.supplychain import SBOMDocument, SoftwareComponent, parse_sbom
+
+        now = datetime(2026, 7, 19, tzinfo=UTC)
+        component = {
+            "object_id": "obj_018f0000000070008000000000300001",
+            "tenant_id": None,
+            "purl": "pkg:pypi/urllib3@2.5.0",
+            "name": "urllib3",
+            "version": "2.5.0",
+            "component_type": "library",
+            "direct": False,
+            "source_id": "src_018f0000000070008000000000300001",
+            "observed_at": now,
+            "evidence_id": "evd_018f0000000070008000000000300001",
+        }
+        try:
+            SoftwareComponent.model_validate(component)
+        except ValidationError:
+            pass
+        else:
+            raise SystemExit("identity_kind defaulted under -O")
+
+        doc = SBOMDocument(
+            format="cyclonedx",
+            subject_ref="artifact:test",
+            raw={
+                "bomFormat": "CycloneDX",
+                "components": [{
+                    "bom-ref": "missing",
+                    "type": "library",
+                    "name": "missing",
+                    "version": "1.0",
+                }],
+            },
+            source_id="src_018f0000000070008000000000300002",
+            observed_at=now,
+            evidence_id="evd_018f0000000070008000000000300002",
+        )
+        try:
+            parse_sbom(doc, tenant_id=None)
+        except SBOMParseError:
+            pass
+        else:
+            raise SystemExit("coordinate-less package was accepted under -O")
+        """
+    )
+    completed = subprocess.run(
+        [sys.executable, "-O", "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode == 0, completed.stderr or completed.stdout
