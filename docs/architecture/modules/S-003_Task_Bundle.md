@@ -3,9 +3,9 @@
 **Track:** S (operational)
 **Milestone:** S-003 (exercise `exposure`, `mission`, `baseline` against a real deployed host)
 **For:** Codex (implementer) · Claude Code (reviewer + merge)
-**Prerequisites:** S-002 merged; **ECR-0066, ECR-0067, ECR-0068 landed**; `S-001_Addendum_II_Report_Limits.md` read; **owner has authorised read-only access to the target.**
-**ECR:** **ECR-0069** — the data-handling boundary (§2). Every prior S-milestone scanned public artefacts; this one does not, and the constraint is durable and inherited by S-004+. *(Next free verified at `0343877`; re-check before assigning, rule 1.)*
-**Definition of Done:** the chain runs on the real host; **no per-asset detail leaves the local store**; nothing on the estate is written, restarted, or reconfigured; density report re-run and attached (counts only); both backends, both tenant modes, `python -O`; `mypy --strict src tests`; `gh pr checks` PASS before merge.
+**Prerequisites:** S-002 merged; **ECR-0066, ECR-0067, ECR-0068 landed**; `S-001_Addendum_II_Report_Limits.md` read; **owner has authorised non-mutating access to the target and the ECR-0070 transient-Syft exception.**
+**ECRs:** **ECR-0069** — the data-handling boundary (§2); **ECR-0070** — the transient collector boundary (§4). Every prior S-milestone scanned public artefacts; this one does not, and both constraints are durable and inherited by S-004+.
+**Definition of Done:** the chain runs on the real host; **no per-asset detail leaves the local store**; no persistent estate state changes; no service is restarted or reconfigured; any handed-in Syft executable and its isolated runtime are absent after success or failure; density report re-run and attached (counts only); both backends, both tenant modes, `python -O`; `mypy --strict src tests`; `gh pr checks` PASS before merge.
 
 ---
 
@@ -112,17 +112,35 @@ inference-versus-reality problem this target was chosen to avoid.
 
 This is ECR-0013's shape prevented before it exists rather than corrected after.
 
-## 4. Read-only, **verifiably**
+## 4. No persistent estate change, **verifiably** (ECR-0070)
 
-Nothing in this milestone writes to, restarts, or reconfigures the estate.
-"Read-only" is a promise unless it is checkable, so:
+Nothing in this milestone installs, enables, restarts, or reconfigures estate
+software or services. U1 may consume one owner-approved, checksum-pinned Syft
+executable handed in under the system temporary directory. Syft's `HOME`, XDG,
+and temporary paths are isolated for the collection lifetime. The executable and
+the entire runtime tree SHALL be removed in a `finally` path, and collection SHALL
+refuse success unless their absence is verified.
+
+This is deliberately narrower and more honest than "no bytes are written."
+Installing Syft would change persistent estate state. A package-manager-only
+inventory would silently omit service virtual environments. The transient
+executable preserves the complete filesystem inventory without either false
+claim.
 
 - **Enumerate every command the driver runs against the host**, in the bundle's
   output, so a reviewer can read the list rather than trust the intent.
-- **No command may mutate** — no `systemctl start/stop/restart/reload`, no package
-  operation, no config write, no service probe that induces load.
+- **No collection command may mutate estate state** — no
+  `systemctl start/stop/restart/reload`, no package operation, no config write, no
+  service probe that induces load. Transferring the approved Syft artifact is an
+  explicit pre-collection handoff, not a hidden collector network path.
 - **Production safety:** the box runs trading services. Collection SHALL be
-  resource-bounded and SHALL NOT restart, reload, or stress any unit.
+  time-, output-, and worker-bounded and SHALL NOT restart, reload, or stress any
+  unit. The root filesystem scan excludes pseudo-filesystems, transient runtime
+  trees, and caches, but SHALL NOT exclude application trees or virtual
+  environments.
+- **Preflight and cleanup are gates:** missing required tools produce a named
+  refusal before any command runs; an absent/malformed checksum refuses the
+  transient executable; cleanup failure makes the whole collection fail.
 - Where elevated access is genuinely required (process names on listening
   sockets), note it explicitly rather than escalating silently — and prefer the
   unprivileged form where the data is equivalent.
@@ -131,10 +149,12 @@ Nothing in this milestone writes to, restarts, or reconfigures the estate.
 
 ## U1 — Collection: three documents, handed in
 
-**Deliverable:** the driver produces, on the host, read-only:
+**Deliverable:** the non-mutating driver produces, on the host:
 
 1. **package inventory** — SBOM of the 830 packages (`syft` against the filesystem,
-   as S-001 did against an image);
+   as S-001 did against an image). Use installed Syft when present; otherwise use
+   the ECR-0070 transient handoff. A `dpkg`-only fallback is forbidden because it
+   cannot see service virtual environments;
 2. **service/surface document** — listening sockets, firewall rules, unit
    definitions, reverse-proxy config (§1);
 3. **unit inventory** — the 26 running units, for §3's declaration.
@@ -144,8 +164,16 @@ exists. Driver stays outside the package for the **architectural** reason (a
 collection-invoking module inside the package *is* live collection) — **not**
 because a guard would fire.
 
+U1 retains socket and nginx output but does not derive structured listeners or
+virtual hosts. `listeners` and `vhosts` SHALL therefore be `null` with explicit
+`not derived in S-003 U1` reasons. An empty list is reserved for the distinct
+state **derived and found none**.
+
 **Acceptance:** `test_s003_no_host_reference_in_src`,
-`test_s003_collection_commands_enumerated`.
+`test_s003_collection_commands_enumerated`,
+`test_s003_transient_syft_is_verified_and_removed`,
+`test_s003_cleanup_is_verified_before_success`,
+`test_s003_structured_surface_not_derived_is_explicit`.
 
 ## U2 — The declaration mechanism
 

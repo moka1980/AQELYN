@@ -74,6 +74,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0067 | EA-0023 + EA-0020 | Accepted | **A replay check that asserts less than its name.** `replay()` was called and its return discarded; comparison absent entirely. |
 | ECR-0068 | GC-001 | Accepted | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
 | ECR-0069 | S-track tooling | Proposed | **Data-handling boundary for real-estate milestones.** Aggregate counts may leave; per-asset detail may not — structurally, not by convention. |
+| ECR-0070 | S-track tooling | Proposed | **Transient collector boundary.** A complete filesystem inventory may consume one checksum-pinned temporary executable, but no package install or persistent estate change; cleanup and verified absence are part of success. |
 
 ---
 
@@ -4091,3 +4092,67 @@ is known.
 **And nothing about the density report's usefulness.** Counts and reasons are
 exactly what the roadmap needs; the per-asset detail was never what made it
 decision-grade. This constraint costs the report nothing.
+
+## ECR-0070 - Transient collector boundary for complete host inventory
+
+**Raised by:** **S-003 U1**, when the real target did not have Syft installed.
+**Status:** Proposed.
+**Owner decision:** the owner explicitly approved the transient-Syft approach
+after the reviewer tested the full placement, execution, and removal cycle.
+
+### The contradiction
+
+The Accepted S-003 bundle said that nothing in the milestone writes to the
+estate. The target does not have Syft installed, so the package inventory could
+not run as specified.
+
+Installing Syft with the package manager would persistently change a live
+commercial host. Replacing it with `dpkg-query` would keep the literal no-write
+claim but silently omit application virtual environments. The reviewer measured
+that omission on a tier-2 service: the filesystem scan found dozens of Python
+packages that the operating-system package database cannot represent.
+
+That is the platform's recurring failure mode: absence encoded as a clean result.
+A partial SBOM presented as the estate inventory is worse than an explicit
+unavailable result.
+
+### Decision
+
+S-003 is **non-mutating with respect to persistent estate state**, not literally
+write-free.
+
+When Syft is unavailable in `PATH`, U1 MAY consume one owner-approved executable
+handed in under the system temporary directory, provided that:
+
+1. its expected SHA-256 digest is supplied separately and verified before
+   execution;
+2. no downloader, installer, package manager, shell, or privilege escalation is
+   added to the collector;
+3. Syft receives isolated `HOME`, XDG cache/config/data, and temporary
+   directories for the collection lifetime;
+4. both the handed-in executable and the isolated runtime tree are removed in a
+   `finally` path on success or failure; and
+5. collection refuses success unless their absence is verified after cleanup.
+
+Missing Syft without a handed-in executable, a malformed or mismatched digest,
+and cleanup failure are named refusals. They are never raw tracebacks or
+successful partial inventories.
+
+### Work bound and coverage
+
+The root filesystem scan is time-, output-, and worker-bounded. It excludes
+pseudo-filesystems, transient runtime trees, and caches that add load without
+describing deployed software. It SHALL NOT exclude application directories,
+language package trees, or virtual environments. In particular, a
+package-manager-only fallback is forbidden.
+
+The exposure source remains configuration-only and sends no probe to a customer
+service. Transferring the approved collector artifact is a separate,
+owner-authorised handoff, not an active surface scan.
+
+### Durability
+
+This boundary applies to later real-estate milestones that require a collector
+not already installed on the target. A stronger zero-write claim may be retained
+only when the required collector is already present or the corresponding
+measurement is reported unavailable.
