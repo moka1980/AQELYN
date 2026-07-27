@@ -76,7 +76,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0069 | S-track tooling | Accepted | **Data-handling boundary for real-estate milestones.** Aggregate counts may leave; per-asset detail may not — structurally, not by convention. |
 | ECR-0070 | S-track tooling | Accepted | **Transient collector boundary.** A complete filesystem inventory may consume one checksum-pinned temporary executable, but no package install or persistent estate change; cleanup and verified absence are part of success. |
 | ECR-0071 | EA-0030 | Accepted | **A real SBOM cannot be ingested.** 24 purl-less package components quarantine 131,685. Route (B): represent them, keyed on `cpe`. |
-| ECR-0072 | EA-0030 + EA-0024 | Proposed | **Absence is not a value.** Absent licence read as conflicting; absent coverage read as clean. Third and fourth arrivals of one error. |
+| ECR-0072 | EA-0030 + EA-0024 | Accepted | **Absence is not a value.** Absent licence read as conflicting; absent coverage read as clean. Third and fourth arrivals of one error. |
+| ECR-0073 | EA-0023 (S-003 U3) | Proposed | **Surface from observed binds, not configuration.** The config reads failed; three attribution states; read-only ≠ unprivileged. |
 
 ---
 
@@ -4607,3 +4608,209 @@ count read as a component count - counting one thing and reporting another.)*
 The two S-003 follow-ups already tracked separately: collection memory bound
 (`nproc=2` makes the two-worker cap a no-op; peak syft RSS 1.29 GB of 3.9 GB), and
 the two doc-versus-code drift pins.
+
+## ECR-0073 - S-003 U3: surface derived from observed binds, and the constraint that was never chosen
+
+**Raised by:** **S-003 U3**, on measuring what the real host's collection actually
+produced.
+**Status:** Proposed.
+**Number:** verified free at `e924aad` (`ECR-LOG.md` contiguous 0001-0072, no gaps);
+rule 20 checked. **Re-check before merging** (rule 1).
+**Data handling (ECR-0069):** counts and classes only throughout. No port, address,
+service name, path or hostname appears here.
+
+### 1. The headline: U3's stated input does not exist
+
+S-003 U3 promised *"surface derived from configuration."* **The configuration reads
+failed on the real host** - both refused for want of privilege, both honestly
+recorded in `unavailable_details`. What survives is raw socket output: **16 listener
+lines.**
+
+**This is the milestone's most interesting result, not its failure.** A spec that
+quietly substituted one source for another would have hidden it.
+
+### 2. What a bind address can and cannot answer
+
+**Measured, 16 listeners by bind class:**
+
+| class | count |
+|---|---|
+| externally bound | **6** |
+| loopback-only | **4** |
+| neither | **6** |
+
+**The precise distinction, which the S-003 bundle left unstated:**
+
+| question | answered by |
+|---|---|
+| *is this socket externally bound?* | **the observed bind address** |
+| *how does traffic flow between them?* | **configuration only** |
+
+For reachability-at-the-socket the observed bind is **stronger** than configuration:
+a config file states intent and can be stale, edited-but-unreloaded, or overridden;
+the bind address is what the kernel is doing now. Configuration remains necessary
+for topology and traffic flow. **Recording that distinction here prevents U3 from
+silently substituting one evidence source for the other.**
+
+### 3. Decision 1 - derive from observed binds, and say so in the basis
+
+**Yes.** The source of truth for U3 is the **observed bind address**, and
+`ExposureBasis` exists precisely to record which evidence produced a judgement.
+
+**A record SHALL NOT claim a basis it did not use.** A `KnownSurfaceRecord` derived
+from a socket table says so; nothing in this milestone may present a bind-derived
+judgement as configuration-derived. That is the platform's provenance discipline,
+and it is the only thing that keeps §4's residual visible.
+
+### 4. Decision 2 - three states, because they have three different remediations
+
+The S-003 bundle asked U3 to distinguish two states. **The real data produces
+three**, and **U1's shipped `ListenerObservation` already models it** -
+`asset_key: str | None`, documented as *"observed but could not be joined ...
+intentionally distinct from a registered service for which no surface could be
+derived."*
+
+| state | measured | what fixes it |
+|---|---|---|
+| **registered asset, no surface derivable** | - | derive a surface |
+| **surface observed, not attributable** | **14 of 16** | obtain the join key |
+| **not registered at all** (vhost-only, no unit - from U2) | - | register the asset |
+
+**Adopt all three.** The operational test for whether two states may be collapsed is
+whether they imply **the same next action** - and these imply three different ones.
+Collapsing "observed but unattributable" into either neighbour is a real loss: it is
+neither a missing asset (the listener **is** there) nor a missing surface (the
+surface **is** visible). **It is a missing join**, and no other state's fix touches
+it.
+
+This is the same test S-002 applied to *closable* versus *structural* unknowns, and
+it should be the standing one.
+
+### 5. Decision 3 - the classification is not binary, and the remainder stays unknown
+
+**6 of 16 are neither externally bound nor loopback.** A two-valued classification
+would force them into a wrong bucket.
+
+**Rule: classify only what the bind address unambiguously determines. Everything
+else is `reachability=None`.**
+
+- wildcard binds -> **external**
+- loopback binds -> **internal**
+- **anything else -> unknown**, with the reason recorded
+
+**The reasoning, which belongs in the record:** a socket bound to a *specific*
+address may sit on a public interface or a private one, and **the host's own socket
+table cannot say which.** Deciding would require network knowledge U3 does not have.
+An `unknown` here is not a gap in the implementation - it is the honest limit of the
+evidence.
+
+**No heuristics.** `_level_for` already defaults to `"unknown"`, and
+`KnownSurfaceRecord.reachability` is already `Reachability | None`. **The shipped
+model already expresses everything U3 needs** - nothing requires widening, and
+nothing may be inferred to fill the gap.
+
+### 6. Decision 4 - the finding: **read-only and unprivileged are not the same
+constraint**
+
+The estate was chosen over a declared fixture **specifically** to exercise a genuine
+multi-hop chain - external front-end forwarding to a loopback application. **That
+chain is not derivable**, because it needs the proxy configuration and the
+configuration read failed.
+
+**But it did not fail because of read-only.** It failed because of **unprivileged** -
+and those are different constraints:
+
+| constraint | means | was it chosen? |
+|---|---|---|
+| **read-only** | change nothing on the estate | **yes** - deliberately, in the S-003 bundle |
+| **unprivileged** | do not elevate | **no** - inherited from how collection happened to run |
+
+**A privileged read is still read-only.** Dumping a proxy configuration or listing a
+firewall ruleset **changes nothing**. So the two-hop chain was not lost to a
+principle the milestone adopted; it was lost to a privilege level **nobody
+deliberately chose.**
+
+**That makes it a decision rather than a limit** - and it is the owner's, not this
+ECR's. Recorded as an **explicit residual**, not silently dropped, because it is the
+reason this target was selected.
+
+**Two things the owner needs before deciding**, so it is not framed as a free win:
+
+1. **A privileged collector needs elevated access on a production box** running
+   services that move money. That is a real risk, separate from whether the read
+   mutates anything.
+2. **ECR-0069 applies harder.** A proxy configuration can carry certificate paths,
+   upstream credentials and internal topology - materially more sensitive than a
+   socket table. If this is pursued, the data boundary needs re-examining, not
+   inheriting.
+
+### 7. Decision 5 - attribution: name the gap, do not close it here
+
+**Only 2 of 16 listeners carry process information**; unprivileged `ss --processes`
+reveals only the invoking user's own processes, and the externally-bound listeners
+are root-owned. The unit inventory captures `MainPID`, so **PID is the natural join
+key and it is absent for 14 of 16.**
+
+**Unattributable listeners stay unattributed, with a named reason.** Honest, cheap,
+and it preserves state 2 of §4.
+
+**Note that decisions 4 and 5 resolve to the same action.** Both the proxy topology
+and the listener PIDs are obtainable by exactly one change - a privileged read. **So
+the residual is one decision, not two**, and it should be recorded as one.
+
+### 8. Scope: a source change, not an engine change
+
+`InventoryKnownSurfaceSource.list_known_surface` hardcodes `reachability=None`.
+**U3 replaces that hardcode with a measured judgement and a real basis.**
+`_level_for` and `derive_surface` **should not need touching.**
+
+**Fail-closed is inherited and must not weaken:** the same source raises
+`InventoryUnavailable` when the inventory report is `degraded` (C-034/C-036). U3 gets
+refusal-on-truncation for free and **may not erode it.**
+
+### 9. Expected outcome - stated before the run
+
+Per S-002's lesson, where the stated expectation was **wrong** and that was only
+visible because it had been written first:
+
+> **`exposure` will not move to mostly-known.** At most a small number of assets
+> acquire a measured reachability, because only **2 of 16** listeners attribute to a
+> registered asset. **The count will barely move; the reasons will change** - from
+> *"no surface signal"* to *"surface observed, not attributable"* for the majority.
+
+**That is S-002's result in a different factor**, and it is a success: the platform
+moves from *nothing was asked* to *asked, and here is precisely what blocked the
+answer.*
+
+**Roadmap consequence:** *"observed but unattributable"* is a **closable** unknown in
+S-002's taxonomy - closable by the §6 decision. So the density report will point at
+**the same single decision** that §6 and §7 both reach, which is the useful outcome:
+one owner choice, named by the instrument rather than argued for in prose.
+
+### 10. Proof
+
+- The bundle's three tests, **plus one for the third state** (§4).
+- **Negative control:** a registered asset with no derivable surface, and an observed
+  unattributable listener, must produce **different, named** outcomes. *A test that
+  cannot tell them apart is the whole point of the unit.*
+- **Unknown must not become a level:** a listener in the third bind class must not
+  acquire `high` or `low`. Mutation-verify by forcing `_level_for`'s default and
+  watching a control fail.
+- **Basis honesty:** a bind-derived record must not claim a configuration basis
+  (§3). Mutate the basis and confirm red.
+- **Fail-closed preserved:** a degraded inventory still raises
+  `InventoryUnavailable`. Mutate to confirm the guard is still load-bearing after
+  U3's changes.
+- Both backends, both tenant modes, `python -O`.
+- **Real-estate run before merge**, counts only in any output.
+
+### 11. Carried forward, unresolved
+
+Recorded so none of it disappears into U3: the three U2 residuals (undeclared assets
+scoring `0.000` rather than unknown; tier-4 services structurally unrepresentable;
+*"decided not to declare"* recorded as *"not declared"*); the collector's absent
+memory bound; the two doc-versus-code drift pins; C-040's vacuous
+`scanned -= unassessable_inventory` assertion; and U2's untested `used_default_tier`
+refusal.
+
+**U4's baseline remains conditional on U4's own criteria.**
