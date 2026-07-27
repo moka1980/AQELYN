@@ -12,6 +12,7 @@ from aqelyn.conventions.errors import (
     CrossTenantReference,
     EvidenceNotFound,
     EvidenceTampered,
+    SupplyChainConfigInvalid,
 )
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, EvidenceStore
@@ -51,6 +52,11 @@ async def verify_attestation(
 ) -> ProvenanceResult:
     """Verify evidence integrity first, then authenticity, and record the result."""
 
+    if component.identity_kind != "purl" or component.purl != attestation.component_purl:
+        raise SupplyChainConfigInvalid(
+            "provenance verification requires the attestation purl to identify "
+            "the supplied component"
+        )
     outcome = await _evaluate(
         attestation,
         component=component,
@@ -206,7 +212,7 @@ def _result_evidence(
         source_id=component.source_id,
         method=f"supplychain.verify_provenance/{attestation.kind}/v1",
         content={
-            "component_purl": component.purl,
+            "component_purl": attestation.component_purl,
             "attestation_kind": attestation.kind,
             "attestation": attestation.raw,
             "basis_evidence_id": attestation.evidence_id,

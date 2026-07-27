@@ -8,6 +8,8 @@ from typing import Any
 
 from aqelyn.conventions.errors import SBOMParseError
 from aqelyn.supplychain.models import (
+    ComponentIdentity,
+    ComponentIdentityKind,
     DependencyRelationship,
     DependencyScope,
     SBOMDocument,
@@ -32,8 +34,8 @@ class ParsedSBOM:
     analysis, so this count is provenance for auditing the ingest and SHALL NOT feed
     EA-0024 coverage, which would inflate a gap that does not exist."""
     skipped_malformed: int = 0
-    """Package-like components missing a `purl` -- **a genuine signal, and the
-    document is malformed.**
+    """Package-like components missing both supported coordinates -- **a genuine
+    signal, and the document is malformed.**
 
     In practice this is always `0` on a successfully parsed document: EA-0030
     *quarantines* a partial SBOM rather than ingesting it partially, so the parser
@@ -58,14 +60,24 @@ universally was a misreading of the format, not strictness (ECR-0064 Gap 3). Rea
 @dataclass(frozen=True)
 class _ComponentInput:
     ref: str
-    purl: str
+    identity_kind: ComponentIdentityKind
+    purl: str | None
+    cpe: str | None
     name: str
     version: str
     component_type: str
+    locations: list[str]
     licenses: list[str]
     supplier: str | None
     hashes: dict[str, str]
     scope: DependencyScope
+
+    @property
+    def identity(self) -> ComponentIdentity:
+        value = self.purl if self.identity_kind == "purl" else self.cpe
+        if value is None:
+            raise SBOMParseError("component identity is incomplete")
+        return ComponentIdentity(kind=self.identity_kind, value=value)
 
 
 def parse_sbom(doc: SBOMDocument, *, tenant_id: str | None) -> ParsedSBOM:
@@ -96,15 +108,6 @@ def _parse_cyclonedx(doc: SBOMDocument, *, tenant_id: str | None) -> ParsedSBOM:
         if component_type and component_type not in PACKAGE_COMPONENT_TYPES:
             skipped_non_package += 1
             continue
-        if not str(item.get("purl") or "").strip():
-            # Package-like but with no purl: the document is malformed. This still
-            # RAISES, because EA-0030 quarantines partial SBOMs rather than ingesting
-            # them partially -- a shipped guarantee that counting instead would have
-            # silently weakened. The counter exists so the distinction is expressible;
-            # refusing is the strongest possible way of acting on it, and is stronger
-            # than any count would be.
-            skipped_malformed += 1
-            _cyclonedx_component(item)  # raises SBOMParseError naming the purl
         inputs.append(_cyclonedx_component(item))
     if not inputs:
         raise SBOMParseError("CycloneDX document contains no package components")
@@ -210,14 +213,17 @@ def _build_result(
     if doc.evidence_id is None:
         raise SBOMParseError("SBOM is partial: evidence_id is required")
     by_ref = {item.ref: item for item in inputs}
-    components_by_purl: dict[str, SoftwareComponent] = {}
+    components_by_identity: dict[tuple[str, str], SoftwareComponent] = {}
     for item in inputs:
         component = SoftwareComponent(
             tenant_id=tenant_id,
+            identity_kind=item.identity_kind,
             purl=item.purl,
+            cpe=item.cpe,
             name=item.name,
             version=item.version,
             component_type=item.component_type,
+            locations=item.locations,
             licenses=item.licenses,
             supplier=item.supplier,
             hashes=item.hashes,
@@ -226,28 +232,43 @@ def _build_result(
             observed_at=doc.observed_at,
             evidence_id=doc.evidence_id,
         )
-        existing = components_by_purl.get(component.purl)
+        identity_key = (component.identity.kind, component.identity.value)
+        existing = components_by_identity.get(identity_key)
         if existing is not None and _component_values(existing) != _component_values(component):
             raise SBOMParseError(
-                f"SBOM contains conflicting duplicate component {component.purl!r}"
+                f"SBOM contains conflicting duplicate component {component.identity.value!r}"
             )
-        if existing is None or component.direct:
-            components_by_purl[component.purl] = component
+        if existing is None:
+            components_by_identity[identity_key] = component
+        else:
+            components_by_identity[identity_key] = existing.model_copy(
+                update={
+                    "direct": existing.direct or component.direct,
+                    "locations": sorted({*existing.locations, *component.locations}),
+                },
+                deep=True,
+            )
 
-    relationships: dict[tuple[str, str, str], DependencyRelationship] = {}
+    relationships: dict[tuple[str, str, str, str, str], DependencyRelationship] = {}
     for source_ref, target_ref in pairs:
         source = by_ref[source_ref]
         target = by_ref[target_ref]
-        if source.purl == target.purl:
+        if source.identity == target.identity:
             continue
-        key = (source.purl, target.purl, target.scope)
+        key = (
+            source.identity.kind,
+            source.identity.value,
+            target.identity.kind,
+            target.identity.value,
+            target.scope,
+        )
         relationships[key] = DependencyRelationship(
-            from_purl=source.purl,
-            to_purl=target.purl,
+            from_identity=source.identity,
+            to_identity=target.identity,
             scope=target.scope,
         )
     return ParsedSBOM(
-        components=tuple(components_by_purl[purl] for purl in sorted(components_by_purl)),
+        components=tuple(components_by_identity[key] for key in sorted(components_by_identity)),
         relationships=tuple(relationships[key] for key in sorted(relationships)),
         total_components=total_components or len(inputs),
         skipped_non_package=skipped_non_package,
@@ -257,7 +278,10 @@ def _build_result(
 
 def _cyclonedx_component(item: Mapping[str, Any]) -> _ComponentInput:
     ref = _text(item.get("bom-ref"), field="CycloneDX bom-ref")
-    purl = _purl(item.get("purl"), field="CycloneDX purl")
+    purl = _purl(item.get("purl"), field="CycloneDX purl") if "purl" in item else None
+    cpe = _cpe(item.get("cpe"), field="CycloneDX cpe") if "cpe" in item else None
+    if purl is None and cpe is None:
+        raise SBOMParseError("CycloneDX package is partial: a purl or cpe coordinate is required")
     licenses: list[str] = []
     for entry in _sequence(item.get("licenses", []), field="CycloneDX licenses"):
         if isinstance(entry, str):
@@ -291,10 +315,13 @@ def _cyclonedx_component(item: Mapping[str, Any]) -> _ComponentInput:
     }
     return _ComponentInput(
         ref=ref,
+        identity_kind="purl" if purl is not None else "cpe",
         purl=purl,
+        cpe=cpe,
         name=_text(item.get("name"), field="CycloneDX component name"),
         version=_text(item.get("version"), field="CycloneDX component version"),
         component_type=_text(item.get("type"), field="CycloneDX component type"),
+        locations=_cyclonedx_locations(item),
         licenses=sorted(set(licenses)),
         supplier=supplier,
         hashes=hashes,
@@ -309,13 +336,15 @@ def _spdx_component(item: Mapping[str, Any]) -> _ComponentInput:
         if isinstance(value, str) and value.strip() and value not in {"NOASSERTION", "NONE"}:
             licenses.append(value)
     purl: str | None = None
+    cpe: str | None = None
     for ref in _mapping_list(item.get("externalRefs", []), field="SPDX externalRefs"):
         kind = _text(ref.get("referenceType"), field="SPDX referenceType").lower()
         if kind == "purl" or kind.endswith("package-manager"):
             purl = _purl(ref.get("referenceLocator"), field="SPDX purl")
-            break
-    if purl is None:
-        raise SBOMParseError("SPDX package is partial: purl externalRef is required")
+        elif "cpe" in kind:
+            cpe = _cpe(ref.get("referenceLocator"), field="SPDX cpe")
+    if purl is None and cpe is None:
+        raise SBOMParseError("SPDX package is partial: purl or cpe externalRef is required")
     hashes = {
         _text(value.get("algorithm"), field="SPDX checksum algorithm").lower(): _text(
             value.get("checksumValue"), field="SPDX checksum value"
@@ -328,10 +357,13 @@ def _spdx_component(item: Mapping[str, Any]) -> _ComponentInput:
     purpose = _optional_text(item.get("primaryPackagePurpose"), field="SPDX package purpose")
     return _ComponentInput(
         ref=_text(item.get("SPDXID"), field="SPDX package id"),
+        identity_kind="purl" if purl is not None else "cpe",
         purl=purl,
+        cpe=cpe,
         name=_text(item.get("name"), field="SPDX package name"),
         version=_text(item.get("versionInfo"), field="SPDX package version"),
         component_type=(purpose or "library").lower(),
+        locations=[],
         licenses=sorted(set(licenses)),
         supplier=supplier,
         hashes=hashes,
@@ -376,13 +408,15 @@ def _dependency_scope(value: object) -> DependencyScope:
 
 def _component_values(component: SoftwareComponent) -> dict[str, Any]:
     return {
+        "identity_kind": component.identity_kind,
+        "purl": component.purl,
+        "cpe": component.cpe,
         "name": component.name,
         "version": component.version,
         "component_type": component.component_type,
         "licenses": component.licenses,
         "supplier": component.supplier,
         "hashes": component.hashes,
-        "direct": component.direct,
     }
 
 
@@ -408,6 +442,34 @@ def _purl(value: object, *, field: str) -> str:
     if not selected.startswith("pkg:"):
         raise SBOMParseError(f"{field} must be a package URL")
     return selected
+
+
+def _cpe(value: object, *, field: str) -> str:
+    selected = _text(value, field=field)
+    if not selected.startswith("cpe:"):
+        raise SBOMParseError(f"{field} must be a CPE coordinate")
+    return selected
+
+
+def _cyclonedx_locations(item: Mapping[str, Any]) -> list[str]:
+    locations: set[str] = set()
+    evidence = item.get("evidence")
+    if isinstance(evidence, Mapping):
+        for occurrence in _mapping_list(
+            evidence.get("occurrences", []),
+            field="CycloneDX evidence occurrences",
+        ):
+            locations.add(
+                _text(
+                    occurrence.get("location"),
+                    field="CycloneDX occurrence location",
+                )
+            )
+    for prop in _mapping_list(item.get("properties", []), field="CycloneDX properties"):
+        name = _text(prop.get("name"), field="CycloneDX property name")
+        if name.startswith("syft:location:") and name.endswith(":path"):
+            locations.add(_text(prop.get("value"), field="CycloneDX location property"))
+    return sorted(locations)
 
 
 def _optional_text(value: object, *, field: str) -> str | None:

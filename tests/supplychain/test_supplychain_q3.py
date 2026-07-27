@@ -14,6 +14,7 @@ from aqelyn.graph import EdgeView, ImpactHit, ImpactResult, KnowledgeGraph, Node
 from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
 from aqelyn.objects import InMemoryObjectStore
 from aqelyn.supplychain import (
+    ComponentIdentity,
     InMemorySBOMStore,
     ReachabilitySignal,
     SBOMDocument,
@@ -28,6 +29,7 @@ PURL_APP = "pkg:pypi/payments@1.0.0"
 PURL_MIDDLE = "pkg:pypi/framework@2.0.0"
 PURL_TARGET = "pkg:pypi/parser@3.0.0"
 PURL_ISOLATED = "pkg:pypi/unused@4.0.0"
+CPE_TARGET = "cpe:2.3:a:example:simple_launcher:1.1.0.14:*:*:*:*:*:*:*"
 
 
 class _ImpactSpy:
@@ -84,6 +86,35 @@ def _document() -> SBOMDocument:
     )
 
 
+def _cpe_document() -> SBOMDocument:
+    return SBOMDocument(
+        format="cyclonedx",
+        subject_ref="artifact:payments:1.0.0",
+        raw={
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.6",
+            "metadata": {"component": {"bom-ref": "app"}},
+            "components": [
+                _component("app", "payments", "1.0.0", PURL_APP, "application"),
+                {
+                    "bom-ref": "launcher",
+                    "type": "library",
+                    "name": "simple-launcher",
+                    "version": "1.1.0.14",
+                    "cpe": CPE_TARGET,
+                },
+            ],
+            "dependencies": [
+                {"ref": "app", "dependsOn": ["launcher"]},
+                {"ref": "launcher", "dependsOn": []},
+            ],
+        },
+        source_id=new_id("src"),
+        observed_at=NOW,
+        evidence_id=new_id("evd"),
+    )
+
+
 def _component(
     ref: str,
     name: str,
@@ -129,7 +160,7 @@ async def test_sc_dependency_graph(graph_harness: Any) -> None:
     )
 
     components = await engine.ingest_sbom(_document(), tenant_id=None)
-    by_purl = {component.purl: component for component in components}
+    by_purl = {component.purl: component for component in components if component.purl is not None}
     app_edges = await graph_harness.object_store.relationships(
         by_purl[PURL_APP].object_id,
         direction="out",
@@ -210,6 +241,39 @@ async def test_sc_dependency_graph(graph_harness: Any) -> None:
     ]
 
 
+async def test_sc_cpe_dependency_not_silently_dropped(graph_harness: Any) -> None:
+    store = InMemorySBOMStore()
+    engine = _engine(
+        store=store,
+        object_store=graph_harness.object_store,
+        graph=graph_harness.graph,
+        max_depth=6,
+    )
+
+    components = await engine.ingest_sbom(_cpe_document(), tenant_id=None)
+    by_identity = {component.identity: component for component in components}
+    app = by_identity[ComponentIdentity(kind="purl", value=PURL_APP)]
+    target_identity = ComponentIdentity(kind="cpe", value=CPE_TARGET)
+    target = by_identity[target_identity]
+    edges = await graph_harness.object_store.relationships(
+        app.object_id,
+        direction="out",
+        relation_type="depends_on",
+    )
+    paths = await engine.dependency_paths(
+        target_identity,
+        direction="up",
+        tenant_id=None,
+    )
+
+    assert [(edge.from_id, edge.to_id) for edge in edges] == [(app.object_id, target.object_id)]
+    assert [path.node_ids for path in paths.paths] == [[target.object_id, app.object_id]]
+    assert paths.truncated is False
+
+    with pytest.raises(SupplyChainConfigInvalid, match="purl"):
+        await engine.reachability(CPE_TARGET, "CVE-2026-0099", tenant_id=None)
+
+
 async def test_sc_reachability_unknown_not_safe(graph_harness: Any) -> None:
     store = InMemorySBOMStore()
     bounded = _engine(
@@ -219,7 +283,7 @@ async def test_sc_reachability_unknown_not_safe(graph_harness: Any) -> None:
         max_depth=1,
     )
     components = await bounded.ingest_sbom(_document(), tenant_id=None)
-    by_purl = {component.purl: component for component in components}
+    by_purl = {component.purl: component for component in components if component.purl is not None}
 
     truncated = await bounded.dependency_paths(PURL_TARGET, direction="up", tenant_id=None)
     unknown = await bounded.reachability(PURL_TARGET, "CVE-2026-0001", tenant_id=None)

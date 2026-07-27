@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn, Protocol, cast
 
+import asyncpg
 import pytest
 
 import aqelyn.supplychain as supplychain
@@ -26,6 +27,7 @@ from aqelyn.graph import InMemoryKnowledgeGraph
 from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
 from aqelyn.objects import InMemoryObjectStore
 from aqelyn.supplychain import (
+    ComponentIdentity,
     InMemorySBOMStore,
     PostgresSBOMStore,
     QuarantinedSBOM,
@@ -45,6 +47,7 @@ OTHER_TENANT = "018f0000-0000-7000-8000-000000300202"
 PURL_APP = "pkg:pypi/billing-api@1.0.0"
 PURL_REQUESTS = "pkg:pypi/requests@2.32.4"
 PURL_URLLIB3 = "pkg:pypi/urllib3@2.5.0"
+CPE_LAUNCHER = "cpe:2.3:a:example:simple_launcher:1.1.0.14:*:*:*:*:*:*:*"
 ACTOR = ActorRef(actor_type="system", actor_id="supplychain-q2-test")
 
 
@@ -62,14 +65,14 @@ class _Harness:
 
 
 @asynccontextmanager
-async def _harness(kind: str) -> AsyncIterator[_Harness]:
+async def _harness(kind: str, *, mode: str = "enterprise") -> AsyncIterator[_Harness]:
     closer: _Closable | None = None
     if kind == "inmemory":
-        store: SBOMStore = InMemorySBOMStore(mode="enterprise")
+        store: SBOMStore = InMemorySBOMStore(mode=mode)
     else:
         if not PG_URL:
             pytest.skip("AQELYN_DATABASE_URL not set")
-        postgres = await PostgresSBOMStore.connect(PG_URL, mode="enterprise")
+        postgres = await PostgresSBOMStore.connect(PG_URL, mode=mode)
         async with postgres._pool.acquire() as conn:
             await conn.execute(
                 "TRUNCATE aq_supplychain_quarantine, aq_supplychain_assessment, "
@@ -77,8 +80,8 @@ async def _harness(kind: str) -> AsyncIterator[_Harness]:
             )
         store = postgres
         closer = cast(_Closable, postgres)
-    inventory_store = InMemoryAssetStore(mode="enterprise")
-    object_store = InMemoryObjectStore(mode="enterprise")
+    inventory_store = InMemoryAssetStore(mode=mode)
+    object_store = InMemoryObjectStore(mode=mode)
     registry = InMemorySourceReliabilityRegistry(default_reliability=0.5)
     engine = SupplyChainEngine(
         store,
@@ -86,7 +89,7 @@ async def _harness(kind: str) -> AsyncIterator[_Harness]:
         source_registry=registry,
         object_store=object_store,
         graph=InMemoryKnowledgeGraph(object_store),
-        evidence_store=InMemoryEvidenceStore(mode="enterprise"),
+        evidence_store=InMemoryEvidenceStore(mode=mode),
     )
     try:
         yield _Harness(store, inventory_store, object_store, registry, engine)
@@ -187,6 +190,82 @@ def _spdx() -> SBOMDocument:
     )
 
 
+def _spdx_cpe() -> SBOMDocument:
+    return SBOMDocument(
+        format="spdx",
+        subject_ref="artifact:simple-launcher:1.1.0.14",
+        raw={
+            "spdxVersion": "SPDX-2.3",
+            "packages": [
+                {
+                    "SPDXID": "SPDXRef-Launcher",
+                    "name": "simple-launcher",
+                    "versionInfo": "1.1.0.14",
+                    "primaryPackagePurpose": "APPLICATION",
+                    "externalRefs": [
+                        {
+                            "referenceType": "cpe23Type",
+                            "referenceLocator": CPE_LAUNCHER,
+                        }
+                    ],
+                }
+            ],
+            "relationships": [
+                {
+                    "spdxElementId": "SPDXRef-DOCUMENT",
+                    "relationshipType": "DESCRIBES",
+                    "relatedSpdxElement": "SPDXRef-Launcher",
+                }
+            ],
+        },
+        source_id=new_id("src"),
+        observed_at=NOW,
+        evidence_id=new_id("evd"),
+    )
+
+
+def _mixed_identity_cyclonedx() -> SBOMDocument:
+    cpe_components = [
+        {
+            "bom-ref": f"launcher-{index}",
+            "type": "library",
+            "name": "simple-launcher",
+            "version": "1.1.0.14",
+            "cpe": CPE_LAUNCHER,
+            "properties": [
+                {
+                    "name": f"syft:location:{index}:path",
+                    "value": f"/synthetic/bin/launcher-{index}",
+                }
+            ],
+        }
+        for index in range(24)
+    ]
+    return _cyclonedx(
+        raw={
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.6",
+            "metadata": {"component": {"bom-ref": "app"}},
+            "components": [
+                {
+                    "bom-ref": "app",
+                    "type": "application",
+                    "name": "billing-api",
+                    "version": "1.0.0",
+                    "purl": PURL_APP,
+                    "cpe": "cpe:2.3:a:example:billing_api:1.0.0:*:*:*:*:*:*:*",
+                    "evidence": {"occurrences": [{"location": "/synthetic/apps/billing-api"}]},
+                },
+                *cpe_components,
+            ],
+            "dependencies": [
+                {"ref": "app", "dependsOn": ["launcher-0"]},
+                *[{"ref": f"launcher-{index}", "dependsOn": []} for index in range(24)],
+            ],
+        }
+    )
+
+
 def _spdx_package(ref: str, name: str, version: str, purl: str) -> dict[str, object]:
     return {
         "SPDXID": ref,
@@ -216,6 +295,7 @@ def _component(
         {
             "object_id": object_id or new_id("obj"),
             "tenant_id": tenant_id,
+            "identity_kind": "purl",
             "purl": purl,
             "name": purl.rsplit("/", 1)[-1].split("@", 1)[0],
             "version": purl.rsplit("@", 1)[-1],
@@ -229,6 +309,30 @@ def _component(
             "observed_at": NOW,
             "evidence_id": new_id("evd"),
         }
+    )
+
+
+def _cpe_component(
+    *,
+    cpe: str = CPE_LAUNCHER,
+    tenant_id: str | None = TENANT,
+    object_id: str | None = None,
+    locations: list[str] | None = None,
+) -> SoftwareComponent:
+    return SoftwareComponent(
+        object_id=object_id or new_id("obj"),
+        tenant_id=tenant_id,
+        identity_kind="cpe",
+        purl=None,
+        cpe=cpe,
+        name="simple-launcher",
+        version="1.1.0.14",
+        component_type="library",
+        locations=locations or ["/synthetic/bin/launcher"],
+        direct=False,
+        source_id=new_id("src"),
+        observed_at=NOW,
+        evidence_id=new_id("evd"),
     )
 
 
@@ -296,7 +400,9 @@ def test_sc_parse_formats(document: SBOMDocument) -> None:
         PURL_REQUESTS,
         PURL_URLLIB3,
     ]
-    assert [(edge.from_purl, edge.to_purl) for edge in parsed.relationships] == [
+    assert [
+        (edge.from_identity.value, edge.to_identity.value) for edge in parsed.relationships
+    ] == [
         (PURL_APP, PURL_REQUESTS),
         (PURL_REQUESTS, PURL_URLLIB3),
     ]
@@ -304,6 +410,77 @@ def test_sc_parse_formats(document: SBOMDocument) -> None:
         PURL_APP,
         PURL_REQUESTS,
     }
+
+
+def test_sc_purlless_with_cpe_admitted_and_locations_retained() -> None:
+    parsed = parse_sbom(_mixed_identity_cyclonedx(), tenant_id=TENANT)
+
+    assert len(parsed.components) == 2
+    by_kind = {component.identity_kind: component for component in parsed.components}
+    purl_component = by_kind["purl"]
+    cpe_component = by_kind["cpe"]
+    assert purl_component.purl == PURL_APP
+    assert purl_component.cpe == "cpe:2.3:a:example:billing_api:1.0.0:*:*:*:*:*:*:*"
+    assert purl_component.locations == ["/synthetic/apps/billing-api"]
+    assert cpe_component.purl is None
+    assert cpe_component.cpe == CPE_LAUNCHER
+    assert cpe_component.locations == sorted(
+        f"/synthetic/bin/launcher-{index}" for index in range(24)
+    )
+    assert [(edge.from_identity, edge.to_identity) for edge in parsed.relationships] == [
+        (
+            ComponentIdentity(kind="purl", value=PURL_APP),
+            ComponentIdentity(kind="cpe", value=CPE_LAUNCHER),
+        )
+    ]
+
+
+def test_sc_spdx_cpe_identity_is_format_level() -> None:
+    parsed = parse_sbom(_spdx_cpe(), tenant_id=TENANT)
+
+    [component] = parsed.components
+    assert component.identity == ComponentIdentity(kind="cpe", value=CPE_LAUNCHER)
+    assert component.purl is None
+
+
+def test_sc_malformed_claimed_purl_does_not_fall_back_to_cpe() -> None:
+    document = _mixed_identity_cyclonedx()
+    raw = document.raw.copy()
+    components = [dict(item) for item in raw["components"]]
+    components[0]["purl"] = "not-a-package-url"
+    raw["components"] = components
+
+    with pytest.raises(SBOMParseError, match="package URL"):
+        parse_sbom(document.model_copy(update={"raw": raw}, deep=True), tenant_id=TENANT)
+
+
+def test_sc_conflicting_secondary_coordinate_is_not_smoothed() -> None:
+    document = _cyclonedx(
+        raw={
+            "bomFormat": "CycloneDX",
+            "components": [
+                {
+                    "bom-ref": "first",
+                    "type": "library",
+                    "name": "requests",
+                    "version": "2.32.4",
+                    "purl": PURL_REQUESTS,
+                    "cpe": "cpe:2.3:a:example:requests:2.32.4:*:*:*:*:*:*:*",
+                },
+                {
+                    "bom-ref": "second",
+                    "type": "library",
+                    "name": "requests",
+                    "version": "2.32.4",
+                    "purl": PURL_REQUESTS,
+                    "cpe": "cpe:2.3:a:other:requests:2.32.4:*:*:*:*:*:*:*",
+                },
+            ],
+        }
+    )
+
+    with pytest.raises(SBOMParseError, match="conflicting duplicate"):
+        parse_sbom(document, tenant_id=TENANT)
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
@@ -318,6 +495,45 @@ async def test_sc_components_to_inventory(kind: str) -> None:
             assert asset is not None
             assert asset.asset_type == "software_component"
             assert asset.classification == component.component_type
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+@pytest.mark.parametrize("mode", ["local", "enterprise"])
+async def test_sc_cpe_component_real_owner_round_trip(kind: str, mode: str) -> None:
+    document = _mixed_identity_cyclonedx()
+    tenant_id = None if mode == "local" else TENANT
+    async with _harness(kind, mode=mode) as harness:
+        first = await harness.engine.ingest_sbom(document, tenant_id=tenant_id)
+        second = await harness.engine.ingest_sbom(document, tenant_id=tenant_id)
+        rows, cursor = await harness.store.query(tenant_id=tenant_id)
+        cpe = await harness.store.get_component(
+            ComponentIdentity(kind="cpe", value=CPE_LAUNCHER),
+            tenant_id=tenant_id,
+        )
+
+        assert cpe is not None
+        object_record = await harness.object_store.get(cpe.object_id)
+        prefix, payload = parse_id(cpe.object_id)
+        asset = await harness.inventory_store.get(
+            f"ast_{payload}",
+            tenant_id=tenant_id,
+        )
+
+    assert prefix == "obj"
+    assert len(first) == len(second) == len(rows) == 2
+    assert {component.object_id for component in first} == {
+        component.object_id for component in second
+    }
+    assert cursor is None
+    assert cpe.locations == sorted(f"/synthetic/bin/launcher-{index}" for index in range(24))
+    assert object_record is not None
+    assert [(key.namespace, key.value) for key in object_record.natural_keys] == [
+        ("cpe", CPE_LAUNCHER)
+    ]
+    assert object_record.attributes["purl"] is None
+    assert object_record.attributes["cpe"] == CPE_LAUNCHER
+    assert asset is not None
+    assert asset.asset_type == "software_component"
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
@@ -436,6 +652,41 @@ async def test_sc_store_contract(kind: str) -> None:
         replacement = await harness.store.put_component(_component(object_id=new_id("obj")))
         assert replacement.object_id == first.object_id
         assert await harness.store.get_component(PURL_REQUESTS, tenant_id=TENANT) == replacement
+        assert (
+            await harness.store.get_component(
+                ComponentIdentity(kind="purl", value=PURL_REQUESTS),
+                tenant_id=TENANT,
+            )
+            == replacement
+        )
+        cpe = await harness.store.put_component(_cpe_component())
+        assert (
+            await harness.store.get_component(
+                ComponentIdentity(kind="cpe", value=CPE_LAUNCHER),
+                tenant_id=TENANT,
+            )
+            == cpe
+        )
+        merged_cpe = await harness.store.put_component(
+            _cpe_component(
+                object_id=new_id("obj"),
+                locations=["/synthetic/alternate/launcher"],
+            )
+        )
+        assert merged_cpe.object_id == cpe.object_id
+        assert merged_cpe.locations == [
+            "/synthetic/alternate/launcher",
+            "/synthetic/bin/launcher",
+        ]
+        with pytest.raises(SupplyChainConfigInvalid, match="identity kind or value"):
+            await harness.store.put_component(
+                _cpe_component(
+                    cpe="cpe:2.3:a:example:other:1.0:*:*:*:*:*:*:*",
+                    object_id=cpe.object_id,
+                )
+            )
+        with pytest.raises(SupplyChainConfigInvalid, match="identity kind or value"):
+            await harness.store.put_component(_cpe_component(object_id=first.object_id))
 
         verified = await harness.store.put_component(
             _component(purl="pkg:pypi/aiohttp@3.12.0", provenance_status="verified")
@@ -449,17 +700,20 @@ async def test_sc_store_contract(kind: str) -> None:
         )
         assert len(page_one) == 1
         assert cursor == page_one[-1].object_id
-        page_two, final_cursor = await harness.store.query(
-            tenant_id=TENANT,
-            provenance="unverified",
-            limit=1,
-            cursor=cursor,
-        )
-        assert {row.object_id for row in [*page_one, *page_two]} == {
+        unverified = list(page_one)
+        while cursor is not None:
+            page, cursor = await harness.store.query(
+                tenant_id=TENANT,
+                provenance="unverified",
+                limit=1,
+                cursor=cursor,
+            )
+            unverified.extend(page)
+        assert {row.object_id for row in unverified} == {
             first.object_id,
+            cpe.object_id,
             second_unverified.object_id,
         }
-        assert final_cursor is None
 
         exact, exact_cursor = await harness.store.query(
             tenant_id=TENANT,
@@ -498,3 +752,155 @@ async def test_sc_store_requires_enterprise_scope() -> None:
         await store.query(tenant_id=None)
     with pytest.raises(TenantScopeRequired):
         await store.put_component(_component(tenant_id=None))
+
+
+async def test_sc_migration_backfills_identity_kind() -> None:
+    if not PG_URL:
+        pytest.skip("AQELYN_DATABASE_URL not set")
+    store = await PostgresSBOMStore.connect(PG_URL, mode="enterprise")
+    old_object_id = new_id("obj")
+    try:
+        async with store._pool.acquire() as conn:
+            await conn.execute("DROP TABLE aq_supplychain_component")
+            await conn.execute(
+                """
+                CREATE TABLE aq_supplychain_component (
+                    object_id text PRIMARY KEY,
+                    tenant_id text NULL,
+                    purl text NOT NULL CHECK (purl LIKE 'pkg:%'),
+                    name text NOT NULL,
+                    version text NOT NULL,
+                    component_type text NOT NULL,
+                    licenses jsonb NOT NULL,
+                    supplier text NULL,
+                    hashes jsonb NOT NULL,
+                    provenance_status text NOT NULL,
+                    direct boolean NOT NULL,
+                    source_id text NOT NULL,
+                    observed_at timestamptz NOT NULL,
+                    evidence_id text NOT NULL,
+                    conflicts jsonb NOT NULL DEFAULT '[]',
+                    UNIQUE NULLS NOT DISTINCT (tenant_id, purl)
+                )
+                """
+            )
+            await conn.execute(
+                """
+                INSERT INTO aq_supplychain_component (
+                    object_id, tenant_id, purl, name, version, component_type,
+                    licenses, supplier, hashes, provenance_status, direct,
+                    source_id, observed_at, evidence_id, conflicts
+                )
+                VALUES (
+                    $1, $2, $3, 'requests', '2.32.4', 'library',
+                    '["Apache-2.0"]'::jsonb, 'AQELYN Test', '{}'::jsonb,
+                    'unverified', true, $4, $5, $6, '[]'::jsonb
+                )
+                """,
+                old_object_id,
+                TENANT,
+                PURL_REQUESTS,
+                new_id("src"),
+                NOW,
+                new_id("evd"),
+            )
+    finally:
+        await store.close()
+
+    migrated = await PostgresSBOMStore.connect(PG_URL, mode="enterprise")
+    try:
+        component = await migrated.get_component(PURL_REQUESTS, tenant_id=TENANT)
+        assert component is not None
+        assert component.object_id == old_object_id
+        assert component.identity_kind == "purl"
+        assert component.cpe is None
+        assert component.locations == []
+
+        async with migrated._pool.acquire() as conn:
+            constraints = {
+                str(row["conname"])
+                for row in await conn.fetch(
+                    """
+                    SELECT conname
+                    FROM pg_constraint
+                    WHERE conrelid = 'aq_supplychain_component'::regclass
+                    """
+                )
+            }
+            indexes = {
+                str(row["indexname"])
+                for row in await conn.fetch(
+                    """
+                    SELECT indexname
+                    FROM pg_indexes
+                    WHERE tablename = 'aq_supplychain_component'
+                    """
+                )
+            }
+            insert_identity = """
+                INSERT INTO aq_supplychain_component (
+                    object_id, tenant_id, identity_kind, purl, cpe, name, version,
+                    component_type, locations, licenses, supplier, hashes,
+                    provenance_status, direct, source_id, observed_at, evidence_id,
+                    conflicts
+                )
+                VALUES (
+                    $1, $2, $3, $4, $5, 'component', '1.0', 'library',
+                    '[]'::jsonb, '[]'::jsonb, NULL, '{}'::jsonb, 'unverified',
+                    false, $6, $7, $8, '[]'::jsonb
+                )
+            """
+            await conn.execute(
+                insert_identity,
+                new_id("obj"),
+                TENANT,
+                "cpe",
+                None,
+                CPE_LAUNCHER,
+                new_id("src"),
+                NOW,
+                new_id("evd"),
+            )
+            with pytest.raises(asyncpg.UniqueViolationError):
+                await conn.execute(
+                    insert_identity,
+                    new_id("obj"),
+                    TENANT,
+                    "cpe",
+                    None,
+                    CPE_LAUNCHER,
+                    new_id("src"),
+                    NOW,
+                    new_id("evd"),
+                )
+            await conn.execute(
+                insert_identity,
+                new_id("obj"),
+                TENANT,
+                "purl",
+                "pkg:generic/component@1.0",
+                CPE_LAUNCHER,
+                new_id("src"),
+                NOW,
+                new_id("evd"),
+            )
+            with pytest.raises(asyncpg.CheckViolationError):
+                await conn.execute(
+                    insert_identity,
+                    new_id("obj"),
+                    TENANT,
+                    "cpe",
+                    "pkg:generic/invalid@1.0",
+                    CPE_LAUNCHER,
+                    new_id("src"),
+                    NOW,
+                    new_id("evd"),
+                )
+        assert "ck_supplychain_component_identity" in constraints
+        assert "ck_supplychain_component_locations" in constraints
+        assert {
+            "uq_supplychain_component_purl",
+            "uq_supplychain_component_cpe",
+        } <= indexes
+    finally:
+        await migrated.close()
