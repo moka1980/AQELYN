@@ -73,8 +73,9 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0066 | EA-0024 (+ GC-001 AC-3) | Proposed | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
 | ECR-0067 | EA-0023 + EA-0020 | Accepted | **A replay check that asserts less than its name.** `replay()` was called and its return discarded; comparison absent entirely. |
 | ECR-0068 | GC-001 | Accepted | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
-| ECR-0069 | S-track tooling | Proposed | **Data-handling boundary for real-estate milestones.** Aggregate counts may leave; per-asset detail may not — structurally, not by convention. |
-| ECR-0070 | S-track tooling | Proposed | **Transient collector boundary.** A complete filesystem inventory may consume one checksum-pinned temporary executable, but no package install or persistent estate change; cleanup and verified absence are part of success. |
+| ECR-0069 | S-track tooling | Accepted | **Data-handling boundary for real-estate milestones.** Aggregate counts may leave; per-asset detail may not — structurally, not by convention. |
+| ECR-0070 | S-track tooling | Accepted | **Transient collector boundary.** A complete filesystem inventory may consume one checksum-pinned temporary executable, but no package install or persistent estate change; cleanup and verified absence are part of success. |
+| ECR-0071 | EA-0030 | Proposed | **A real SBOM cannot be ingested.** 24 purl-less package components quarantine 131,685. Route (B): represent them, keyed on `cpe`. |
 
 ---
 
@@ -3934,7 +3935,7 @@ discovery-based rather than declared, and is deliberately **not** part of this f
 ## ECR-0068 - GC-001 AC-3 covers a state the platform is leaving
 
 **Raised by:** **S-002**, on completing the first provider wiring.
-**Status:** Proposed.
+**Status:** Accepted.
 **Severity:** **structural, and worsening** - no wrong answer today, and the
 uncovered region **grows with every S-milestone**.
 **Number:** my log copy ends at 0067; re-check `ECR-LOG.md` before assigning
@@ -4035,7 +4036,7 @@ reality moved and the guarantee did not.**
 ## ECR-0069 - Data-handling boundary for real-estate milestones
 
 **Raised by:** **S-003**, the first milestone against an estate the owner controls.
-**Status:** Proposed.
+**Status:** Accepted.
 **Durability:** this constraint is **inherited by S-004 and every later
 real-estate milestone**, which is why it is an ECR rather than a line in one
 bundle.
@@ -4096,7 +4097,7 @@ decision-grade. This constraint costs the report nothing.
 ## ECR-0070 - Transient collector boundary for complete host inventory
 
 **Raised by:** **S-003 U1**, when the real target did not have Syft installed.
-**Status:** Proposed.
+**Status:** Accepted.
 **Owner decision:** the owner explicitly approved the transient-Syft approach
 after the reviewer tested the full placement, execution, and removal cycle.
 
@@ -4156,3 +4157,243 @@ This boundary applies to later real-estate milestones that require a collector
 not already installed on the target. A stronger zero-write claim may be retained
 only when the required collector is already present or the corresponding
 measurement is reported unavailable.
+
+## ECR-0071 - Purl-less binary components quarantine a real SBOM
+
+**Raised by:** **S-003 U1** - the first SBOM the platform has collected from a real
+estate.
+**Status:** Proposed. **Route (B) decided by the owner 2026-07-27**; routes (A) and
+(C) are off the table.
+**Blocks:** S-003 U2.
+**Number:** verified free at `b1520f1`; rule 20 checked - archive numbering stops at
+EA-0051, so no `EA-0071` exists to collide with. **Re-check before merging** (rule 1).
+
+### 1. The finding
+
+`supplychain/parse.py` raises `SBOMParseError` on the first package-like component
+lacking a `purl`. **24 such components exist, so the entire 131,685-component
+document is quarantined.**
+
+**Measured**, `syft dir:/` against the authorised host, CycloneDX JSON, 59.7 MB:
+
+| quantity | value |
+|---|---|
+| total components | 131,685 |
+| `file`-typed, correctly skipped | 116,533 |
+| package-typed | 15,152 |
+| package-typed **with** `purl` | 15,128 |
+| package-typed **without** `purl` | **24** |
+
+### 2. What the 24 actually are
+
+All 24 identical in kind: `type: application`, name *"Simple Launcher"*, version
+`1.1.0.14`, **`cpe` present, `purl` absent**, found by
+`pe-binary-package-cataloger`.
+
+They are the **Windows PE launchers** (`t32/t64/w32/w64.exe`) vendored inside
+`pip`'s bundled `distlib`, replicated across the host's Python environments.
+
+Three consequences:
+
+1. **They are not Linux software and are not installed** - inert data files that
+   happen to be executables for another operating system. The document claims no
+   package ecosystem coordinate for them and does claim a CPE. The platform does
+   **not** infer from that absence that a purl can never exist; it records the
+   coordinate actually handed in.
+2. **They are not information-free** - they carry `name`, `version`, `cpe`,
+   `bom-ref`. Representing them is possible; **dropping them is a choice, not a
+   necessity.**
+3. **They are `type: application`, which legitimately belongs in
+   `PACKAGE_COMPONENT_TYPES`** and must stay there - real applications with purls
+   appear in the same document.
+
+### 3. The discriminator trap - measured, not reasoned
+
+**A rule of the form "`syft:package:type == binary` implies no `purl` required" is
+WRONG.** Three binary-classifier components in the same document **do** carry
+purls: `chrome`, and `node` twice, all `pkg:generic/...`.
+
+**`binary` splits 3 with-purl / 24 without.** Relaxing on ecosystem alone would
+**stop validating exactly the components that do claim a coordinate.**
+
+### 4. This is a CLASSIFICATION question, not a TOLERANCE question
+
+The quarantine is a **deliberate shipped guarantee**. `skipped_malformed`'s own
+docstring says so: *EA-0030 quarantines a partial SBOM rather than ingesting it
+partially, so the parser refuses instead of skipping. Refusal is the strongest form
+of acting on the signal - stronger than any count.*
+
+**The correct question is therefore *"is a PE-binary catalogue entry a package-like
+component at all, and if so what identifies it?"*** - never *"should we tolerate
+malformed package components?"* Any skip-and-count path for genuinely malformed
+components would **silently reverse a shipped guarantee**, and the docstring is the
+evidence such a reversal would be deliberate rather than accidental.
+
+### 5. The precedent: ECR-0064 Gap 3, one level down
+
+**This is the same parser and the same failure mode.** ECR-0064 Gap 3 required a
+`purl` on every component; `file` components legitimately have none; it raised on
+the first and refused the document. Its resolution was `PACKAGE_COMPONENT_TYPES` -
+classify what is package-like, and stop demanding coordinates from what is not.
+Its own words:
+
+> requiring one universally **was a misreading of the format, not strictness**
+
+and the generalisation it stated first because it outlives the fix:
+
+> **A required field is an assertion that the field is always available - and only
+> real data can test it.**
+
+**That sentence has now arrived a second time, from a corpus one step more real.**
+ECR-0064 was measured against a container image; ECR-0071 against a live
+multi-tenant host. Worth stating plainly: **the first fix was validated by the
+richest corpus available at the time and still under-generalised. The type-based
+classification was right; the type list was calibrated on what that corpus happened
+to contain.** Rule 30's *"the camouflage improves with scale"* in a new dress -
+15,128 correct components made 24 look like an anomaly rather than a category.
+
+### 6. Route (B), and the measured blast radius
+
+**Decision: represent purl-less components without a `purl`.** (A) - reclassifying
+them non-package - would encode **24 real on-disk artefacts as "not there"**, which
+is the failure mode this platform exists to refuse.
+
+Corrections to the reviewer's own first estimate, all **measured** at `b1520f1`:
+
+- **`bom-ref` as identity is struck.** The 24 carry **24 distinct** `bom-ref`
+  values - document-scoped random hex, **not stable across scans**. Keying on it
+  would **mint 24 brand-new components on every collection, forever**: an
+  unbounded-growth defect introduced by the fix meant to prevent a silent one.
+- **`cpe` collapses 24 to 1.** All 24 share **one** identical CPE, with **zero**
+  overlap against any purl-bearing component. They are six distlib launchers x four
+  Python environments - **the same software seen 24 times.** Keyed on `cpe` they
+  reconcile to **one component observed at 24 locations**, which is not a workaround
+  but the correct model. The estate's component count rises by **1**, not 24.
+- **The store-implementer set is small.** Enumerated with **mypy, not grep** (the C-036
+  lesson): adding a member to `SBOMStore` yields 14 errors in 5 files, naming
+  exactly **two implementers** - `InMemorySBOMStore` and `PostgresSBOMStore` -
+  and **zero test doubles**. That count does not bound the wider purl-specific
+  consumer migration described below.
+- **`cpe` does not exist yet.** `grep -rn "cpe" src/aqelyn/supplychain/` returns
+  nothing: absent from `SoftwareComponent`, absent from the DDL, discarded by the
+  parser. **(B) is not "relax a constraint" - it is "introduce the alternative
+  identity that does not exist."**
+
+The two-store Protocol count is accurate but does not bound the full identity
+change. In shipped source, `purl` is also the parser deduplication key, dependency
+edge key, EA-0002 natural key, evidence/reference label, and input to several
+analytical APIs. C-039 therefore includes a typed consumer-seam audit: identity
+uses move to the semantic coordinate; genuinely purl-specific analysis remains
+purl-specific but must report named uncertainty/refusal for a CPE-only component.
+No `None`-as-string evidence and no empty-clean analytical result are permitted.
+
+### 7. The modelling decision: an explicit discriminator, not `coalesce`
+
+The reviewer left this open with no recommendation. **Decision: an explicit
+`identity_kind` recording which handed-in coordinate establishes identity.**
+
+`coalesce(purl, cpe)` is rejected for two reasons:
+
+- **It stores a re-derived output.** ECR-0065's invariant: *a derivation storing
+  its inputs cannot drift from its composition, because there is only one
+  computation; one storing a re-derived output has two.* A coalesced identity is
+  exactly that shape, one layer down.
+- **It erases which coordinate identified the component**, so a reader cannot tell
+  without recomputing.
+
+The discriminator does **not** encode an absence cause the source does not provide.
+With `purl` absent and `cpe` present, the platform knows that CPE is the available
+identity; it does not know whether a purl is impossible or merely unreported.
+Inventing that stronger claim would turn missing source data into a durable fact.
+
+**Proposed shape:**
+
+```
+purl:          str | None          # retained; strict pkg: validation when present
+cpe:           str | None          # new
+identity_kind: "purl" | "cpe"      # semantic token, NOT NULL, NO DEFAULT
+```
+
+- `identity_kind = "purl"` requires `purl IS NOT NULL AND purl LIKE 'pkg:%'`
+- `identity_kind = "cpe"` requires `purl IS NULL AND cpe IS NOT NULL` with a
+  valid `cpe:` coordinate
+- A claimed purl is always selected and strictly validated; malformed purl plus
+  valid CPE quarantines rather than falling back
+- Uniqueness by **two partial indexes keyed on `identity_kind`**, giving Postgres
+  one deterministic expression per kind and **no namespace conflation** between the
+  two coordinate spaces
+- **No default on `identity_kind`.** The parser must select from coordinates
+  actually present; neither present is malformed and quarantines
+- The shipped **`object_id`<->`purl` immutability guard becomes
+  `object_id`<->`(identity_kind, identity value)`**: a component may not change
+  *which kind* identifies it either, since that would be a different component
+- Both fields are retained even when only one identifies - a purl-bearing component
+  may also carry a `cpe`, and discarding it would repeat this ECR's own mistake
+
+This also **extends**: a future third coordinate adds a member, not a redesign.
+
+### 8. The discriminator: format-level, not tool-level
+
+The brief offers three candidates. **Recommendation: `purl` absent **and** `cpe`
+present** - and *not* `foundBy == pe-binary-package-cataloger` or
+`metadataType == pe-binary`.
+
+**Why not the syft signatures.** Both couple the parser to **one tool's internal
+taxonomy**. Cataloger names and metadata types change between syft versions, and a
+rule that only works for syft would **silently fail the day the estate is scanned
+with something else** - a latent, data-shaped defect of exactly the kind the S-track
+keeps finding. The platform accepts *handed-in CycloneDX documents*, not
+*syft output*.
+
+**Why the format-level rule is also the honest one.** The platform **cannot know
+whether a purl could exist** - only whether one **was claimed**. A signature
+asserting *"no ecosystem coordinate can exist"* would be a claim about the world the
+document never made. *"No purl claimed; a `cpe` claimed"* states what is true.
+
+The syft signatures should be recorded in this ECR as **corroborating evidence** for
+why the 24 have no purl - they are exactly what makes the finding legible - but they
+must not become the rule.
+
+**The negative control survives unchanged:** package-typed, **no `purl`, no
+`cpe`** - **still quarantines.**
+
+### 9. Guard rails - (B) is the permissive route
+
+- **Never synthesise a purl.** Deriving `pkg:generic/simple-launcher@1.1.0.14`
+  would fabricate a coordinate no ecosystem issued. Syft emits `pkg:generic/` for
+  chrome and node because it **has provenance** for them; inventing one here is
+  guessing, which the platform forbids everywhere else.
+- **Strict validation stays wherever a `purl` is claimed.**
+- **(B) widens what can be represented. It must not widen what can be tolerated.**
+- **The 24-to-1 collapse must not lose the locations.** One component observed at
+  24 paths is the correct model *only if the 24 paths are recorded*; if
+  `SoftwareComponent` cannot carry them today, that is part of this change, not a
+  detail to drop.
+
+### 10. Proof
+
+- A CycloneDX document containing **both** a purl-bearing binary-classifier
+  component (`pkg:generic/node@...`) **and** a purl-less PE component. **The
+  discriminator is only proven when both are present** (§3).
+- **Mutation both directions:** removing the new classification must **re-quarantine**
+  the document; relaxing it to all `binary` components must **fail on the
+  purl-bearing ones**.
+- **24 purl-less entries sharing one `cpe` reconcile to a single component with 24
+  recorded locations.**
+- **A second collection of the same host mints no duplicates** - the regression
+  `bom-ref` keying would have caused, and the reason it was struck.
+- **Negative control:** package-typed, no `purl`, no `cpe` - still quarantines.
+- **Real owner round trip:** a CPE-only component reaches EA-0002 under a `cpe`
+  natural key; purl-specific analysis reports explicit uncertainty/refusal rather
+  than an empty clean result.
+- Both backends, both tenant modes, `python -O`.
+
+### 11. Not in scope
+
+- **`inventory()` sizing is fine** - 15,152 components sits under C-036's
+  `page_budget = 50_000`. Worth one line as context: **this is the first real
+  workload to exceed the retired ECR-0034 10,000 cap**, which validates the C-036
+  cursor work against a real number rather than a constructed one.
+- Two S-003 follow-ups, deliberately separate: collection has **no memory bound**
+  (`nproc=2` makes the two-worker cap a no-op; peak syft RSS 1.29 GB of 3.9 GB), and
+  two **doc-versus-code drift pins**.
