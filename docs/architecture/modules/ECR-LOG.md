@@ -4639,19 +4639,18 @@ quietly substituted one source for another would have hidden it.
 | loopback-only | **4** |
 | neither | **6** |
 
-**The precise statement, because the S-003 bundle got half of this wrong:**
+**The precise distinction, which the S-003 bundle left unstated:**
 
 | question | answered by |
 |---|---|
 | *is this socket externally bound?* | **the observed bind address** |
 | *how does traffic flow between them?* | **configuration only** |
 
-The S-003 bundle argued configuration is *better data* because it states "what the
-host intends to expose." **That is right about topology and wrong as a
-generalisation.** For reachability-at-the-socket the observed bind is **stronger**:
+For reachability-at-the-socket the observed bind is **stronger** than configuration:
 a config file states intent and can be stale, edited-but-unreloaded, or overridden;
-the bind address is what the kernel is doing now. **Correcting that here rather than
-letting the implementer substitute silently.**
+the bind address is what the kernel is doing now. Configuration remains necessary
+for topology and traffic flow. **Recording that distinction here prevents U3 from
+silently substituting one evidence source for the other.**
 
 ### 3. Decision 1 - derive from observed binds, and say so in the basis
 
