@@ -8,7 +8,8 @@
 **Change control:** ECR-0011 (no-scan boundary), ECR-0030 (object pagination),
 ECR-0041 (optional evidence-backed exposure impact context for DSPM), ECR-0044
 (semantic credential-sensitivity context with backward-compatible default),
-ECR-0048 (atomic persisted analyze-and-score plus tenant-scoped owner read)
+ECR-0048 (atomic persisted analyze-and-score plus tenant-scoped owner read),
+ECR-0073 (observed host-state basis and honest bind-derived reachability)
 **Definition of Ready:** see §9
 
 ---
@@ -148,8 +149,11 @@ AssetRef  = { kind: "asset"|"cloud"|"api"|"identity"|"domain"|"cert",
 # obj_ subject used by scoring/findings. Existing obj_-keyed callers may omit
 # object_id and continue to use ref_id as both identities. A supplied object_id
 # must be a valid obj_ id; when ref_id is also obj_, the two must match (ECR-0041).
-ExposureBasis = { kind: "inventory"|"telemetry"|"access"|"graph", ref: str,
+ExposureBasis = { kind: "inventory"|"telemetry"|"access"|"graph"|"host_state", ref: str,
                   as_of: datetime, evidence_id: str | null }  # derived-from, never scanned (S1)
+# host_state means the host's own observed runtime state. It is neither EA-0019
+# telemetry nor inventory membership; ref identifies the specific handed-in
+# observation that produced the judgement (ECR-0073).
 
 ExposureImpactKind = "data_sensitivity" | "credential_sensitivity"
 ExposureImpactContext = { kind: ExposureImpactKind = "data_sensitivity",
@@ -299,6 +303,11 @@ gated run / EA-0020 recommendation; it never remediates (S8).
   `credential_sensitivity`. `data_sensitivity` SHALL remain the omitted-kind
   default; EA-0032 callers SHALL pass `credential_sensitivity` explicitly, and
   the kind SHALL be pinned in the replayable derivation (ECR-0044).
+- **FR-19** A reachability judgement derived from host-local runtime state SHALL
+  use `ExposureBasis.kind="host_state"` and a non-empty ref naming the specific
+  observation. It SHALL NOT claim `inventory` or EA-0019 `telemetry`. Wildcard
+  binds are external, loopback binds internal, and any other bind remains
+  unknown; a degraded inventory SHALL still refuse the entire read (ECR-0073).
 
 ### Non-functional
 
@@ -311,6 +320,9 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 - **NFR-6 (semantic compatibility)** ECR-0044 changes no omitted-kind caller;
   data and credential sensitivity remain distinguishable in stored/replayed
   contexts without introducing a second scorer.
+- **NFR-7 (observed-state provenance)** ECR-0073 widens only the basis
+  vocabulary and inventory source. `_level_for` and `derive_surface` remain
+  unchanged; host-state observations cannot masquerade as lake telemetry.
 
 ## 9. Acceptance Criteria ↔ Tests (Definition of Ready)
 
@@ -338,6 +350,7 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 | AC-20 | impact_context round-trips identically through in-memory and Postgres stores and still verifies against its derivation | `test_exp_impact_context_store_contract[inmemory]` / `test_exp_impact_context_store_contract[postgres]` |
 | AC-21 | Omitted impact kind remains data_sensitivity and preserves the existing DSPM score/derivation | `test_exp_impact_context_kind_default_compat` |
 | AC-22 | Explicit credential_sensitivity is accepted, round-tripped, and pinned in replay | `test_exp_credential_impact_context_replay` |
+| AC-23 | Bind-derived inventory surface uses host_state basis, preserves the degraded refusal, and leaves non-wildcard/non-loopback binds unknown | `test_s003_reachability_measured_from_bind` / `test_s003_degraded_inventory_still_refuses` |
 
 ## 10. Error taxonomy (contributions)
 

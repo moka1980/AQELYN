@@ -32,6 +32,7 @@ from aqelyn.inventory.service import (
     InventoryKnownSurfaceSource,
     InventoryProvider,
     InventoryVulnerabilityCoverageProvider,
+    ObservedHostSurface,
     register_inventory_events,
 )
 from aqelyn.inventory.store import AssetStore
@@ -62,6 +63,7 @@ __all__ = [
     "InventoryReport",
     "InventoryVulnerabilityCoverageProvider",
     "LifecycleState",
+    "ObservedHostSurface",
     "Ownership",
     "PostgresAssetStore",
     "SourceHealth",

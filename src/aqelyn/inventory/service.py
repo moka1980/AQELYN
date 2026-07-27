@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from datetime import datetime
 from typing import Protocol
 
-from aqelyn.conventions import ActorRef, new_id, parse_id
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from aqelyn.conventions import ActorRef, new_id, parse_id, require_typed_id
 from aqelyn.conventions.errors import (
     AssetNotFound,
     CoverageUnavailable,
@@ -16,7 +19,13 @@ from aqelyn.conventions.errors import (
     StoreUnavailable,
 )
 from aqelyn.events.registry import EventTypeRegistry
-from aqelyn.exposure import AssetRef, ExposureBasis, KnownSurfaceRecord
+from aqelyn.exposure import (
+    VALID_REACHABILITY,
+    AssetRef,
+    ExposureBasis,
+    KnownSurfaceRecord,
+    Reachability,
+)
 from aqelyn.inventory.engine import InventoryIntelligenceEngine
 from aqelyn.inventory.models import (
     AssetRecord,
@@ -52,11 +61,67 @@ class InventoryProvider(Protocol):
     async def inventory(self, *, tenant_id: str | None) -> InventoryReport: ...
 
 
+class ObservedHostSurface(BaseModel):
+    """One inventory-bound judgement derived from host-local runtime state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    asset_id: str
+    reachability: Reachability | None
+    basis_refs: list[str]
+    observed_at: datetime
+    rationale: str
+
+    @field_validator("asset_id")
+    @classmethod
+    def _asset_id(cls, value: str) -> str:
+        return require_typed_id(value, "ast", field="observed host surface asset_id")
+
+    @field_validator("reachability")
+    @classmethod
+    def _reachability(cls, value: Reachability | None) -> Reachability | None:
+        if value is not None and value not in VALID_REACHABILITY:
+            raise InventoryConfigInvalid(f"unknown observed reachability: {value!r}")
+        return value
+
+    @field_validator("basis_refs")
+    @classmethod
+    def _basis_refs(cls, values: list[str]) -> list[str]:
+        if not values:
+            raise InventoryConfigInvalid("observed host surface requires a basis ref")
+        selected = [value.strip() for value in values]
+        if any(not value for value in selected):
+            raise InventoryConfigInvalid("observed host surface basis refs must not be empty")
+        if len(selected) != len(set(selected)):
+            raise InventoryConfigInvalid("observed host surface basis refs must be unique")
+        return selected
+
+    @field_validator("rationale")
+    @classmethod
+    def _rationale(cls, value: str) -> str:
+        if not value.strip():
+            raise InventoryConfigInvalid("observed host surface rationale must not be empty")
+        return value
+
+
 class InventoryKnownSurfaceSource:
     """Expose EA-0025 inventory as EA-0023's known asset set."""
 
-    def __init__(self, inventory: InventoryProvider) -> None:
+    def __init__(
+        self,
+        inventory: InventoryProvider,
+        *,
+        observed_surface: Sequence[ObservedHostSurface] = (),
+    ) -> None:
         self.inventory = inventory
+        selected = [
+            ObservedHostSurface.model_validate(value.model_dump(mode="json"))
+            for value in observed_surface
+        ]
+        asset_ids = [value.asset_id for value in selected]
+        if len(asset_ids) != len(set(asset_ids)):
+            raise InventoryConfigInvalid("observed host surface assets must be unique")
+        self._observed_surface = {value.asset_id: value for value in selected}
 
     async def list_known_surface(self, *, tenant_id: str | None) -> Sequence[KnownSurfaceRecord]:
         try:
@@ -67,8 +132,27 @@ class InventoryKnownSurfaceSource:
             raise InventoryUnavailable("inventory source unavailable") from exc
         if report.degraded:
             raise InventoryUnavailable("inventory source is degraded")
+        inventory_assets = set(report.assets)
+        if any(asset_id not in inventory_assets for asset_id in self._observed_surface):
+            raise InventoryUnavailable("observed host surface is not bound to current inventory")
         return [
-            KnownSurfaceRecord(
+            self._surface_record(
+                asset_id,
+                report=report,
+                observation=self._observed_surface.get(asset_id),
+            )
+            for asset_id in report.assets
+        ]
+
+    @staticmethod
+    def _surface_record(
+        asset_id: str,
+        *,
+        report: InventoryReport,
+        observation: ObservedHostSurface | None,
+    ) -> KnownSurfaceRecord:
+        if observation is None:
+            return KnownSurfaceRecord(
                 asset_ref=AssetRef(kind="asset", ref_id=asset_id),
                 classification="inventory_asset",
                 exposure_type="inventory_surface",
@@ -86,8 +170,22 @@ class InventoryKnownSurfaceSource:
                     "unknown until supported by evidence."
                 ),
             )
-            for asset_id in report.assets
-        ]
+        return KnownSurfaceRecord(
+            asset_ref=AssetRef(kind="asset", ref_id=asset_id),
+            classification="inventory_asset",
+            exposure_type="inventory_surface",
+            reachability=observation.reachability,
+            basis=[
+                ExposureBasis(
+                    kind="host_state",
+                    ref=ref,
+                    as_of=observation.observed_at,
+                )
+                for ref in observation.basis_refs
+            ],
+            observed_at=observation.observed_at,
+            rationale=observation.rationale,
+        )
 
 
 class InventoryVulnerabilityCoverageProvider:
