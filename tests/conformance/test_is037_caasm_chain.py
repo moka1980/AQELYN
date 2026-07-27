@@ -45,6 +45,7 @@ from aqelyn.inventory import (
     PostgresAssetStore,
 )
 from aqelyn.inventory.engine import _ASSET_PAGE_SIZE
+from aqelyn.objects import InMemoryObjectStore
 from aqelyn.vuln import InMemoryVulnerabilityStore
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -126,6 +127,7 @@ async def _chain(backend: str, tenant_mode: str) -> AsyncIterator[_Chain]:
     coverage = InventoryVulnerabilityCoverageProvider(
         inventory,
         InMemoryVulnerabilityStore(mode=tenant_mode),
+        InMemoryObjectStore(mode=tenant_mode),
     )
     try:
         yield _Chain(
@@ -437,6 +439,7 @@ async def test_is037_downstream_gates_refuse_on_degraded() -> None:
     coverage = InventoryVulnerabilityCoverageProvider(
         engine,
         InMemoryVulnerabilityStore(mode="enterprise"),
+        InMemoryObjectStore(mode="enterprise"),
     )
 
     # 1. EA-0023 known surface refuses rather than deriving a partial attack surface.

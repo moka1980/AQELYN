@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import pytest
 
-from aqelyn.conventions import new_id
+from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import CoverageUnavailable
 from aqelyn.dspm import DataStoreKnownSurfaceSource
 from aqelyn.exposure import AssetRef
@@ -20,6 +20,7 @@ from aqelyn.inventory import (
 )
 from aqelyn.ispm import IdentityKnownSurfaceSource
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime, create_runtime
+from aqelyn.objects import AQObject, NaturalKey, SourceRef
 from aqelyn.secrets import CryptoKnownSurfaceSource
 from aqelyn.sspm import SaaSIntegrationKnownSurfaceSource
 from aqelyn.vuln import CarriedScore, VulnBasis, VulnerabilityRecord
@@ -110,6 +111,37 @@ async def test_inv_seams_wired(backend: str) -> None:
             source=source,
             tenant_id=tenant_id,
         )
+        for index in range(3):
+            component_id = new_id("obj")
+            actor = ActorRef(actor_type="system", actor_id="inventory-coverage-test")
+            await runtime.object_store.upsert(
+                AQObject(
+                    id=component_id,
+                    object_type="software_component",
+                    schema_version=1,
+                    tenant_id=tenant_id,
+                    display_name=f"object-only-component-{index}",
+                    attributes={"identity_kind": "purl"},
+                    labels={"module": "EA-0030"},
+                    natural_keys=[
+                        NaturalKey(namespace="purl", value=f"pkg:generic/orphan-{index}")
+                    ],
+                    sources=[
+                        SourceRef(
+                            source_id=new_id("src"),
+                            evidence_id=new_id("evd"),
+                            observed_at=NOW,
+                            method="test object without inventory twin",
+                        )
+                    ],
+                    first_seen_at=NOW,
+                    last_seen_at=NOW,
+                    created_at=NOW,
+                    updated_at=NOW,
+                    created_by=actor,
+                    updated_by=actor,
+                )
+            )
         await runtime.vuln_engine.ingest(
             records=[_vulnerability(first_asset_id, tenant_id=tenant_id)],
             tenant_id=tenant_id,
@@ -135,6 +167,7 @@ async def test_inv_seams_wired(backend: str) -> None:
         degraded_provider = InventoryVulnerabilityCoverageProvider(
             _DegradedInventory(),
             runtime.vuln_store,
+            runtime.object_store,
         )
         with pytest.raises(CoverageUnavailable):
             await degraded_provider.coverage(tenant_id=tenant_id)

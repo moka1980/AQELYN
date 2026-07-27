@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -10,7 +11,16 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from tools.first_run import FactorReading, UnreadableFactor, read_factors
+from tools.first_run import (
+    FactorReading,
+    RunReport,
+    UnreadableFactor,
+    coverage_factor_readings,
+    density_report,
+    read_factors,
+)
+
+from aqelyn.vuln import CoverageGap, CoverageReport
 
 
 def test_unknown_roadmap_uses_typed_cause_not_source_suffix() -> None:
@@ -57,6 +67,51 @@ def test_unknown_roadmap_keeps_carried_input_absence_consistent() -> None:
         "cvss": True,
         "epss": True,
     }
+
+
+def test_vuln_cpe_only_appears_closable_in_density(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    coverage = CoverageReport(
+        scanned=[],
+        unscanned=[],
+        stale=[],
+        unassessable=[
+            CoverageGap(
+                asset_ref="ast_019f0000000070008000000000000072",
+                reason="no provider matches identity_kind=cpe",
+                unknown_cause="provider_unconfigured",
+            )
+        ],
+        computed_at=datetime(2026, 7, 27, 15, 0, tzinfo=UTC),
+    )
+
+    [reading] = coverage_factor_readings(coverage)
+
+    assert reading.name == "vulnerability_coverage"
+    assert reading.closable is True
+    assert "ast_" not in repr(reading)
+
+    density_report(
+        RunReport(
+            target="private-estate",
+            tenant_mode="enterprise",
+            sbom_components=1,
+            sbom_parsed=1,
+            grype_matches=0,
+            vuln_records=0,
+            vuln_rejected=[],
+            join_total=0,
+            join_matched=0,
+            stored=0,
+            findings=[],
+            coverage_factors=[reading],
+        )
+    )
+    rendered = capsys.readouterr().out
+    assert "vulnerability_coverage" in rendered
+    assert "no provider matches identity_kind=cpe" in rendered
+    assert "ast_" not in rendered
 
 
 @pytest.mark.parametrize(

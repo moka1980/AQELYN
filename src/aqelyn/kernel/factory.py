@@ -1319,7 +1319,12 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
         mission_provider=mission_engine,
         baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
-        coverage_provider=InventoryVulnerabilityCoverageProvider(inventory_engine, vuln_store),
+        coverage_provider=InventoryVulnerabilityCoverageProvider(
+            inventory_engine,
+            vuln_store,
+            object_store,
+            page_budget=inventory_engine.config.page_budget,
+        ),
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )
@@ -2079,7 +2084,12 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_provider=ExposureStoreReachabilityProvider(exposure_store),
         mission_provider=mission_engine,
         baseline_provider=DriftSnapshotBlockingProvider(acg_snapshot_store),
-        coverage_provider=InventoryVulnerabilityCoverageProvider(inventory_engine, vuln_store),
+        coverage_provider=InventoryVulnerabilityCoverageProvider(
+            inventory_engine,
+            vuln_store,
+            object_store,
+            page_budget=inventory_engine.config.page_budget,
+        ),
         trend_provider=forecast_engine,
         finding_store=finding_store,
     )

@@ -252,7 +252,7 @@ def _engine(
     )
 
 
-async def test_sc_vulns_to_ea0024() -> None:
+async def test_sc_purl_str_still_accepted() -> None:
     supply_store = InMemorySBOMStore(mode="enterprise")
     vuln_store = InMemoryVulnerabilityStore(mode="enterprise")
     finding_store = InMemoryFindingStore(mode="enterprise")
@@ -291,7 +291,32 @@ async def test_sc_vulns_to_ea0024() -> None:
     assert finding.automation.requires_approval is True
 
 
-async def test_sc_cpe_component_refuses_vulnerability_prioritization() -> None:
+async def test_sc_prioritization_accepts_component_identity() -> None:
+    supply_store = InMemorySBOMStore(mode="enterprise")
+    vuln_store = InMemoryVulnerabilityStore(mode="enterprise")
+    finding_store = InMemoryFindingStore(mode="enterprise")
+    component = await supply_store.put_component(_component())
+    await vuln_store.put(_vulnerability(component))
+    engine = _engine(
+        supply_store,
+        vulnerability_store=vuln_store,
+        vulnerability_owner=VulnerabilityIntelligenceEngine(
+            vuln_store,
+            finding_store=finding_store,
+        ),
+        finding_store=finding_store,
+    )
+
+    [finding_id] = await engine.component_vulns_to_prioritization(
+        [component.identity],
+        tenant_id=TENANT,
+        by=ACTOR,
+    )
+
+    assert await finding_store.get(finding_id) is not None
+
+
+async def test_sc_guard_reachable_without_cast() -> None:
     supply_store = InMemorySBOMStore(mode="enterprise")
     vuln_store = InMemoryVulnerabilityStore(mode="enterprise")
     finding_store = InMemoryFindingStore(mode="enterprise")
@@ -315,7 +340,28 @@ async def test_sc_cpe_component_refuses_vulnerability_prioritization() -> None:
         ),
     ):
         await engine.component_vulns_to_prioritization(
-            cast(list[str], [component.identity]),
+            [component.identity],
+            tenant_id=TENANT,
+            by=ACTOR,
+        )
+
+
+async def test_vuln_cpe_only_not_zero_findings() -> None:
+    supply_store = InMemorySBOMStore(mode="enterprise")
+    vuln_store = InMemoryVulnerabilityStore(mode="enterprise")
+    component = await supply_store.put_component(_cpe_component())
+    engine = _engine(
+        supply_store,
+        vulnerability_store=vuln_store,
+        vulnerability_owner=VulnerabilityIntelligenceEngine(vuln_store),
+    )
+
+    with pytest.raises(
+        SupplyChainConfigInvalid,
+        match=r"component vulnerability prioritization requires a purl-identified component",
+    ):
+        await engine.component_vulns_to_prioritization(
+            [component.identity],
             tenant_id=TENANT,
             by=ACTOR,
         )

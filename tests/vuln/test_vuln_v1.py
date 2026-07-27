@@ -23,6 +23,7 @@ from aqelyn.conventions.errors import (
 from aqelyn.exposure import AssetRef
 from aqelyn.vuln import (
     CarriedScore,
+    CoverageGap,
     CoverageReport,
     Disposition,
     RemediationPlan,
@@ -185,6 +186,19 @@ def test_vuln_no_scan_surface(monkeypatch: pytest.MonkeyPatch) -> None:
             scanned=["asset:1", "asset:1"],
             unscanned=[],
             stale=[],
+            computed_at=NOW,
+        ),
+        lambda: CoverageReport(
+            scanned=["asset:1"],
+            unscanned=[],
+            stale=[],
+            unassessable=[
+                CoverageGap(
+                    asset_ref="asset:1",
+                    reason="no provider matches the identity kind",
+                    unknown_cause="provider_unconfigured",
+                )
+            ],
             computed_at=NOW,
         ),
         lambda: VulnerabilityAssessment(

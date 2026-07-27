@@ -11,6 +11,7 @@ from aqelyn.events.registry import EventTypeRegistry
 from aqelyn.kernel.service import HealthStatus
 from aqelyn.supplychain.engine import SupplyChainEngine
 from aqelyn.supplychain.models import (
+    ComponentIdentity,
     ProvenanceAttestation,
     ProvenanceResult,
     ReachabilitySignal,
@@ -169,13 +170,13 @@ class SupplyChainService:
 
     async def component_vulns_to_prioritization(
         self,
-        purls: Sequence[str],
+        identities: Sequence[ComponentIdentity | str],
         *,
         tenant_id: str | None,
         by: ActorRef,
     ) -> list[str]:
         return await self.engine.component_vulns_to_prioritization(
-            purls,
+            identities,
             tenant_id=tenant_id,
             by=by,
         )

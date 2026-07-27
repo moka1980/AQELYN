@@ -72,6 +72,11 @@ async def test_vuln_service_health(backend: str) -> None:
     )
     assert runtime.vuln_engine.coverage_provider.inventory is runtime.inventory_engine
     assert runtime.vuln_engine.coverage_provider.vulnerability_store is runtime.vuln_store
+    assert runtime.vuln_engine.coverage_provider.object_store is runtime.object_store
+    assert (
+        runtime.vuln_engine.coverage_provider.page_budget
+        == runtime.inventory_engine.config.page_budget
+    )
     assert runtime.vuln_engine.trend_provider is runtime.forecast_engine
     assert runtime.vuln_engine.finding_store is runtime.finding_store
     for event_type in VULN_EVENT_TYPES:
