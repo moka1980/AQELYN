@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, get_args
+from typing import Any, Literal, Protocol
 
 from aqelyn.conventions import ActorRef, new_id, require_typed_id, utc_now
 from aqelyn.conventions.errors import (
@@ -21,9 +21,11 @@ from aqelyn.findings import Automation, Finding, FindingStore, Remediation
 from aqelyn.forecast import TrendRecord
 from aqelyn.mission import MissionImpactResult
 from aqelyn.vuln.models import (
+    VALID_FACTOR_UNKNOWN_CAUSES,
     CoverageReport,
     Disposition,
     DispositionKind,
+    FactorUnknownCause,
     RemediationPlan,
     VulnConfig,
     VulnerabilityAssessment,
@@ -34,14 +36,6 @@ from aqelyn.vuln.store import VulnerabilityStore
 
 _FACTOR_ORDER = ("cvss", "epss", "threat", "exposure", "mission", "baseline", "trust")
 _SCORE_TOLERANCE = 0.000001
-
-FactorUnknownCause = Literal[
-    "provider_unconfigured",
-    "input_missing",
-    "assessment_incomplete",
-    "source_cannot_assert",
-]
-VALID_FACTOR_UNKNOWN_CAUSES = frozenset(get_args(FactorUnknownCause))
 
 
 @dataclass(frozen=True)

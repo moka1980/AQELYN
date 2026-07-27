@@ -26,7 +26,7 @@ import json
 import subprocess
 import sys
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -44,6 +44,7 @@ from aqelyn.supplychain.parse import parse_sbom
 from aqelyn.threat.parse import KevExploitationProvider, parse_kev
 from aqelyn.vuln import (
     VALID_FACTOR_UNKNOWN_CAUSES,
+    CoverageReport,
     FactorUnknownCause,
     PostgresVulnerabilityStore,
     VulnerabilityIntelligenceEngine,
@@ -77,6 +78,7 @@ class RunReport:
     join_matched: int
     stored: int
     findings: list[Any]
+    coverage_factors: list[FactorReading] = field(default_factory=list)
 
 
 def _run(cmd: list[str], out: Path) -> None:
@@ -322,6 +324,25 @@ def read_factors(finding: Any) -> list[FactorReading]:
     return readings
 
 
+def coverage_factor_readings(coverage: CoverageReport) -> list[FactorReading]:
+    """Reduce EA-0024 coverage gaps to value-free roadmap facts.
+
+    The returned shape has no subject identifier, so the density emitter cannot
+    carry per-asset detail outside the local estate.
+    """
+
+    return [
+        FactorReading(
+            name="vulnerability_coverage",
+            status=gap.status,
+            reason=gap.reason,
+            source="ea0024:coverage",
+            unknown_cause=gap.unknown_cause,
+        )
+        for gap in coverage.unassessable
+    ]
+
+
 def density_report(report: RunReport) -> None:
     """Per-factor known/unknown with reasons -- or a refusal, never a partial table.
 
@@ -383,7 +404,7 @@ def density_report(report: RunReport) -> None:
             print(f"  ... and {len(unreadable) - 10} more")
         raise SystemExit(2)
 
-    if not per_finding:
+    if not per_finding and not report.coverage_factors:
         print("\nno findings were prioritized -- nothing to report on")
         return
 
@@ -400,9 +421,17 @@ def density_report(report: RunReport) -> None:
                 if not reading.closable:
                     structural[reading.name] += 1
                 reasons.setdefault(reading.name, Counter())[reading.reason] += 1
+    for reading in report.coverage_factors:
+        unknown[reading.name] += 1
+        if not reading.closable:
+            structural[reading.name] += 1
+        reasons.setdefault(reading.name, Counter())[reading.reason] += 1
 
     total_factors = sum(known.values()) + sum(unknown.values())
-    print(f"\n-- priority factors ({len(per_finding)} findings, {total_factors} factors) --")
+    print(
+        f"\n-- priority factors ({len(per_finding)} findings, "
+        f"{len(report.coverage_factors)} coverage gaps, {total_factors} factors) --"
+    )
     # ECR-0066: with a tie at the top the ordering stops recommending anything, and
     # breaking it by sort stability would make an owner's decision invisibly. The
     # report states the tie and stops there; the tie-break -- cheapest-to-wire, or

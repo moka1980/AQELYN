@@ -75,7 +75,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0068 | GC-001 | Accepted | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
 | ECR-0069 | S-track tooling | Accepted | **Data-handling boundary for real-estate milestones.** Aggregate counts may leave; per-asset detail may not — structurally, not by convention. |
 | ECR-0070 | S-track tooling | Accepted | **Transient collector boundary.** A complete filesystem inventory may consume one checksum-pinned temporary executable, but no package install or persistent estate change; cleanup and verified absence are part of success. |
-| ECR-0071 | EA-0030 | Proposed | **A real SBOM cannot be ingested.** 24 purl-less package components quarantine 131,685. Route (B): represent them, keyed on `cpe`. |
+| ECR-0071 | EA-0030 | Accepted | **A real SBOM cannot be ingested.** 24 purl-less package components quarantine 131,685. Route (B): represent them, keyed on `cpe`. |
+| ECR-0072 | EA-0030 + EA-0024 | Proposed | **Absence is not a value.** Absent licence read as conflicting; absent coverage read as clean. Third and fourth arrivals of one error. |
 
 ---
 
@@ -4390,10 +4391,219 @@ must not become the rule.
 
 ### 11. Not in scope
 
-- **`inventory()` sizing is fine** - 15,152 components sits under C-036's
-  `page_budget = 50_000`. Worth one line as context: **this is the first real
-  workload to exceed the retired ECR-0034 10,000 cap**, which validates the C-036
-  cursor work against a real number rather than a constructed one.
+- **`inventory()` sizing is fine** - well under C-036's `page_budget = 50_000`;
+  nothing is degraded.
+  **CORRECTED by ECR-0072 §5:** an earlier version of this line read *"15,152
+  components - the first real workload to exceed the retired ECR-0034 10,000
+  cap."* **That figure was wrong.** 15,152 is package-typed **entries**; after
+  identity dedup the estate yields **7,972 components**, which is **below** the
+  retired cap. Parse-level dedup was not accounted for. The `page_budget`
+  statement is unaffected; the exceeds-10,000 claim is withdrawn.
 - Two S-003 follow-ups, deliberately separate: collection has **no memory bound**
   (`nproc=2` makes the two-worker cap a no-op; peak syft RSS 1.29 GB of 3.9 GB), and
   two **doc-versus-code drift pins**.
+
+## ECR-0072 - Absence is not a value: three arrivals of one error
+
+**Raised by:** **S-003**, running the real estate document through the real parser
+at `bb970df` / `f96d7e5`.
+**Status:** Proposed.
+**Blocks:** S-003 U2 - the real estate must ingest **unedited**.
+**Number:** verified free; rule 20 checked (archive stops at EA-0051). **Re-check
+before merging** (rule 1).
+
+**This is one ECR rather than three because they share a single root**, and the
+root is worth stating once:
+
+> **Absent purl** was read as **malformed** (ECR-0071).
+> **Absent licence metadata** is read as **conflicting** (§1).
+> **Absent vulnerability coverage** will be read as **clean** (§4).
+>
+> **Absence is not a value.** It is not malformation, it is not disagreement, and
+> it is emphatically not a clean result.
+
+Splitting these would lose the pattern. The implementation sequences them (§6);
+the finding is one finding.
+
+---
+
+### 1. The blocker: absent licence metadata treated as a conflict
+
+**C-039 works, and the real SBOM still cannot be ingested.** `parse.py` compares
+duplicate observations of one identity across
+`identity_kind, purl, cpe, name, version, component_type, licenses, supplier,
+hashes` and **quarantines the entire document** if any field differs.
+
+**Measured on the real estate:**
+
+| quantity | value |
+|---|---|
+| identities appearing more than once | **6,972** |
+| total duplicate entries | 14,129 |
+| duplicate sets differing on a compared field | **2** |
+| of those, **absence vs value** | **2** |
+| of those, **genuine contradictions** | **0** |
+
+Both cases are the same package installed into two Python environments, where the
+scanner found licence metadata at one install location and not the other.
+**Nothing contradicts anything. Two entries out of 7,972 refuse the whole
+document.**
+
+### 2. This is rule 29, not a missing rule
+
+**The parser already merges on absence** - `locations` and `direct` do exactly
+this at `parse.py:246-247`. So the correct decision is **already in the file**; it
+was applied to two fields when it was a property of every optional one.
+
+That is **rule 29** verbatim: *a correction applied at one call site when it was a
+property of all of them*, and the closing question - *is this site the only one
+that could have had it?* - was not asked when those two merges were written.
+
+**Resolution: route (A) - absence is not conflict.** When one observation carries
+a value and another carries none, the **informative value wins**. Only two
+**different non-null** values are a conflict.
+
+**Route (B) does not fit, and this was checked before specifying.**
+`ComponentConflictCandidate` requires `source_id`, `evidence_id`, `observed_at`
+and `reliability`, and `ComponentConflict` is populated only in `_reconcile` - the
+**cross-document** path where EA-0006 reliability discriminates between *different
+sources*. Within one document both observations share the **same `source_id`, the
+same `evidence_id`, and therefore the same reliability**, so reconciliation
+degenerates: every case lands `unresolved: true` **by construction**. That is a
+rename of the problem, and it would mark ordinary multi-environment installs as
+permanent unresolved conflicts. (B) remains correct for the cross-document case it
+was built for.
+
+**Route (C) - keep quarantining - has a measured consequence: no
+multi-environment host can ever be ingested.** One absent licence field among
+thousands of duplicates is enough.
+
+> **(A) narrows what counts as a conflict. It does not widen what is tolerated.**
+> A genuine contradiction - two different non-null values for one identity - **still
+> quarantines.** The C-039 governing sentence is unchanged.
+
+### 3. Field classification, with the evidence basis stated per row
+
+§6 of the brief asked for this rather than leaving it to inference. **Measured
+across all 15,152 package-typed entries:**
+
+**Contradiction-only** - a difference is always a contradiction, and absence is
+itself one, because these are never legitimately absent:
+
+| field | evidence |
+|---|---|
+| `name` | **proven** - 0.0% absent, never differs |
+| `version` | **proven** - 0.0% absent, never differs |
+| `component_type` | **proven** - 0.0% absent, never differs |
+| `identity_kind` | **structural** - cannot differ within an identity group by construction |
+| the **identifying** coordinate (`purl` when kind=purl, `cpe` when kind=cpe) | **structural** - it is the group key |
+
+**Absence-mergeable** - one value, one absence, the informative value wins; two
+different non-null values contradict:
+
+| field | evidence |
+|---|---|
+| `licenses` | **proven by real data** - 2.1% absent, the only field differing among 6,973 groups, both differences absence-vs-value |
+| the **non-identifying** coordinate | **structural** - `cpe` at 0.2% absent, `purl` at 0.2%; a purl-identified component may or may not also carry a cpe |
+| `supplier` | **format semantics, NOT corpus-proven** - 100% absent on this estate |
+| `hashes` | **format semantics, NOT corpus-proven** - 100% absent on this estate |
+
+**The `supplier`/`hashes` distinction must be recorded, not glossed.** A field
+that is **never present never differs**, so this corpus cannot demonstrate them
+either way - and a scanner that populates them **partially** would reproduce the
+licence failure exactly. That is **rule 30**: *the camouflage improves with
+scale*, and 100% absence is the most camouflaged state there is.
+
+**Decision: fix all optional fields, not only `licenses`.** Confining the fix to
+the field the corpus happened to expose would be **rule 29 committed inside a
+repair for rule 29**. The cost is identical - it is the same comparison - and the
+evidence basis is now explicit per row, so nobody mistakes format-semantics
+classification for corpus support.
+
+### 4. The FR-16 seam, and the error's fourth arrival
+
+`SupplyChainEngine.component_vulns_to_prioritization(purls: Sequence[str], ...)`
+and its only production caller are **purl-only**. `validate_component_identity`
+maps any raw `str` to `kind="purl"`, so **no type-correct call can address a
+CPE-only component**, and the `_required_component_purl` guard at `engine.py:436`
+is **unreachable in production**.
+
+**Decision: option (i) - widen to `Sequence[ComponentIdentity | str]`,** keeping
+`str` as the documented purl-compatibility form. Three reasons:
+
+1. **Measured, it is shallow.** Vulnerabilities bind by
+   `asset_ref.ref_id == component.object_id`, **not by purl** - everything
+   downstream is **already identity-agnostic**. The `Sequence[str]` entry point is
+   the only barrier.
+2. **Option (ii) makes FR-16 a permanent per-caller tax.** Requiring the named
+   unavailable at every enumerating caller is a property that must be
+   re-established for each new one - rule 29 as a standing obligation rather than
+   a fixed defect.
+3. **C-039's V3a already prescribes it**: *any convenience API that defaults to
+   purl is only a compatibility wrapper around an explicit semantic-identity store
+   contract.* Option (ii) leaves V3a partially realised indefinitely.
+
+**But the seam is not the whole problem, and this is the part that outlives the
+option.** Even with (i), **a CPE-only component receives zero vulnerabilities from
+every shipped provider**, because none matches by CPE (`grep -rn "cpe"
+src/aqelyn/vuln/ src/aqelyn/threat/` returns nothing). It would present as
+**"0 vulnerabilities" - indistinguishable from assessed-and-clean.**
+
+**That is the error's fourth arrival, and the most consequential**, because it is
+what a real operator actually sees.
+
+**Decision: a component no provider can assess SHALL be recorded in EA-0024
+coverage as explicitly unassessable**, with the reason *"no provider matches
+identity_kind=cpe"*, and **SHALL NOT present as zero vulnerabilities.** EA-0024's
+coverage is already mandatory and `PriorityFactor` already carries
+`status="unknown"`; the machinery exists and is not being wired to this case.
+
+**Taxonomy placement** (S-002's): this is **closable** - *no provider supplied for
+this identity kind* - because a CPE-matching provider **could** be built. It is
+therefore a legitimate **roadmap entry** in the density report, not a structural
+dead end. The real estate has **one** such component, and one silently
+unprioritized component is precisely what this platform sells against.
+
+### 5. Correction to ECR-0071 §9 and C-039's review protocol
+
+Both carried: *"15,152 components - the first real workload to exceed the retired
+ECR-0034 10,000 cap."* **The figure was wrong.** 15,152 is package-typed
+**entries**; after identity dedup the estate yields **7,972 components** -
+**below** the retired cap. Parse-level dedup, which exists on `main` as well, was
+not accounted for.
+
+**The `page_budget = 50_000` statement is unaffected; nothing is degraded. The
+exceeds-10,000 claim is withdrawn.** Corrected in place in ECR-0071 rather than
+respun as a separate document.
+
+*(The mis-statement is the same shape as everything else in this ECR: an entry
+count read as a component count - counting one thing and reporting another.)*
+
+### 6. Proof
+
+- **The real, unedited estate document ingests end-to-end.** Re-run by the
+  reviewer before merge; no hand-editing.
+- **The multi-environment shape:** one identity, two observations, one carrying a
+  field value and one carrying none → **one component, informative value
+  retained.**
+- **Negative control, non-negotiable:** two **different non-null** values for one
+  identity → **still quarantines.** This is what keeps (A) from becoming a
+  tolerance path.
+- **Field-by-field mutation:** every field classified contradiction-only must
+  **refuse on absence too**, mutation-verified per field. A control exercising
+  only `licenses` proves nothing about `supplier`.
+- **CPE-only prioritization:** an estate containing a CPE-only component with a
+  known CVE either **prioritizes it or reports it explicitly unavailable - never
+  omits it silently.** **The vulnerability must be constructed**: no CPE
+  vulnerability provider exists, so a real-corpus CVE for such a component
+  **cannot be sourced**. This is legitimate and is what C-039's test already does;
+  stated here so nobody hunts for data that cannot exist.
+- **Coverage:** the CPE-only component appears as **named unassessable**, not as
+  zero-vulnerabilities. Mutate the coverage path and confirm red.
+- Both backends, both tenant modes, `python -O`.
+
+### 7. Not in scope
+
+The two S-003 follow-ups already tracked separately: collection memory bound
+(`nproc=2` makes the two-worker cap a no-op; peak syft RSS 1.29 GB of 3.9 GB), and
+the two doc-versus-code drift pins.

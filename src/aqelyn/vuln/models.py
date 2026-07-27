@@ -22,6 +22,12 @@ DispositionKind = Literal["accepted_risk", "false_positive", "mitigated"]
 VulnBasisKind = Literal["scanner", "cve_feed", "advisory", "exposure", "threat"]
 VulnStatus = Literal["open", "reasserted", "closed"]
 PriorityLevel = Literal["immediate", "high", "medium", "low", "deferred"]
+FactorUnknownCause = Literal[
+    "provider_unconfigured",
+    "input_missing",
+    "assessment_incomplete",
+    "source_cannot_assert",
+]
 
 VALID_SEVERITIES: Final[frozenset[str]] = frozenset(
     ("critical", "high", "medium", "low", "negligible", "none", "unknown")
@@ -44,6 +50,9 @@ VALID_VULN_BASIS_KINDS: Final[frozenset[str]] = frozenset(
 VALID_VULN_STATUS: Final[frozenset[str]] = frozenset(("open", "reasserted", "closed"))
 VALID_PRIORITY_LEVELS: Final[frozenset[str]] = frozenset(
     ("immediate", "high", "medium", "low", "deferred")
+)
+VALID_FACTOR_UNKNOWN_CAUSES: Final[frozenset[str]] = frozenset(
+    ("provider_unconfigured", "input_missing", "assessment_incomplete", "source_cannot_assert")
 )
 
 
@@ -310,18 +319,62 @@ class VulnPriority(BaseModel):
         return _nonempty(value, field="priority rationale")
 
 
+class CoverageGap(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    asset_ref: str
+    reason: str
+    status: Literal["unknown"] = "unknown"
+    unknown_cause: FactorUnknownCause
+
+    @field_validator("asset_ref")
+    @classmethod
+    def _asset_ref(cls, value: str) -> str:
+        return _nonempty(value, field="coverage gap asset_ref")
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        return _nonempty(value, field="coverage gap reason")
+
+    @field_validator("unknown_cause")
+    @classmethod
+    def _unknown_cause(cls, value: str) -> str:
+        if value not in VALID_FACTOR_UNKNOWN_CAUSES:
+            raise VulnConfigInvalid(f"unknown coverage gap cause: {value!r}")
+        return value
+
+
 class CoverageReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scanned: list[str]
     unscanned: list[str]
     stale: list[str]
+    unassessable: list[CoverageGap] = Field(default_factory=list)
     computed_at: datetime
 
     @field_validator("scanned", "unscanned", "stale")
     @classmethod
     def _asset_refs(cls, values: list[str]) -> list[str]:
         return _refs(values, field="coverage asset ref")
+
+    @field_validator("unassessable")
+    @classmethod
+    def _unassessable(cls, values: list[CoverageGap]) -> list[CoverageGap]:
+        refs = [value.asset_ref for value in values]
+        _refs(refs, field="unassessable coverage asset ref")
+        return values
+
+    @model_validator(mode="after")
+    def _coverage_categories_do_not_overlap(self) -> CoverageReport:
+        assessed = {*self.scanned, *self.unscanned, *self.stale}
+        overlap = assessed & {gap.asset_ref for gap in self.unassessable}
+        if overlap:
+            raise VulnConfigInvalid(
+                "unassessable coverage subjects cannot also be scanned, unscanned, or stale"
+            )
+        return self
 
 
 class VulnerabilityAssessment(BaseModel):

@@ -4,12 +4,14 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), **EA-0002 (components are objects), EA-0005 (dependency graph), EA-0025 (software inventory), EA-0024 (component vulns), EA-0010 (license compliance), EA-0013 (supply-chain risk), EA-0004 (provenance attestation backbone)**, EA-0006 (Trust), EA-0008 (remediation gated)
 **Consumed by:** EA-0024 (components as vuln-bearing assets), EA-0013 (risk signal), the supply-chain UI (a WCAG 2.2 AA surface)
 **Status:** Accepted
-**Build milestone:** C-027 (see `C-027_Task_Bundle.md`); C-039 alternative component identity
+**Build milestone:** C-027 (see `C-027_Task_Bundle.md`); C-039 alternative
+component identity; C-040 absence-is-not-value completion
 **Change control:** ECR-0037 (durable Trust reconciliation + D8 store pagination),
 ECR-0038 (truncation-bearing path result + content-addressed reachability path),
 ECR-0039 (evidence integrity is not signature authenticity),
 ECR-0040 (unknown reachability preserved through EA-0024 prioritization),
-ECR-0071 (explicit purl/CPE component identity; classification, not tolerance)
+ECR-0071 (explicit purl/CPE component identity; classification, not tolerance),
+ECR-0072 (absence-aware duplicate merge + semantic-identity prioritization)
 **Definition of Ready:** see §12
 
 ---
@@ -202,9 +204,11 @@ class SupplyChainEngine(Protocol):
                                tenant_id: str | None) -> DependencyPathResult: ...  # EA-0005 (S1/ECR-0038)
     async def reachability(self, component_purl: str, cve_id: str, *,
                            tenant_id: str | None) -> ReachabilitySignal: ...        # S2
-    async def component_vulns_to_prioritization(self, purls: Sequence[str], *,
+    async def component_vulns_to_prioritization(
+                                                self,
+                                                identities: Sequence[ComponentIdentity | str], *,
                                                 tenant_id: str | None,
-                                                by: ActorRef) -> list[str]: ...     # -> EA-0024 (D4/S2/ECR-0040)
+                                                by: ActorRef) -> list[str]: ...     # str = purl compatibility
     async def verify_provenance(self, attestations: Sequence[ProvenanceAttestation], *,
                                 tenant_id: str | None) -> list[ProvenanceResult]: ... # EA-0004 (S3)
     async def assess(self, *, subject_ref: str, tenant_id: str | None) -> SupplyChainAssessment: ...
@@ -235,7 +239,10 @@ CycloneDX components with a valid claimed purl use `identity_kind="purl"` even
 when CPE is also present. Components with no purl and a handed-in CPE use
 `identity_kind="cpe"`. Neither coordinate, or a malformed claimed purl, quarantines
 the whole document. Repeated observations sharing one identity reconcile to one
-component while retaining every handed-in location (ECR-0071).
+component while retaining every handed-in location. For optional metadata,
+one value plus one absence retains the value; two different present values still
+quarantine. Required identity/name/version/type fields remain contradiction-only
+(ECR-0071/ECR-0072).
 
 **Dependency paths + reachability.** `dependency_paths` traverses EA-0005 (up =
 "who depends on this", down = "what this pulls in"), bounded by `max_depth`,
@@ -251,8 +258,10 @@ the stored component object graph independent of coordinate namespace.
 currently keyed by package URL and version; widening that API to CPE without a
 typed vulnerability provider would invent coverage the platform does not have.
 
-**Component vulns → EA-0024.** Match component `purl`/version to CVEs;
-`component_vulns_to_prioritization` hands them to **EA-0024** with the
+**Component vulns → EA-0024.** Resolve callers through explicit
+`ComponentIdentity`; a raw string remains the purl compatibility form. Match
+component `purl`/version to CVEs; `component_vulns_to_prioritization` hands them
+to **EA-0024** with the
 `ReachabilitySignal` so EA-0024's derivation can weigh "is the vulnerable code
 actually reachable" — a genuinely better priority than CVSS-on-a-transitive-dep
 (S2/D4). An `unknown` signal remains an explicitly unknown EA-0024 factor and is
@@ -290,7 +299,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 - **FR-2** Parsed components SHALL be `SoftwareComponent`s deduped by explicit semantic identity (`purl` when claimed, otherwise handed-in `cpe`) and routed to **EA-0025** under the matching natural-key namespace; every handed-in location SHALL be retained; the module SHALL NOT implement its own inventory/lifecycle (D2/S5/ECR-0071).
 - **FR-3** Dependencies SHALL be **EA-0002 edges** bound through the document's `bom-ref` map to semantic component identities; a CPE-only endpoint SHALL be represented or the complete document refused, never silently dropped. Transitive reach SHALL use **EA-0005** traversal bounded by `max_depth`; `dependency_paths` SHALL return `DependencyPathResult` and propagate the owner's `truncated` signal; the module SHALL NOT implement graph traversal (S1/D3/ECR-0038/ECR-0071).
 - **FR-4** `reachability` SHALL classify `direct|transitive|unreachable|unknown`, default to `unknown`, and SHALL NEVER report `unknown` as `unreachable` (absence of a computed path ≠ no path). A transitive signal SHALL embed the exact EA-0005 `Path`; `path_ref` SHALL be its deterministic content address, and a mismatched path/reference pair SHALL be unconstructable (ECR-0038).
-- **FR-5** Component CVEs SHALL be routed to **EA-0024** with a `ReachabilitySignal`; an `unknown` signal SHALL remain an explicitly unknown factor in the EA-0024 derivation and SHALL NOT lower the priority as if reachability were disproved. The module SHALL NOT implement a second vulnerability scorer (S2/D4/ECR-0040).
+- **FR-5** Component CVEs SHALL be selected through semantic `ComponentIdentity` (with raw `str` retained only as purl compatibility) and routed to **EA-0024** with a `ReachabilitySignal`; an `unknown` signal SHALL remain an explicitly unknown factor in the EA-0024 derivation and SHALL NOT lower the priority as if reachability were disproved. A CPE-only component SHALL refuse purl-only prioritization before an empty vulnerability result can be returned. The module SHALL NOT implement a second vulnerability scorer (S2/D4/ECR-0040/ECR-0072).
 - **FR-6** `verify_provenance` SHALL verify cited/result evidence through **EA-0004** and SHALL use a kind-specific `ProvenanceVerifier` for attestation authenticity; cited evidence SHALL match the tenant, component object, and exact handed-in attestation content, and EA-0004 hash-chain success SHALL NOT be interpreted as signature success (ECR-0039). A missing/unavailable verifier or unavailable backbone SHALL yield `unverified` (flagged), never trusted; an authenticity mismatch SHALL yield `failed` (flagged) and remain surfaced. A `verified` result SHALL require an EA-0004-recorded result evidence id.
 - **FR-7** Unparseable/partial SBOMs SHALL be persisted as flagged `QuarantinedSBOM` records before `SBOMParseError` is raised; no component from that document is accepted. A package-like component with neither `purl` nor `cpe`, or with a malformed claimed purl, remains unparseable; CPE is not a fallback around invalid purl validation (D1/ECR-0037/ECR-0071).
 - **FR-8** Conflicting SBOMs for one artifact SHALL be reconciled by EA-0006 reliability, with winning source metadata and every candidate persisted in `ComponentConflict`; equal-reliability disagreements remain explicitly unresolved (S6/ECR-0037).
@@ -301,7 +310,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 - **FR-13** `SBOMStore` in-memory and Postgres implementations SHALL pass one contract suite; identity lookup uses explicit coordinate kind + value, and `object_id` cannot change either. Component queries use an exclusive object-id cursor, apply all filters before `limit`, and return `next_cursor` exactly when another matching component exists (EA-0002 D8/ECR-0037/ECR-0071).
 - **FR-14** `SupplyChainService` SHALL register as an `AQService` with health reflecting dependency availability + config validity (EA-0001).
 - **FR-15** `SupplyChainAssessment.assessment_status` SHALL default to `pending`; it SHALL be `complete` only after all in-scope work finishes and `truncated` whenever a configured bound stops the assessment.
-- **FR-16** Every component-identity consumer SHALL use the selected coordinate kind + value. Purl-specific analytical APIs MAY remain purl-specific, but a CPE-only component SHALL produce named unavailable/unknown or refusal, never clean absence; evidence and owner handoffs SHALL NOT stringify a null purl (ECR-0071).
+- **FR-16** Every component-identity consumer SHALL use the selected coordinate kind + value. Purl-specific analytical computation MAY remain purl-specific behind a semantic-identity entry point, but a CPE-only component SHALL produce named unavailable/unknown or refusal before any empty result, never clean absence; evidence and owner handoffs SHALL NOT stringify a null purl (ECR-0071/ECR-0072).
 
 ### Non-functional
 
@@ -320,7 +329,7 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 | AC-3 | Components deduped by selected coordinate and routed to EA-0025 under the matching natural key | `test_sc_components_to_inventory` |
 | AC-4 | Dependencies are EA-0002 edges; reach delegates to EA-0005 and propagates truncation | `test_sc_dependency_graph` |
 | AC-5 | Reachability defaults to unknown; truncation is unknown, never unreachable; transitive paths are content-addressed | `test_sc_reachability_unknown_not_safe` |
-| AC-6 | Component CVEs → real EA-0024 owner with reachability; unknown remains explicit and non-favourable in the replayable factor set | `test_sc_vulns_to_ea0024` |
+| AC-6 | Component CVEs → real EA-0024 owner with reachability; unknown remains explicit and non-favourable in the replayable factor set | `test_sc_purl_str_still_accepted` / `test_sc_prioritization_accepts_component_identity` |
 | AC-7 | An authenticity pass becomes verified only with an EA-0004-recorded result; substituted attestation bytes remain unverified | `test_sc_provenance_verify` |
 | AC-8 | Missing/unavailable verification remains flagged unverified; an authenticity mismatch is flagged failed and surfaced | `test_sc_provenance_failure` |
 | AC-9 | Unparseable SBOM quarantined; no-coordinate and malformed-purl negative controls remain refused | `test_sc_quarantine` |
@@ -337,6 +346,8 @@ in-scope work finishes, and becomes `truncated` when a bound stops the work.
 | AC-20 | Purl-less+CPE component ingests through the real owner path; purl-bearing binary remains strict | `test_sc_purlless_with_cpe_admitted` / `test_sc_purlbearing_binary_still_validated` |
 | AC-21 | Shared CPE collapses repeated observations to one component while preserving all locations; second ingest mints no duplicate | `test_sc_24_collapse_to_one_with_locations` / `test_sc_second_collection_no_duplicates` |
 | AC-22 | CPE-only dependency is represented or document refused; purl-only analysis cannot report clean absence | `test_sc_cpe_dependency_not_silently_dropped` / `test_sc_cpe_purl_only_analysis_not_clean` |
+| AC-23 | Optional duplicate metadata merges absence into the informative value; every two-present contradiction quarantines; required-field absence refuses | `test_sc_absence_merges_informative_value` / `test_sc_contradiction_still_quarantines` / `test_sc_contradiction_only_fields_refuse_on_absence` |
+| AC-24 | Prioritization accepts semantic identities without a cast, preserves string-purl compatibility, and makes the CPE refusal reachable before an empty result | `test_sc_prioritization_accepts_component_identity` / `test_sc_purl_str_still_accepted` / `test_sc_guard_reachable_without_cast` / `test_vuln_cpe_only_not_zero_findings` |
 
 ## 9. Error taxonomy (contributions)
 

@@ -24,7 +24,11 @@ from aqelyn.conventions.errors import (
 )
 from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.graph import InMemoryKnowledgeGraph
-from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
+from aqelyn.inventory import (
+    InMemoryAssetStore,
+    InventoryIntelligenceEngine,
+    InventoryVulnerabilityCoverageProvider,
+)
 from aqelyn.objects import InMemoryObjectStore
 from aqelyn.supplychain import (
     ComponentIdentity,
@@ -39,6 +43,7 @@ from aqelyn.supplychain import (
     parse_sbom,
 )
 from aqelyn.trust import InMemorySourceReliabilityRegistry, SourceReliability
+from aqelyn.vuln import InMemoryVulnerabilityStore
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
 NOW = datetime(2026, 7, 19, 20, 0, tzinfo=UTC)
@@ -266,6 +271,27 @@ def _mixed_identity_cyclonedx() -> SBOMDocument:
     )
 
 
+def _duplicate_component_cyclonedx(
+    first: dict[str, object],
+    second: dict[str, object],
+) -> SBOMDocument:
+    base: dict[str, object] = {
+        "type": "library",
+        "name": "requests",
+        "version": "2.32.4",
+        "purl": PURL_REQUESTS,
+    }
+    return _cyclonedx(
+        raw={
+            "bomFormat": "CycloneDX",
+            "components": [
+                {"bom-ref": "first", **base, **first},
+                {"bom-ref": "second", **base, **second},
+            ],
+        }
+    )
+
+
 def _spdx_package(ref: str, name: str, version: str, purl: str) -> dict[str, object]:
     return {
         "SPDXID": ref,
@@ -483,6 +509,91 @@ def test_sc_conflicting_secondary_coordinate_is_not_smoothed() -> None:
         parse_sbom(document, tenant_id=TENANT)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("licenses", [{"license": {"id": "MIT"}}], ["MIT"]),
+        (
+            "cpe",
+            "cpe:2.3:a:example:requests:2.32.4:*:*:*:*:*:*:*",
+            "cpe:2.3:a:example:requests:2.32.4:*:*:*:*:*:*:*",
+        ),
+        ("supplier", {"name": "Python Packaging Authority"}, "Python Packaging Authority"),
+        (
+            "hashes",
+            [{"alg": "SHA-256", "content": "a" * 64}],
+            {"sha-256": "a" * 64},
+        ),
+    ],
+    ids=["licenses", "secondary-coordinate", "supplier", "hashes"],
+)
+def test_sc_absence_merges_informative_value(
+    field: str,
+    value: object,
+    expected: object,
+) -> None:
+    for first, second in (({}, {field: value}), ({field: value}, {})):
+        parsed = parse_sbom(
+            _duplicate_component_cyclonedx(first, second),
+            tenant_id=TENANT,
+        )
+
+        [component] = parsed.components
+        assert getattr(component, field) == expected
+
+
+@pytest.mark.parametrize(
+    ("field", "first", "second"),
+    [
+        (
+            "licenses",
+            [{"license": {"id": "MIT"}}],
+            [{"license": {"id": "Apache-2.0"}}],
+        ),
+        (
+            "cpe",
+            "cpe:2.3:a:example:requests:2.32.4:*:*:*:*:*:*:*",
+            "cpe:2.3:a:other:requests:2.32.4:*:*:*:*:*:*:*",
+        ),
+        (
+            "supplier",
+            {"name": "First Supplier"},
+            {"name": "Second Supplier"},
+        ),
+        (
+            "hashes",
+            [{"alg": "SHA-256", "content": "a" * 64}],
+            [{"alg": "SHA-256", "content": "b" * 64}],
+        ),
+    ],
+    ids=["licenses", "secondary-coordinate", "supplier", "hashes"],
+)
+def test_sc_contradiction_still_quarantines(
+    field: str,
+    first: object,
+    second: object,
+) -> None:
+    document = _duplicate_component_cyclonedx(
+        {field: first},
+        {field: second},
+    )
+
+    with pytest.raises(SBOMParseError, match="conflicting duplicate"):
+        parse_sbom(document, tenant_id=TENANT)
+
+
+@pytest.mark.parametrize("field", ["name", "version", "type"])
+def test_sc_contradiction_only_fields_refuse_on_absence(field: str) -> None:
+    document = _duplicate_component_cyclonedx({}, {})
+    raw = dict(document.raw)
+    components = [dict(item) for item in cast(list[dict[str, object]], raw["components"])]
+    del components[1][field]
+    raw["components"] = components
+
+    with pytest.raises(SBOMParseError):
+        parse_sbom(document.model_copy(update={"raw": raw}, deep=True), tenant_id=TENANT)
+
+
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
 async def test_sc_components_to_inventory(kind: str) -> None:
     async with _harness(kind) as harness:
@@ -534,6 +645,33 @@ async def test_sc_cpe_component_real_owner_round_trip(kind: str, mode: str) -> N
     assert object_record.attributes["cpe"] == CPE_LAUNCHER
     assert asset is not None
     assert asset.asset_type == "software_component"
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+@pytest.mark.parametrize("mode", ["local", "enterprise"])
+async def test_vuln_cpe_only_named_unassessable(kind: str, mode: str) -> None:
+    tenant_id = None if mode == "local" else TENANT
+    async with _harness(kind, mode=mode) as harness:
+        components = await harness.engine.ingest_sbom(
+            _mixed_identity_cyclonedx(),
+            tenant_id=tenant_id,
+        )
+        coverage = await InventoryVulnerabilityCoverageProvider(
+            InventoryIntelligenceEngine(harness.inventory_store),
+            InMemoryVulnerabilityStore(mode=mode),
+            harness.object_store,
+        ).coverage(tenant_id=tenant_id)
+
+    cpe = next(component for component in components if component.identity_kind == "cpe")
+    _, payload = parse_id(cpe.object_id)
+    inventory_ref = f"ast_{payload}"
+    [gap] = coverage.unassessable
+    assert gap.asset_ref == inventory_ref
+    assert gap.reason == "no provider matches identity_kind=cpe"
+    assert gap.status == "unknown"
+    assert gap.unknown_cause == "provider_unconfigured"
+    assert inventory_ref not in coverage.scanned
+    assert inventory_ref not in coverage.unscanned
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])

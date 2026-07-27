@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -234,19 +234,12 @@ def _build_result(
         )
         identity_key = (component.identity.kind, component.identity.value)
         existing = components_by_identity.get(identity_key)
-        if existing is not None and _component_values(existing) != _component_values(component):
-            raise SBOMParseError(
-                f"SBOM contains conflicting duplicate component {component.identity.value!r}"
-            )
         if existing is None:
             components_by_identity[identity_key] = component
         else:
-            components_by_identity[identity_key] = existing.model_copy(
-                update={
-                    "direct": existing.direct or component.direct,
-                    "locations": sorted({*existing.locations, *component.locations}),
-                },
-                deep=True,
+            components_by_identity[identity_key] = _merge_component_observations(
+                existing,
+                component,
             )
 
     relationships: dict[tuple[str, str, str, str, str], DependencyRelationship] = {}
@@ -406,18 +399,73 @@ def _dependency_scope(value: object) -> DependencyScope:
     raise SBOMParseError(f"unsupported dependency scope: {value!r}")
 
 
-def _component_values(component: SoftwareComponent) -> dict[str, Any]:
-    return {
-        "identity_kind": component.identity_kind,
-        "purl": component.purl,
-        "cpe": component.cpe,
-        "name": component.name,
-        "version": component.version,
-        "component_type": component.component_type,
-        "licenses": component.licenses,
-        "supplier": component.supplier,
-        "hashes": component.hashes,
-    }
+def _merge_component_observations(
+    existing: SoftwareComponent,
+    incoming: SoftwareComponent,
+) -> SoftwareComponent:
+    for field in ("identity_kind", "name", "version", "component_type"):
+        if getattr(existing, field) != getattr(incoming, field):
+            _raise_duplicate_conflict(existing)
+
+    return existing.model_copy(
+        update={
+            "purl": _merge_optional_value(
+                existing.purl,
+                incoming.purl,
+                absent=lambda value: value is None,
+                component=existing,
+            ),
+            "cpe": _merge_optional_value(
+                existing.cpe,
+                incoming.cpe,
+                absent=lambda value: value is None,
+                component=existing,
+            ),
+            "licenses": _merge_optional_value(
+                existing.licenses,
+                incoming.licenses,
+                absent=lambda value: not value,
+                component=existing,
+            ),
+            "supplier": _merge_optional_value(
+                existing.supplier,
+                incoming.supplier,
+                absent=lambda value: value is None,
+                component=existing,
+            ),
+            "hashes": _merge_optional_value(
+                existing.hashes,
+                incoming.hashes,
+                absent=lambda value: not value,
+                component=existing,
+            ),
+            "direct": existing.direct or incoming.direct,
+            "locations": sorted({*existing.locations, *incoming.locations}),
+        },
+        deep=True,
+    )
+
+
+def _merge_optional_value[T](
+    existing: T,
+    incoming: T,
+    *,
+    absent: Callable[[T], bool],
+    component: SoftwareComponent,
+) -> T:
+    if absent(existing):
+        return incoming
+    if absent(incoming):
+        return existing
+    if existing != incoming:
+        _raise_duplicate_conflict(component)
+    return existing
+
+
+def _raise_duplicate_conflict(component: SoftwareComponent) -> None:
+    raise SBOMParseError(
+        f"SBOM contains conflicting duplicate component {component.identity.value!r}"
+    )
 
 
 def _mapping_list(value: object, *, field: str) -> list[Mapping[str, Any]]:

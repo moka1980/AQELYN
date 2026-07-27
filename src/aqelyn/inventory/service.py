@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import Protocol
 
-from aqelyn.conventions import ActorRef, new_id
+from aqelyn.conventions import ActorRef, new_id, parse_id
 from aqelyn.conventions.errors import (
     AssetNotFound,
     CoverageUnavailable,
@@ -28,9 +28,10 @@ from aqelyn.inventory.models import (
 )
 from aqelyn.inventory.store import AssetStore
 from aqelyn.kernel.service import HealthStatus
+from aqelyn.objects import ObjectQuery
 from aqelyn.objects.store import ObjectStore
 from aqelyn.trust.models import TrustConfig
-from aqelyn.vuln.models import CoverageReport
+from aqelyn.vuln.models import CoverageGap, CoverageReport
 from aqelyn.vuln.store import VulnerabilityStore
 
 INVENTORY_EVENTS: dict[str, int] = {
@@ -96,9 +97,16 @@ class InventoryVulnerabilityCoverageProvider:
         self,
         inventory: InventoryProvider,
         vulnerability_store: VulnerabilityStore,
+        object_store: ObjectStore,
+        *,
+        page_budget: int = 50_000,
     ) -> None:
+        if page_budget <= 0:
+            raise ValueError("page_budget must be positive")
         self.inventory = inventory
         self.vulnerability_store = vulnerability_store
+        self.object_store = object_store
+        self.page_budget = page_budget
 
     async def coverage(self, *, tenant_id: str | None) -> CoverageReport:
         try:
@@ -118,17 +126,106 @@ class InventoryVulnerabilityCoverageProvider:
             raise CoverageUnavailable("vulnerability records unavailable for coverage") from exc
 
         inventory_assets = set(report.assets)
+        try:
+            (
+                object_to_inventory,
+                unassessable,
+                unassessable_inventory,
+            ) = await self._software_component_coverage(
+                tenant_id=tenant_id,
+                inventory_assets=inventory_assets,
+            )
+        except CoverageUnavailable:
+            raise
+        except Exception as exc:
+            raise CoverageUnavailable(
+                "software component identity unavailable for vulnerability coverage"
+            ) from exc
         scanned = {
-            vulnerability.asset_ref.ref_id
+            object_to_inventory.get(
+                vulnerability.asset_ref.ref_id,
+                vulnerability.asset_ref.ref_id,
+            )
             for vulnerability in vulnerabilities
-            if vulnerability.asset_ref.ref_id in inventory_assets
+            if object_to_inventory.get(
+                vulnerability.asset_ref.ref_id,
+                vulnerability.asset_ref.ref_id,
+            )
+            in inventory_assets
         }
+        scanned -= unassessable_inventory
         return CoverageReport(
             scanned=sorted(scanned),
-            unscanned=sorted(inventory_assets - scanned),
+            unscanned=sorted(inventory_assets - scanned - unassessable_inventory),
             stale=[],
+            unassessable=unassessable,
             computed_at=report.as_of,
         )
+
+    async def _software_component_coverage(
+        self,
+        *,
+        tenant_id: str | None,
+        inventory_assets: set[str],
+    ) -> tuple[dict[str, str], list[CoverageGap], set[str]]:
+        if not inventory_assets:
+            return {}, [], set()
+
+        object_to_inventory: dict[str, str] = {}
+        unassessable: list[CoverageGap] = []
+        unassessable_inventory: set[str] = set()
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        rows_read = 0
+        while rows_read < self.page_budget:
+            remaining = self.page_budget - rows_read
+            page, next_cursor = await self.object_store.query(
+                ObjectQuery(
+                    tenant_id=tenant_id,
+                    object_type="software_component",
+                    limit=min(100, remaining),
+                    cursor=cursor,
+                )
+            )
+            rows_read += len(page)
+            for component in page:
+                prefix, payload = parse_id(component.id)
+                if prefix != "obj":
+                    raise CoverageUnavailable(
+                        "software component coverage requires an obj_ object id"
+                    )
+                inventory_ref = f"ast_{payload}"
+                if inventory_ref not in inventory_assets:
+                    continue
+                object_to_inventory[component.id] = inventory_ref
+                identity_kind = component.attributes.get("identity_kind")
+                if identity_kind == "purl":
+                    continue
+                if identity_kind != "cpe":
+                    raise CoverageUnavailable(
+                        "software component coverage requires a known identity_kind"
+                    )
+                unassessable_inventory.add(inventory_ref)
+                unassessable.append(
+                    CoverageGap(
+                        asset_ref=inventory_ref,
+                        reason="no provider matches identity_kind=cpe",
+                        unknown_cause="provider_unconfigured",
+                    )
+                )
+            if next_cursor is None:
+                break
+            if next_cursor in seen_cursors:
+                raise CoverageUnavailable(
+                    "ObjectStore returned a repeated pagination cursor for vulnerability coverage"
+                )
+            if rows_read >= self.page_budget:
+                raise CoverageUnavailable(
+                    "software component coverage exceeded the configured page budget"
+                )
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        return object_to_inventory, unassessable, unassessable_inventory
 
 
 class InventoryIntelligenceService:

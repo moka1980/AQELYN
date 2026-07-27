@@ -1,10 +1,8 @@
 """Vulnerability Intelligence & Prioritization Engine (EA-0024)."""
 
 from aqelyn.vuln.engine import (
-    VALID_FACTOR_UNKNOWN_CAUSES,
     BaselineBlockingProvider,
     ExposureReachabilityProvider,
-    FactorUnknownCause,
     PriorityFactor,
     ScannerTrustProvider,
     ThreatExploitProvider,
@@ -17,14 +15,17 @@ from aqelyn.vuln.engine import (
 from aqelyn.vuln.memory import InMemoryVulnerabilityStore
 from aqelyn.vuln.models import (
     VALID_DISPOSITION_KINDS,
+    VALID_FACTOR_UNKNOWN_CAUSES,
     VALID_PRIORITY_LEVELS,
     VALID_SEVERITIES,
     VALID_VULN_BASIS_KINDS,
     VALID_VULN_STATUS,
     CarriedScore,
+    CoverageGap,
     CoverageReport,
     Disposition,
     DispositionKind,
+    FactorUnknownCause,
     PriorityLevel,
     RemediationPlan,
     Severity,
@@ -58,6 +59,7 @@ __all__ = [
     "VULN_EVENTS",
     "BaselineBlockingProvider",
     "CarriedScore",
+    "CoverageGap",
     "CoverageReport",
     "Disposition",
     "DispositionKind",

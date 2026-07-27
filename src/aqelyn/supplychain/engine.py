@@ -44,7 +44,7 @@ from aqelyn.supplychain.models import (
 )
 from aqelyn.supplychain.parse import parse_sbom
 from aqelyn.supplychain.provenance import ProvenanceVerifier, verify_attestation
-from aqelyn.supplychain.store import SBOMStore
+from aqelyn.supplychain.store import SBOMStore, validate_component_identity
 from aqelyn.trust import SourceReliabilityRegistry
 from aqelyn.vuln import PriorityFactor, VulnerabilityRecord, VulnerabilityStore, VulnPriority
 from aqelyn.workflow import Playbook, Run, Step
@@ -415,7 +415,7 @@ class SupplyChainEngine:
 
     async def component_vulns_to_prioritization(
         self,
-        purls: Sequence[str],
+        identities: Sequence[ComponentIdentity | str],
         *,
         tenant_id: str | None,
         by: ActorRef,
@@ -423,7 +423,17 @@ class SupplyChainEngine:
         selected_tenant = require_tenant_id(tenant_id)
         if self.vulnerability_store is None or self.vulnerability_owner is None:
             raise StoreUnavailable("EA-0024 vulnerability routing is unavailable")
-        components = await self._components_for_purls(purls, tenant_id=selected_tenant)
+        components = await self._components_for_identities(
+            identities,
+            tenant_id=selected_tenant,
+        )
+        purls_by_object_id = {
+            component.object_id: _required_component_purl(
+                component,
+                operation="component vulnerability prioritization",
+            )
+            for component in components
+        }
         vulnerabilities = await self._component_vulnerabilities(
             components,
             tenant_id=selected_tenant,
@@ -433,10 +443,7 @@ class SupplyChainEngine:
         for vulnerability in vulnerabilities:
             component = by_object_id[vulnerability.asset_ref.ref_id]
             signal = await self.reachability(
-                _required_component_purl(
-                    component,
-                    operation="component vulnerability prioritization",
-                ),
+                purls_by_object_id[component.object_id],
                 vulnerability.cve_id,
                 tenant_id=selected_tenant,
             )
@@ -583,20 +590,25 @@ class SupplyChainEngine:
     def explain(self, signal: ReachabilitySignal) -> dict[str, object]:
         return signal.model_dump(mode="json")
 
-    async def _components_for_purls(
+    async def _components_for_identities(
         self,
-        purls: Sequence[str],
+        identities: Sequence[ComponentIdentity | str],
         *,
         tenant_id: str | None,
     ) -> list[SoftwareComponent]:
-        selected = sorted(set(purls))
+        selected = sorted(
+            {validate_component_identity(identity) for identity in identities},
+            key=lambda identity: (identity.kind, identity.value),
+        )
         if len(selected) > self.config.batch_size:
-            raise SupplyChainConfigInvalid("purl count exceeds the configured batch_size")
+            raise SupplyChainConfigInvalid(
+                "component identity count exceeds the configured batch_size"
+            )
         components: list[SoftwareComponent] = []
-        for purl in selected:
-            component = await self.store.get_component(purl, tenant_id=tenant_id)
+        for identity in selected:
+            component = await self.store.get_component(identity, tenant_id=tenant_id)
             if component is None:
-                raise ComponentNotFound(purl)
+                raise ComponentNotFound(identity.value)
             components.append(component)
         return components
 

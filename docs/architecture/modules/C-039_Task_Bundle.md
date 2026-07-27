@@ -228,10 +228,9 @@ from the real estate (ECR-0069).
 10. Both backends, both tenant modes, `python -O`; `mypy --strict src tests`;
     `gh pr checks` PASS.
 
-**Context, one line for the record:** 15,152 components is the **first real
-workload to exceed the retired ECR-0034 10,000 cap** — validating C-036's cursor
-work against a real number rather than a constructed one. It sits under
-`page_budget = 50_000`; nothing is degraded.
+**Context, corrected by ECR-0072 §5:** 15,152 is package-typed **entries**; after
+identity dedup the estate yields **7,972 components**, **below** the retired
+ECR-0034 10,000 cap. `page_budget = 50_000` is unaffected; nothing is degraded.
 
 **Preserve, not folded in:** the two S-003 follow-ups (collection memory bound;
 the doc-versus-code drift pins), `FIRST_DEPLOYMENT_ITEMS.md`, **EA-0048**, and the
