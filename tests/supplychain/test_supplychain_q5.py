@@ -11,7 +11,11 @@ from typing import Any, Protocol, cast
 import pytest
 
 from aqelyn.conventions import ActorRef, new_id
-from aqelyn.conventions.errors import ComponentNotFound, StoreUnavailable
+from aqelyn.conventions.errors import (
+    ComponentNotFound,
+    StoreUnavailable,
+    SupplyChainConfigInvalid,
+)
 from aqelyn.events import EventTypeRegistry
 from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.exposure import AssetRef
@@ -167,6 +171,25 @@ def _component(*, tenant_id: str | None = TENANT) -> SoftwareComponent:
     )
 
 
+def _cpe_component(*, tenant_id: str | None = TENANT) -> SoftwareComponent:
+    return SoftwareComponent(
+        object_id=new_id("obj"),
+        tenant_id=tenant_id,
+        identity_kind="cpe",
+        purl=None,
+        cpe="cpe:2.3:a:example:legacy-parser:3.0.0:*:*:*:*:*:*:*",
+        name="legacy-parser",
+        version="3.0.0",
+        component_type="library",
+        licenses=["GPL-3.0-only"],
+        supplier="Example OSS",
+        direct=False,
+        source_id=new_id("src"),
+        observed_at=NOW,
+        evidence_id=new_id("evd"),
+    )
+
+
 def _vulnerability(
     component: SoftwareComponent,
     *,
@@ -266,6 +289,36 @@ async def test_sc_vulns_to_ea0024() -> None:
     assert "rather than treated as low" in str(exposure["reason"])
     assert finding.automation.eligibility == "none"
     assert finding.automation.requires_approval is True
+
+
+async def test_sc_cpe_component_refuses_vulnerability_prioritization() -> None:
+    supply_store = InMemorySBOMStore(mode="enterprise")
+    vuln_store = InMemoryVulnerabilityStore(mode="enterprise")
+    finding_store = InMemoryFindingStore(mode="enterprise")
+    component = await supply_store.put_component(_cpe_component())
+    await vuln_store.put(_vulnerability(component))
+    engine = _engine(
+        supply_store,
+        vulnerability_store=vuln_store,
+        vulnerability_owner=VulnerabilityIntelligenceEngine(
+            vuln_store,
+            finding_store=finding_store,
+        ),
+        finding_store=finding_store,
+    )
+
+    with pytest.raises(
+        SupplyChainConfigInvalid,
+        match=(
+            r"component vulnerability prioritization requires a purl-identified "
+            r"component; .* is identified by cpe"
+        ),
+    ):
+        await engine.component_vulns_to_prioritization(
+            cast(list[str], [component.identity]),
+            tenant_id=TENANT,
+            by=ACTOR,
+        )
 
 
 async def test_sc_license_delegates() -> None:
