@@ -164,10 +164,16 @@ exists. Driver stays outside the package for the **architectural** reason (a
 collection-invoking module inside the package *is* live collection) — **not**
 because a guard would fire.
 
+U1 retains socket and nginx output but does not derive structured listeners or
+virtual hosts. `listeners` and `vhosts` SHALL therefore be `null` with explicit
+`not derived in S-003 U1` reasons. An empty list is reserved for the distinct
+state **derived and found none**.
+
 **Acceptance:** `test_s003_no_host_reference_in_src`,
 `test_s003_collection_commands_enumerated`,
 `test_s003_transient_syft_is_verified_and_removed`,
-`test_s003_cleanup_is_verified_before_success`.
+`test_s003_cleanup_is_verified_before_success`,
+`test_s003_structured_surface_not_derived_is_explicit`.
 
 ## U2 — The declaration mechanism
 

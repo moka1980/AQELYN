@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MAX_OUTPUT_BYTES = 128 * 1024 * 1024
@@ -51,6 +51,10 @@ SYFT_EXCLUDE_PATTERNS: tuple[str, ...] = (
     "./var/tmp/**",
     "./var/cache/**",
 )
+SURFACE_NOT_DERIVED_REASONS: dict[str, str] = {
+    "listeners": "not derived in S-003 U1; raw socket output retained when available",
+    "vhosts": "not derived in S-003 U1; raw nginx configuration retained when available",
+}
 
 EstateAssetKind = Literal["systemd_unit", "nginx_vhost"]
 CommandName = Literal["syft", "systemctl", "ss", "nft", "nginx"]
@@ -145,9 +149,20 @@ class ServiceSurfaceDocument(BaseModel):
     listeners_raw: str | None
     firewall_raw: dict[str, Any] | None
     nginx_config: str | None
-    listeners: list[ListenerObservation] = Field(default_factory=list)
-    vhosts: list[NginxVHost] = Field(default_factory=list)
+    listeners: list[ListenerObservation] | None = None
+    vhosts: list[NginxVHost] | None = None
     unavailable_details: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _structured_surface_state_is_explicit(self) -> ServiceSurfaceDocument:
+        for field_name, reason in SURFACE_NOT_DERIVED_REASONS.items():
+            value = getattr(self, field_name)
+            recorded = self.unavailable_details.get(field_name)
+            if value is None and recorded != reason:
+                raise ValueError(f"{field_name}=None requires the exact not-derived reason")
+            if value is not None and recorded is not None:
+                raise ValueError(f"{field_name} cannot be both derived and unavailable")
+        return self
 
 
 class CollectionManifestEntry(BaseModel):
@@ -828,6 +843,7 @@ class EstateCollector:
         )
         if nginx_entry.returncode != 0:
             surface_unavailable["nginx"] = nginx_entry.stderr or "nginx config unavailable"
+        surface_unavailable.update(SURFACE_NOT_DERIVED_REASONS)
         surface_document = ServiceSurfaceDocument(
             collected_at=collected_at,
             listeners_raw=listeners_raw,

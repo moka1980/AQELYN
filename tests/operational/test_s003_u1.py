@@ -10,6 +10,7 @@ import pytest
 from pydantic import ValidationError
 from tools.s003_estate import (
     COMMAND_TEMPLATES,
+    SURFACE_NOT_DERIVED_REASONS,
     SYFT_EXCLUDE_PATTERNS,
     CollectionManifest,
     CommandResult,
@@ -226,9 +227,10 @@ def test_s003_collects_three_private_documents(tmp_path: Path) -> None:
     units = UnitInventoryDocument.model_validate_json(
         (tmp_path / "private" / "unit-inventory.json").read_text(encoding="utf-8")
     )
-    surface = ServiceSurfaceDocument.model_validate_json(
+    surface_payload = json.loads(
         (tmp_path / "private" / "service-surface.json").read_text(encoding="utf-8")
     )
+    surface = ServiceSurfaceDocument.model_validate(surface_payload)
     sbom = json.loads((tmp_path / "private" / "sbom.json").read_text(encoding="utf-8"))
 
     assert len(stored_manifest.commands) == 7
@@ -240,9 +242,48 @@ def test_s003_collects_three_private_documents(tmp_path: Path) -> None:
     )
     assert surface.firewall_raw == {"nftables": []}
     assert surface.nginx_config == "server { listen 443 ssl; }\n"
+    assert surface_payload["listeners"] is None
+    assert surface_payload["vhosts"] is None
+    assert surface.listeners is None
+    assert surface.vhosts is None
+    assert surface.unavailable_details["listeners"] == (SURFACE_NOT_DERIVED_REASONS["listeners"])
+    assert surface.unavailable_details["vhosts"] == (SURFACE_NOT_DERIVED_REASONS["vhosts"])
     assert sbom["bomFormat"] == "CycloneDX"
     assert not runtime_root.exists()
     assert list(transient_root.iterdir()) == []
+
+
+def test_s003_structured_surface_not_derived_is_explicit() -> None:
+    document = {
+        "collected_at": "2026-07-27T00:00:00Z",
+        "listeners_raw": "socket output",
+        "firewall_raw": None,
+        "nginx_config": "nginx output",
+    }
+
+    with pytest.raises(ValidationError, match="listeners=None requires"):
+        ServiceSurfaceDocument.model_validate(document)
+
+    derived_empty = ServiceSurfaceDocument.model_validate(
+        {
+            **document,
+            "listeners": [],
+            "vhosts": [],
+            "unavailable_details": {},
+        }
+    )
+    assert derived_empty.listeners == []
+    assert derived_empty.vhosts == []
+
+    with pytest.raises(ValidationError, match="cannot be both derived and unavailable"):
+        ServiceSurfaceDocument.model_validate(
+            {
+                **document,
+                "listeners": [],
+                "vhosts": [],
+                "unavailable_details": SURFACE_NOT_DERIVED_REASONS,
+            }
+        )
 
 
 @pytest.mark.parametrize("fail_syft", [False, True])
@@ -386,7 +427,13 @@ def test_s003_missing_optional_tools_are_recorded_not_run(tmp_path: Path) -> Non
     assert set(missing) == {"ss", "nft", "nginx"}
     assert all(entry.returncode == 127 for entry in missing.values())
     assert all("not in PATH" in (entry.stderr or "") for entry in missing.values())
-    assert set(surface.unavailable_details) == {"ss", "nft", "nginx"}
+    assert set(surface.unavailable_details) == {
+        "ss",
+        "nft",
+        "nginx",
+        "listeners",
+        "vhosts",
+    }
     assert all(Path(command[0]).name not in missing for command in runner.commands)
 
 
