@@ -5071,9 +5071,18 @@ over optional contributors** - including ones that do not look like scoring.
 
 ### 2. Scope: enumerate the class, do not fix the named instances
 
-The audit names `secrets/scoring.py`, `risk/engine.py` and `exposure/engine.py`, and
-reports four scorers affected. **Fixing the named ones would be rule 29 committed
-inside the repair for a class** - the exact error ECR-0074 was raised to correct.
+The audit names **four** sites: `secrets/scoring.py`, `risk/engine.py`,
+`exposure/engine.py`, and **`soc/correlate.py:_mission_context`** *(the fourth,
+supplied after this ECR's first draft named only three - the reconciliation gap is
+corrected here)*. **The list is evidence of the class, not the scope.**
+
+**Fixing the named ones would be rule 29 committed inside the repair for a class** -
+the exact error ECR-0074 was raised to correct.
+
+**And the fourth site sharpens the point rather than lengthening the list:**
+`soc/correlate.py` is a **correlation** path, not a scorer. An enumeration scoped to
+"scorers" would have missed it. The class is **folds over optional contributors**,
+wherever they occur.
 
 **Required: enumerate every fold over optional contributors**, and for each record
 either the fix or why absence cannot occur there.
