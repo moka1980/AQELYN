@@ -27,6 +27,8 @@ class is folds over optional contributors, wherever they occur.**
 
 **This is the first deliverable and it is a table, not a change.**
 
+**Audit output:** [C-041 A1 Fold Identity Audit](C-041_A1_Fold_Identity_Audit.md).
+
 The precedent is ECR-0066's factor audit, which was required to cover all seven rather
 than the three the density report surfaced — and **found a fourth (`epss`) that the
 instrument could not have revealed.** The same structure applies: the enumeration will
