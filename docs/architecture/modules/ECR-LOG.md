@@ -79,7 +79,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0072 | EA-0030 + EA-0024 | Accepted | **Absence is not a value.** Absent licence read as conflicting; absent coverage read as clean. Third and fourth arrivals of one error. |
 | ECR-0073 | EA-0023 (S-003 U3) | Accepted | **Surface from observed binds, not configuration.** The config reads failed; three attribution states; read-only ≠ unprivileged. |
 | ECR-0074 | EA-0033 + GC-001 | Accepted | **Why did AC-3 not catch this?** A mission factor returns the most favourable value with no provider; and a decision is recorded as an absence. |
-| ECR-0075 | GC-001 (cross-cutting) | Proposed | **Score-path closure.** A guarantee that enumerates factor representations cannot see numeric scoring paths that bypass them. |
+| ECR-0075 | GC-001 (cross-cutting) | Accepted | **Score-path closure.** A guarantee that enumerates factor representations cannot see numeric scoring paths that bypass them. |
+| ECR-0076 | EA-0032 + EA-0013 + EA-0023 (+) | Proposed | **The cross-cutting repair.** Absence is the fold's identity element, and in risk arithmetic the identity is always the safe end. |
 
 ---
 
@@ -4975,7 +4976,7 @@ The report continues to say `input_missing` until it can say something truer:
 ## ECR-0075 - GC-001 must discover score-producing paths, not only factor representations
 
 **Raised by:** **ECR-0074's required pre-fix determination.**
-**Status:** Proposed.
+**Status:** Accepted.
 **Number:** verified free after ECR-0074; rule 20 checked.
 
 ### 1. The finding
@@ -5034,3 +5035,115 @@ Each owner contract must say whether mission absence makes its output unknown,
 refusing, conservatively bounded, or legitimately irrelevant. The guarantee enforces
 the declared boundary and prevents silent favourable fallback; it does not invent the
 boundary.
+
+## ECR-0076 - The cross-cutting repair: absence is the fold's identity element
+
+**Raised by:** ECR-0075's audit, which found the pre-fix ISPM function **byte-identical**
+in another module and the same shape in at least two more.
+**Status:** Proposed.
+**Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
+
+**ECR-0074 fixed one instance. ECR-0075 explained why the guarantee could not see it.
+ECR-0076 repairs the class.**
+
+### 1. The mechanism, and why this is a class rather than a coincidence
+
+Every affected site folds optional contributors. The reviewer's audit names the
+operator: **the composition takes `max`, so absence lands at the least-critical end.**
+ISPM's pre-fix form was the sum/mean case - `return 0.0`.
+
+> **Absence has a value in any fold, and that value is the operator's identity
+> element.** `max` -> the minimum of the domain. `sum` -> zero. Nobody wrote *"absent
+> means favourable"*; they wrote a fold, and **the arithmetic supplied the value.**
+
+And it is worse than incidental, because of what risk scores are:
+
+> **Risk arithmetic starts at safe and accumulates danger.** So **the identity element
+> of every common operator is the favourable end** - by construction, not by accident.
+> **Every fold over optional contributors in a risk context therefore has this defect
+> unless absence is handled explicitly.**
+
+That is why four modules share it without any of them copying the *decision*: they
+copied the *arithmetic*, and the arithmetic already contained it.
+
+**The corollary tells you where else to look:** not "other scorers", but **every fold
+over optional contributors** - including ones that do not look like scoring.
+
+### 2. Scope: enumerate the class, do not fix the named instances
+
+The audit names `secrets/scoring.py`, `risk/engine.py` and `exposure/engine.py`, and
+reports four scorers affected. **Fixing the named ones would be rule 29 committed
+inside the repair for a class** - the exact error ECR-0074 was raised to correct.
+
+**Required: enumerate every fold over optional contributors**, and for each record
+either the fix or why absence cannot occur there.
+
+**Two passes, because they find different things:**
+
+1. **Byte-identity is cheap and finds the copies.** `secrets/scoring.py` is
+   byte-identical to the pre-fix ISPM function - same name, same signature, same body.
+   A copied function propagates, so **more copies are likely.**
+2. **A copy that has since drifted will not match by name or body.** The class is
+   *structural*: a fold over optional contributors that returns a bare value on the
+   empty case. **Enumerate by shape with the type system, not by grep** (rule 22 -
+   grep was wrong in both directions on C-036's double list).
+
+### 3. `secrets` first, and why it is worse than the others
+
+It is a **credential** scorer. A missing input yielding a favourable number there
+means a credential the platform could not assess presents as **well-governed** -
+which is precisely the outcome **ECR-0054 §3.1a** was written to prevent
+(*"a score must not average away a known exposure"*), arriving through a different
+door.
+
+And it is **the same function**, so the fix is known-good: ECR-0074's remedy applies
+unchanged. That makes it both the highest-consequence instance and the cheapest.
+
+### 4. The repair is not done until the guarantee can see it
+
+**ECR-0075's prescription is half the work**: score-producing paths discovered from
+source, with omission failing closed. **This ECR must verify that discovery actually
+reaches each repaired site.**
+
+**Per site, mutate the fix back and confirm the guard turns red.** If any site's
+reversion leaves the guard **green**, ECR-0075's discovery has a gap - and that is a
+**finding, not a nuisance**, because it means the next instance arrives unguarded.
+
+**Fixing four sites and leaving the fifth invisible is the failure mode this ECR
+exists to close.**
+
+### 5. Do not assume absence means unknown
+
+ECR-0074 §4 put an open question to the owner about 19 declined units, and its point
+applies here: **"not supplied" and "supplied as not-applicable" look identical at the
+fold**, and they are different states.
+
+- **not supplied** -> `unknown`, excluded from the denominator (ECR-0040)
+- **supplied as not-applicable** -> a **declared** value, not an absence
+
+**For each site, determine which absence actually occurs before choosing the fix.**
+Treating a declared not-applicable as unknown would be the inverse error - manufacturing
+an unknown where the owner has answered - and U4 already showed what that costs in
+roadmap noise.
+
+Where the answer is genuinely unclear, **record it as unknown and say so**; an honest
+wrong-cause is better than an invented right one, and it stays visible.
+
+### 6. Proof
+
+- **The enumeration is recorded**, both passes (§2), with a per-site disposition.
+- **Per site: the real scorer** driven with a missing contributor yields **`unknown`,
+  excluded from the denominator** - not a favourable value. **Driven through the real
+  composition, not a spy** (the ECR-0040 method, and the method that verified ECR-0074).
+- **Per site: mutation.** Revert the fix; the named guard turns **red**. A site whose
+  reversion stays green is a **discovery gap in ECR-0075**, reported as such.
+- **`secrets` additionally:** an unassessable credential does **not** present as
+  well-governed (ECR-0054 §3.1a).
+- **Absence classification recorded per site** (§5).
+- Both backends, both tenant modes, `python -O`.
+
+### 7. Not in scope
+
+The **19 declined units** and the **privileged read with four dependents** remain the
+owner's and are unaffected by this repair. ECR-0075's discovery mechanism itself is
+**not re-specified here** - this ECR consumes it and reports where it does not reach.
