@@ -355,7 +355,7 @@ async def test_crypto_exposure_owner_connectivity(backend: str) -> None:
         assert owner_record is not None
         assert owner_record.impact_context == crypto_exposure.impact_context
         assert owner_record.derivation is not None
-        assert owner_record.derivation.engine_version == "exposure-score/v2"
+        assert owner_record.derivation.engine_version == "exposure-score/v4"
         assert owner_record.derivation.steps[1].params["impact_context"]["kind"] == (
             "credential_sensitivity"
         )
@@ -369,7 +369,7 @@ async def test_crypto_exposure_owner_connectivity(backend: str) -> None:
         omitted_kind = await owner.score_exposure(raw)
         assert omitted_kind.impact_context is None
         assert omitted_kind.derivation is not None
-        assert omitted_kind.derivation.engine_version == "exposure-score/v1"
+        assert omitted_kind.derivation.engine_version == "exposure-score/v3"
         assert omitted_kind.score == owner_record.score
 
 

@@ -208,7 +208,7 @@ async def test_exp_impact_context_store_contract(backend: str) -> None:
         assert loaded.impact_context == saved.impact_context
         assert validate_replayable_exposure(loaded) == loaded
         assert loaded.derivation is not None
-        assert loaded.derivation.engine_version == "exposure-score/v2"
+        assert loaded.derivation.engine_version == "exposure-score/v4"
 
 
 async def test_exp_impact_context() -> None:
@@ -232,7 +232,7 @@ async def test_exp_impact_context() -> None:
     assert secret.score >= pii.score
     assert baseline.score == secret.score
     assert baseline.derivation is not None
-    assert baseline.derivation.engine_version == "exposure-score/v1"
+    assert baseline.derivation.engine_version == "exposure-score/v3"
     assert pii.derivation is not None
     assert pii.impact_context is not None
     assert pii.derivation.steps[1].params["impact_context"] == pii.impact_context.model_dump(

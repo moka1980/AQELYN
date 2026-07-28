@@ -290,6 +290,27 @@ async def test_soc_priority(soc_harness: SOCHarness) -> None:
     assert details["top_mission_id"] == mission.id
 
 
+async def test_soc_missing_mission_real_owner(soc_harness: SOCHarness) -> None:
+    asset = await _add_object(soc_harness.object_store, "mission-unmapped-soc-asset")
+    key = f"asset:{asset.id}"
+    alert = _alert(correlation_key=key)
+    engine = _engine(
+        soc_harness,
+        mission=MissionEngine(soc_harness.object_store, soc_harness.graph),
+    )
+
+    [incident] = await engine.correlate(
+        tenant_id=None,
+        alerts=[alert],
+        risks=[],
+        by=SYS,
+    )
+
+    assert incident.mission_context.status == "unknown"
+    assert incident.mission_context.unknown_cause == "input_missing"
+    assert incident.priority == 100.0
+
+
 async def test_soc_assign(soc_harness: SOCHarness) -> None:
     incident = await _seed_incident(soc_harness)
     engine = _engine(soc_harness)

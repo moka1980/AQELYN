@@ -16,6 +16,7 @@ from aqelyn.conventions.errors import (
     SchemaValidationError,
 )
 from aqelyn.decision import Derivation
+from aqelyn.risk.models import RiskMissionContext
 from aqelyn.workflow.models import ActionSpec
 
 Reachability = Literal["external", "internal", "unknown"]
@@ -191,6 +192,7 @@ class ExposureRecord(BaseModel):
     reachability: str
     basis: list[ExposureBasis]
     impact_context: ExposureImpactContext | None = None
+    mission_context: RiskMissionContext | None = None
     score: float | None = None
     confidence: float | None = None
     derivation: Derivation | None = None

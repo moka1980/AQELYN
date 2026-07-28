@@ -8,7 +8,17 @@ import pytest
 
 from aqelyn.conventions import new_id
 from aqelyn.conventions.errors import ALL_ERROR_CODES, RiskConfigInvalid
-from aqelyn.risk import AppetiteConfig, Risk, RiskConfig, SignalRef, band_for_score, score_risk
+from aqelyn.mission import MissionImpactResult
+from aqelyn.risk import (
+    AppetiteConfig,
+    Risk,
+    RiskConfig,
+    RiskMissionContext,
+    SignalRef,
+    band_for_score,
+    mission_context_from_results,
+    score_risk,
+)
 
 
 def _now() -> datetime:
@@ -43,6 +53,15 @@ def _risk(
         reason="Unscored test risk.",
         first_seen_at=now,
         last_scored_at=now,
+    )
+
+
+def _mission(factor: float) -> RiskMissionContext:
+    return RiskMissionContext(
+        status="known",
+        factor=factor,
+        top_mission_id=new_id("obj"),
+        reason="EA-0007 returned an explicit mission impact.",
     )
 
 
@@ -82,18 +101,39 @@ def test_risk_mission_weighted() -> None:
     risk = _risk(impact=0.2, signals=[SignalRef(kind="finding", ref_id=new_id("fnd"), weight=0.7)])
     high_mission = new_id("obj")
 
-    low = score_risk(risk, config=config, mission_factor=0.2)
+    low = score_risk(risk, config=config, mission_context=_mission(0.2))
+    high_context = _mission(1.0)
     high = score_risk(
         risk,
         config=config,
-        mission_factor=1.0,
-        top_mission_id=high_mission,
+        mission_context=high_context.model_copy(update={"top_mission_id": high_mission}),
     )
 
     assert high.score >= low.score
     assert high.impact == 1.0
     assert high.top_mission_id == high_mission
     assert high.factors["mission_factor"] == 1.0
+
+
+def test_risk_mission_context_states() -> None:
+    absent = mission_context_from_results(None)
+    empty = mission_context_from_results([MissionImpactResult()])
+    truncated = mission_context_from_results([MissionImpactResult(truncated=True)])
+
+    assert absent.unknown_cause == "provider_unconfigured"
+    assert empty.unknown_cause == "input_missing"
+    assert truncated.unknown_cause == "assessment_incomplete"
+    assert _mission(0.0).status == "known"
+
+    with pytest.raises(RiskConfigInvalid, match="known mission context requires"):
+        RiskMissionContext(status="known", reason="Incomplete known state.")
+    with pytest.raises(RiskConfigInvalid, match="unknown mission context cannot carry"):
+        RiskMissionContext(
+            status="unknown",
+            factor=0.0,
+            unknown_cause="input_missing",
+            reason="Contradictory unknown state.",
+        )
 
 
 def test_risk_appetite_band() -> None:
@@ -108,6 +148,7 @@ def test_risk_appetite_band() -> None:
     elevated = score_risk(
         _risk(impact=0.0, signals=[SignalRef(kind="finding", ref_id=new_id("fnd"), weight=0.8)]),
         config=config,
+        mission_context=_mission(0.0),
     )
     assert elevated.score == 40.0
     assert elevated.band == "elevated"
@@ -126,8 +167,13 @@ def test_risk_config_invalid() -> None:
         RiskConfig.model_validate({"likelihood_weights": {"unknown": 1.0}})
     with pytest.raises(RiskConfigInvalid, match="risk requires at least one signal"):
         _risk(signals=[])
-    with pytest.raises(RiskConfigInvalid, match="mission_factor"):
-        score_risk(_risk(), mission_factor=1.2)
+    with pytest.raises(RiskConfigInvalid, match="mission factor"):
+        RiskMissionContext(
+            status="known",
+            factor=1.2,
+            top_mission_id=new_id("obj"),
+            reason="Invalid mission factor.",
+        )
 
     assert "RiskConfigInvalid" in ALL_ERROR_CODES
     assert "RiskNotFound" in ALL_ERROR_CODES

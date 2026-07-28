@@ -24,8 +24,8 @@ from aqelyn.exposure import ExposureRecord
 from aqelyn.governance import ComplianceSnapshot
 from aqelyn.inventory import Ownership
 from aqelyn.mission.models import MissionImpactResult
-from aqelyn.risk.models import Risk, RiskConfig, SignalRef
-from aqelyn.risk.scoring import score_risk
+from aqelyn.risk.models import Risk, RiskConfig, RiskMissionContext, SignalRef
+from aqelyn.risk.scoring import mission_context_from_results, score_risk
 from aqelyn.secrets.ingest import crypto_asset_kind
 from aqelyn.secrets.models import (
     GOVERNANCE_ACTIVE_EXPOSURE_CAP,
@@ -76,6 +76,7 @@ def compose_credential_governance(
     _validate_factor_weights(factor_weights)
     if mission.truncated:
         raise StoreUnavailable("EA-0007 mission traversal was truncated")
+    mission_context = _mission_factor(mission)
     direct = {
         "lifecycle": _lifecycle_factor(asset, factor_weights["lifecycle"]),
         "storage_safety": _storage_safety_factor(
@@ -95,7 +96,7 @@ def compose_credential_governance(
     owner_risk = _owner_risk(
         asset,
         direct=direct,
-        mission=mission,
+        mission_context=mission_context,
         computed_at=computed_at,
         risk_config=selected_risk_config,
     )
@@ -106,7 +107,8 @@ def compose_credential_governance(
         direct["exposure"],
         direct["compliance"],
     ]
-    risk_known = all(factor.status == "known" for factor in control_factors)
+    controls_known = all(factor.status == "known" for factor in control_factors)
+    risk_known = controls_known and owner_risk.mission_context.status == "known"
     risk_factor = GovernanceFactor(
         name="owner_risk",
         rating=round(1.0 - owner_risk.score / 100.0, 6) if risk_known else None,
@@ -115,12 +117,16 @@ def compose_credential_governance(
         source_ref={
             "owner": "EA-0013",
             "record": owner_risk.model_dump(mode="json"),
-            "mission": _mission_ref(mission),
+            "mission": _mission_ref(mission_context, mission),
         },
         reason=(
             f"EA-0013 composed credential governance risk at {owner_risk.score:.0f}."
             if risk_known
-            else "EA-0013 risk is excluded because an underlying control fact is unknown."
+            else (
+                "EA-0013 risk is excluded because EA-0007 mission context is unknown."
+                if controls_known
+                else "EA-0013 risk is excluded because an underlying control fact is unknown."
+            )
         ),
     )
     factors = [risk_factor, *(direct[name] for name in GOVERNANCE_FACTOR_NAMES[1:])]
@@ -464,7 +470,7 @@ def _owner_risk(
     asset: CryptoAsset,
     *,
     direct: Mapping[str, GovernanceFactor],
-    mission: MissionImpactResult,
+    mission_context: RiskMissionContext,
     computed_at: datetime,
     risk_config: RiskConfig,
 ) -> Risk:
@@ -494,7 +500,18 @@ def _owner_risk(
                 evidence_id=asset.evidence_id,
             )
         ]
-    mission_factor, top_mission_id = _mission_factor(mission)
+    selected_mission = mission_context
+    if selected_mission.factor is not None and not any(weight > 0.0 for weight in adverse):
+        selected_mission = selected_mission.model_copy(
+            update={
+                "factor": 0.0,
+                "reason": (
+                    "EA-0007 mission impact is known but does not raise risk because "
+                    "the supplied credential controls contribute no adverse value."
+                ),
+            },
+            deep=True,
+        )
     seed = Risk(
         id=asset.id,
         tenant_id=asset.tenant_id,
@@ -514,8 +531,7 @@ def _owner_risk(
     return score_risk(
         seed,
         config=risk_config,
-        mission_factor=mission_factor if any(weight > 0.0 for weight in adverse) else 0.0,
-        top_mission_id=top_mission_id,
+        mission_context=selected_mission,
     )
 
 
@@ -539,10 +555,10 @@ def _score_derivation(
         ref_id=trust.subject_ref,
         evidence_id=asset.evidence_id,
     )
-    _, top_mission_id = _mission_factor(mission)
+    mission_context = _mission_factor(mission)
     mission_claim = ClaimRef(
         kind="mission",
-        ref_id=top_mission_id or asset.id,
+        ref_id=mission_context.top_mission_id or asset.id,
         evidence_id=asset.evidence_id,
     )
     params: dict[str, Any] = {
@@ -571,7 +587,7 @@ def _score_derivation(
         "storage_safety": storage_safety.model_dump(mode="json"),
         "storage_safety_record_hash": _record_hash(storage_safety),
         "trust": trust.model_dump(mode="json"),
-        "mission": _mission_ref(mission),
+        "mission": _mission_ref(mission_context, mission),
     }
     output = governance_score_result([], params)
     step = DerivationStep(
@@ -643,23 +659,21 @@ def _active_critical_exposure_ids(owner_exposure: ExposureRecord | None) -> list
     return []
 
 
-def _mission_factor(result: MissionImpactResult) -> tuple[float, str | None]:
-    if not result.impacts:
-        return 0.0, None
-    selected = max(
-        result.impacts,
-        key=lambda impact: (impact.impact_score, impact.mission.id),
-    )
-    return selected.impact_score, selected.mission.id
+def _mission_factor(result: MissionImpactResult) -> RiskMissionContext:
+    return mission_context_from_results([result])
 
 
-def _mission_ref(result: MissionImpactResult) -> dict[str, object]:
-    factor, top_id = _mission_factor(result)
+def _mission_ref(
+    context: RiskMissionContext,
+    result: MissionImpactResult,
+) -> dict[str, object]:
     return {
         "owner": "EA-0007",
         "record_hash": _record_hash(result),
-        "top_mission_id": top_id,
-        "impact_factor": factor,
+        "status": context.status,
+        "unknown_cause": context.unknown_cause,
+        "top_mission_id": context.top_mission_id,
+        "impact_factor": context.factor,
         "impact_count": len(result.impacts),
         "truncated": result.truncated,
     }

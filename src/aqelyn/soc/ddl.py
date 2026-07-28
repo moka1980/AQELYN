@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS aq_soc_incident (
     alert_ids           jsonb NOT NULL DEFAULT '[]',
     affected_object_ids jsonb NOT NULL DEFAULT '[]',
     top_mission_id      text NULL,
+    mission_context     jsonb NOT NULL DEFAULT '{
+                            "status":"unknown",
+                            "factor":null,
+                            "top_mission_id":null,
+                            "unknown_cause":"input_missing",
+                            "reason":"EA-0007 mission context has not been supplied."
+                        }',
     risk_score          double precision NULL CHECK (
         risk_score IS NULL OR (risk_score >= 0 AND risk_score <= 100)
     ),
@@ -41,6 +48,14 @@ CREATE TABLE IF NOT EXISTS aq_soc_incident (
     updated_at          timestamptz NOT NULL,
     version             int NOT NULL DEFAULT 1 CHECK (version >= 1)
 );
+ALTER TABLE aq_soc_incident
+    ADD COLUMN IF NOT EXISTS mission_context jsonb NOT NULL DEFAULT '{
+        "status":"unknown",
+        "factor":null,
+        "top_mission_id":null,
+        "unknown_cause":"input_missing",
+        "reason":"Historical incident did not preserve an EA-0007 mission context."
+    }';
 CREATE INDEX IF NOT EXISTS ix_soc_incident_tenant_status_priority
     ON aq_soc_incident (tenant_id, status, priority DESC, updated_at DESC, id);
 """

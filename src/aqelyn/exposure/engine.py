@@ -36,8 +36,8 @@ from aqelyn.graph.models import EdgeView, Path
 from aqelyn.iag.models import AccessPath, AccessRiskReport
 from aqelyn.mission.models import MissionImpactResult
 from aqelyn.objects import ObjectQuery
-from aqelyn.risk.models import Risk, RiskConfig, SignalRef
-from aqelyn.risk.scoring import score_risk
+from aqelyn.risk.models import Risk, RiskConfig, RiskMissionContext, SignalRef
+from aqelyn.risk.scoring import mission_context_from_results, score_risk
 from aqelyn.trust.models import TrustAssessment
 
 
@@ -362,23 +362,22 @@ class KnownDataExposureEngine:
             now=selected.validated_at or selected.discovered_at,
         )
         mission = await self.mission_provider.mission_impact(asset_id)
-        mission_factor, top_mission_id = _mission_factors(mission)
+        mission_context = _mission_factors(mission)
         risk = _risk_for_exposure(
             selected,
             trust=trust,
-            mission_factor=mission_factor,
-            top_mission_id=top_mission_id,
+            mission_context=mission_context,
             risk_config=self.risk_config,
         )
         derivation = _score_derivation(
             selected,
             trust=trust,
-            mission_factor=mission_factor,
-            top_mission_id=top_mission_id,
+            mission_context=mission_context,
             risk=risk,
         )
         scored = selected.model_copy(
             update={
+                "mission_context": mission_context,
                 "score": risk.score,
                 "confidence": trust.score,
                 "derivation": derivation,
@@ -459,6 +458,7 @@ def validate_replayable_exposure(exposure: ExposureRecord) -> ExposureRecord:
     if abs(replayed - exposure.score) > _SCORE_TOLERANCE:
         raise ExposureNotReplayable("exposure score does not replay")
     _validate_impact_binding(exposure)
+    _validate_mission_binding(exposure)
     return exposure.model_copy(deep=True)
 
 
@@ -478,22 +478,15 @@ def _evidence_ids(exposure: ExposureRecord) -> list[str]:
     return out
 
 
-def _mission_factors(result: MissionImpactResult) -> tuple[float, str | None]:
-    if not result.impacts:
-        return 0.0, None
-    selected = max(
-        result.impacts,
-        key=lambda impact: (impact.impact_score, impact.mission.id),
-    )
-    return selected.impact_score, selected.mission.id
+def _mission_factors(result: MissionImpactResult) -> RiskMissionContext:
+    return mission_context_from_results([result])
 
 
 def _risk_for_exposure(
     exposure: ExposureRecord,
     *,
     trust: TrustAssessment,
-    mission_factor: float,
-    top_mission_id: str | None,
+    mission_context: RiskMissionContext,
     risk_config: RiskConfig,
 ) -> Risk:
     evidence_id = _first_evidence_id(exposure)
@@ -525,7 +518,6 @@ def _risk_for_exposure(
             )
         ],
         affected_object_ids=[asset_id],
-        top_mission_id=top_mission_id,
         reason="Exposure risk is composed from reachability, Trust, and Mission impact.",
         first_seen_at=exposure.discovered_at,
         last_scored_at=observed,
@@ -533,8 +525,7 @@ def _risk_for_exposure(
     scored = score_risk(
         seed,
         config=risk_config,
-        mission_factor=mission_factor,
-        top_mission_id=top_mission_id,
+        mission_context=mission_context,
     )
     factors = dict(scored.factors)
     factors["reachability_factor"] = reachability_factor
@@ -547,15 +538,14 @@ def _score_derivation(
     exposure: ExposureRecord,
     *,
     trust: TrustAssessment,
-    mission_factor: float,
-    top_mission_id: str | None,
+    mission_context: RiskMissionContext,
     risk: Risk,
 ) -> Any:
     evidence_id = _first_evidence_id(exposure)
     trust_claim = ClaimRef(kind="trust", ref_id=trust.subject_ref, evidence_id=evidence_id)
     mission_claim = ClaimRef(
         kind="mission",
-        ref_id=top_mission_id or exposure.asset_ref.ref_id,
+        ref_id=mission_context.top_mission_id or exposure.asset_ref.ref_id,
         evidence_id=evidence_id,
     )
     risk_claim = ClaimRef(kind="risk", ref_id=risk.id, evidence_id=evidence_id)
@@ -588,11 +578,16 @@ def _score_derivation(
             seq=2,
             op="weigh",
             input_refs=["step:1"],
-            params={"default": risk_unit, "impact_context": impact_payload},
+            params={
+                "default": risk_unit,
+                "impact_context": impact_payload,
+                "mission_context": mission_context.model_dump(mode="json"),
+            },
             output=weighed_output,
             note=(
                 "Use EA-0013 risk score as the replayed exposure score factor; "
-                f"EA-0006 trust={trust.score:.3f}, EA-0007 mission={mission_factor:.3f}."
+                f"EA-0006 trust={trust.score:.3f}, "
+                f"EA-0007 mission status={mission_context.status}."
             ),
         ),
         DerivationStep(
@@ -609,7 +604,7 @@ def _score_derivation(
         steps=steps,
         model_version=1,
         engine_version=(
-            "exposure-score/v1" if exposure.impact_context is None else "exposure-score/v2"
+            "exposure-score/v3" if exposure.impact_context is None else "exposure-score/v4"
         ),
     )
 
@@ -629,10 +624,17 @@ def _score_reason(
         )
     return (
         f"{exposure.rationale} Exposure score {risk.score:.0f} is composed from "
-        f"Trust confidence {trust.score:.3f}, Mission impact {risk.factors['mission_factor']:.3f}, "
+        f"Trust confidence {trust.score:.3f}, "
+        f"{_mission_score_reason(risk.mission_context)}, "
         f"reachability factor {risk.factors['reachability_factor']:.3f}{sensitivity}, "
         f"and EA-0013 risk band {risk.band}."
     )
+
+
+def _mission_score_reason(context: RiskMissionContext) -> str:
+    if context.factor is None:
+        return f"Mission impact unknown ({context.unknown_cause})"
+    return f"Mission impact {context.factor:.3f}"
 
 
 def _finding_for_exposure(
@@ -681,6 +683,11 @@ def _finding_for_exposure(
                 None
                 if exposure.impact_context is None
                 else exposure.impact_context.model_dump(mode="json")
+            ),
+            "mission_context": (
+                None
+                if exposure.mission_context is None
+                else exposure.mission_context.model_dump(mode="json")
             ),
             "derivation": exposure.derivation.model_dump(mode="json")
             if exposure.derivation is not None
@@ -765,11 +772,11 @@ def _validate_impact_binding(exposure: ExposureRecord) -> None:
     derivation = exposure.derivation
     if derivation is None:
         raise ExposureNotReplayable("scored exposure requires a replayable derivation")
-    if derivation.engine_version == "exposure-score/v1":
+    if derivation.engine_version in {"exposure-score/v1", "exposure-score/v3"}:
         if exposure.impact_context is not None:
             raise ExposureConfigInvalid("impact context is not bound into the derivation")
         return
-    if derivation.engine_version != "exposure-score/v2":
+    if derivation.engine_version not in {"exposure-score/v2", "exposure-score/v4"}:
         if exposure.impact_context is not None:
             raise ExposureConfigInvalid("impact context uses an unsupported derivation version")
         return
@@ -783,6 +790,32 @@ def _validate_impact_binding(exposure: ExposureRecord) -> None:
             break
     if binding != context.model_dump(mode="json"):
         raise ExposureConfigInvalid("exposure impact context does not match derivation")
+
+
+def _validate_mission_binding(exposure: ExposureRecord) -> None:
+    derivation = exposure.derivation
+    if derivation is None:
+        raise ExposureNotReplayable("scored exposure requires a replayable derivation")
+    if derivation.engine_version in {"exposure-score/v1", "exposure-score/v2"}:
+        if exposure.mission_context is not None:
+            raise ExposureConfigInvalid(
+                "historical exposure derivation cannot carry a mission context"
+            )
+        return
+    if derivation.engine_version not in {"exposure-score/v3", "exposure-score/v4"}:
+        if exposure.mission_context is not None:
+            raise ExposureConfigInvalid("mission context uses an unsupported derivation version")
+        return
+    context = exposure.mission_context
+    if context is None:
+        raise ExposureConfigInvalid("scored exposure requires a mission context")
+    binding = None
+    for step in derivation.steps:
+        if step.op == "weigh":
+            binding = step.params.get("mission_context")
+            break
+    if binding != context.model_dump(mode="json"):
+        raise ExposureConfigInvalid("exposure mission context does not match derivation")
 
 
 def _reachability_factor(reachability: str) -> float:

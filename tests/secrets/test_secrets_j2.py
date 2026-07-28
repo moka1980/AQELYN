@@ -6,7 +6,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Literal, Protocol, cast
+from typing import Any, Literal, Protocol, cast
 
 import pytest
 
@@ -20,10 +20,12 @@ from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord
 from aqelyn.exposure import AssetRef, ExposureBasis, ExposureImpactContext, ExposureRecord
 from aqelyn.governance import ComplianceSnapshot, ControlResult
+from aqelyn.graph import Path
 from aqelyn.inventory import Ownership
 from aqelyn.kernel import AQELYNConfig, create_inmemory_runtime
-from aqelyn.mission import MissionImpactResult
-from aqelyn.risk import Risk, RiskConfig
+from aqelyn.mission import MissionEngine, MissionImpact, MissionImpactResult, MissionView
+from aqelyn.objects import AQObject, SourceRef
+from aqelyn.risk import Risk, RiskConfig, RiskMissionContext
 from aqelyn.risk.scoring import score_risk as real_score_risk
 from aqelyn.secrets import (
     ComposedCredentialGovernance,
@@ -239,6 +241,8 @@ def _composed(
     exposure_score: float = 0.0,
     exposure_status: str = "closed",
     storage_status: Literal["approved", "unsafe", "unknown"] = "approved",
+    mission_known: bool = True,
+    mission_result: MissionImpactResult | None = None,
 ) -> ComposedCredentialGovernance:
     asset = _asset()
     owner_exposure = _owner_exposure(
@@ -262,7 +266,29 @@ def _composed(
         exposure=_crypto_exposure(asset, owner_id=owner_exposure.id),
         owner_exposure=owner_exposure,
         trust=_trust(),
-        mission=MissionImpactResult(),
+        mission=mission_result
+        if mission_result is not None
+        else (
+            MissionImpactResult(
+                impacts=[
+                    MissionImpact(
+                        mission=MissionView(
+                            id=new_id("obj"),
+                            display_name="Credential governance test mission",
+                            criticality_tier=4,
+                            criticality_weight=0.0,
+                            reason="The owner declared a non-critical test mission.",
+                        ),
+                        impact_score=0.0,
+                        via=Path(node_ids=[asset.object_id], length=0),
+                        source_object_id=asset.object_id,
+                        reason="The owner explicitly assessed zero mission impact.",
+                    )
+                ]
+            )
+            if mission_known
+            else MissionImpactResult()
+        ),
         compliance=_compliance(),
         storage_safety=storage_safety,
         factor_weights={
@@ -316,15 +342,13 @@ def test_crypto_gov_score_composed_not_rescored(
         risk: Risk,
         *,
         config: RiskConfig | None = None,
-        mission_factor: float = 0.0,
-        top_mission_id: str | None = None,
+        mission_context: RiskMissionContext | None = None,
     ) -> Risk:
         calls.append(risk)
         return real_score_risk(
             risk,
             config=config,
-            mission_factor=mission_factor,
-            top_mission_id=top_mission_id,
+            mission_context=mission_context,
         )
 
     monkeypatch.setattr(scoring_module, "score_risk", recording_score_risk)
@@ -349,6 +373,54 @@ def test_crypto_gov_unknown_three_way() -> None:
     unknown_factor = next(factor for factor in unknown.factors if factor.name == "ownership")
     assert unknown_factor.status == "unknown"
     assert unknown_factor.rating is None
+
+
+def test_secrets_unassessable_not_well_governed() -> None:
+    assessed = _composed(mission_known=True)
+    unassessable = _composed(mission_known=False)
+
+    owner_risk = next(factor for factor in unassessable.factors if factor.name == "owner_risk")
+    assert owner_risk.status == "unknown"
+    assert owner_risk.rating is None
+    assert unassessable.score < assessed.score
+    assert unassessable.score < 100.0
+
+
+async def test_secrets_missing_mission_real_owner(graph_harness: Any) -> None:
+    observed = await graph_harness.object_store.upsert(
+        AQObject(
+            id="",
+            object_type="generic",
+            schema_version=1,
+            display_name="Mission-unmapped credential object",
+            attributes={},
+            sources=[
+                SourceRef(
+                    source_id=SOURCE_ID,
+                    evidence_id=EVIDENCE_ID,
+                    observed_at=NOW,
+                    method="secrets-j2-real-mission-owner/v1",
+                )
+            ],
+            first_seen_at=NOW,
+            last_seen_at=NOW,
+            created_at=NOW,
+            updated_at=NOW,
+            created_by=ActorRef(actor_type="system", actor_id="secrets-j2-test"),
+            updated_by=ActorRef(actor_type="system", actor_id="secrets-j2-test"),
+        )
+    )
+    missing = await MissionEngine(
+        graph_harness.object_store,
+        graph_harness.graph,
+    ).mission_impact(observed.id)
+
+    composed = _composed(mission_result=missing)
+    owner_risk = next(factor for factor in composed.factors if factor.name == "owner_risk")
+
+    assert owner_risk.status == "unknown"
+    assert owner_risk.rating is None
+    assert composed.score < _composed().score
 
 
 def test_crypto_location_factor_unknown_not_favourable() -> None:

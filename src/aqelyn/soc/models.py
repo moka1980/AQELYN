@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validat
 from aqelyn.conventions import ActorRef, new_id, require_tenant_id, require_typed_id
 from aqelyn.conventions.errors import SOCConfigInvalid
 from aqelyn.findings.models import Severity
+from aqelyn.risk.models import RiskMissionContext
 from aqelyn.workflow.models import RunStatus
 
 AlertState = Literal["new", "triaged", "suppressed", "escalated"]
@@ -158,6 +159,13 @@ class Incident(BaseModel):
     alert_ids: list[str] = Field(default_factory=list)
     affected_object_ids: list[str] = Field(default_factory=list)
     top_mission_id: str | None = None
+    mission_context: RiskMissionContext = Field(
+        default_factory=lambda: RiskMissionContext(
+            status="unknown",
+            unknown_cause="input_missing",
+            reason="EA-0007 mission context has not been supplied.",
+        )
+    )
     risk_score: float | None = None
     assignee: ActorRef | None = None
     timeline: list[TimelineEntry] = Field(default_factory=list)

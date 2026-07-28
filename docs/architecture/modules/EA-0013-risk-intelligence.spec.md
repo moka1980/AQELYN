@@ -5,6 +5,8 @@
 **Consumed by:** the risk UI (risk register, heat map, trend, treatment plans — a WCAG 2.2 AA surface), executive/board reporting, EA-0010 governance reporting, auditors (risk & treatment evidence)
 **Status:** Accepted
 **Build milestone:** C-010 (see `C-010_Task_Bundle.md`)
+**Change control:** ECR-0076 (typed mission context; absence is unknown and
+conservatively scored, never folded to the favourable identity)
 **Definition of Ready:** see §11
 
 ---
@@ -73,11 +75,19 @@ layer that answers "so, how much risk are we carrying?"
 SignalRef   = { kind: "finding"|"compliance"|"identity"|"config"|"threat_intel",
                 ref_id: str, weight: float, evidence_id: str | null }
 
+RiskMissionContext = { status: "known"|"unknown", factor: float | null,
+                       top_mission_id: obj_ | null,
+                       unknown_cause: "provider_unconfigured"|"input_missing"|
+                                      "assessment_incomplete"|null,
+                       reason: str }
+# known requires factor + top_mission_id and forbids unknown_cause.
+# unknown forbids factor + top_mission_id and requires unknown_cause.
+
 Risk        = { id, tenant_id: str | null, correlation_key: str, title: str,
                 category: str, likelihood: float, impact: float, score: float,   # score in [0,100]
                 band: "within_appetite"|"elevated"|"over_tolerance",
                 signals: list[SignalRef], affected_object_ids: list[str],
-                top_mission_id: str | null,
+                top_mission_id: str | null, mission_context: RiskMissionContext,
                 lifecycle: "identified"|"assessed"|"treated"|"closed",
                 treatment: "none"|"accept"|"mitigate"|"transfer",
                 treatment_note: str | null, treated_by: ActorRef | null,
@@ -144,6 +154,10 @@ findings use `confidence`); `impact = mission_weighted(max severity across
 signals, EA-0007 mission factor of affected objects)`; `score = round(100 ·
 (w_likelihood·likelihood + w_impact·impact))`, bounded `[0,100]`, monotonic.
 `band` from appetite thresholds (D4). Deterministic (D2).
+An absent, empty, or truncated EA-0007 result is a typed unknown, not numeric
+zero. The unknown context remains on the risk and the numeric max uses its
+conservative upper bound; an explicit mission impact of `0.0` remains known
+(ECR-0076).
 
 **Assess.** `correlate` → `score` each → `upsert` into the register (dedupe by
 `correlation_key`, bump version) → persist a `RiskSnapshot` (D7). Emits
@@ -160,6 +174,9 @@ recorded decisions only; lifecycle advances accordingly.
 - **FR-1** `correlate` SHALL aggregate signals (findings + governance results) into `Risk` records by `correlation_key`, each listing its `SignalRef`s and affected objects (D1/D3).
 - **FR-2** `score` SHALL compute bounded `[0,100]`, mission-weighted, deterministic scores; identical signals + config → identical score (D2).
 - **FR-3** Impact SHALL be mission-weighted via EA-0007; a risk on a tier-1 mission SHALL score no lower than the same risk on a lower-criticality mission (monotonic).
+- **FR-3a** Missing, empty, and truncated EA-0007 input SHALL remain a typed
+  unknown with a semantic cause and SHALL NOT enter the mission maximum as
+  numeric zero. An explicit zero SHALL remain known (ECR-0076).
 - **FR-4** Each `Risk` SHALL carry its contributing signals, factor values, `band`, and a plain-language `reason` (D2).
 - **FR-5** `band` SHALL derive from configured appetite thresholds; deterministic (D4).
 - **FR-6** `assess` SHALL upsert risks by `correlation_key` (dedupe, optimistic version) and persist a `RiskSnapshot` (D1/D7).
@@ -185,6 +202,7 @@ recorded decisions only; lifecycle advances accordingly.
 | AC-1 | Signals correlated into risks | `test_risk_correlate` |
 | AC-2 | Score bounded [0,100], deterministic | `test_risk_score_bounded` |
 | AC-3 | Impact mission-weighted + monotonic | `test_risk_mission_weighted` |
+| AC-3a | Real empty Mission owner result is typed unknown and cannot score more favourably than explicit zero | `test_risk_missing_mission_real_owner` |
 | AC-4 | Risk carries signals + reason | `test_risk_explainable` |
 | AC-5 | Band from appetite thresholds | `test_risk_appetite_band` |
 | AC-6 | Assess upserts by correlation key + snapshot | `test_risk_assess_upsert_snapshot` |

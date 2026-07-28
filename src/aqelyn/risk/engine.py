@@ -23,10 +23,11 @@ from aqelyn.risk.models import (
     Risk,
     RiskBand,
     RiskConfig,
+    RiskMissionContext,
     RiskSnapshot,
     RiskTreatment,
 )
-from aqelyn.risk.scoring import score_risk
+from aqelyn.risk.scoring import mission_context_from_results, score_risk
 from aqelyn.risk.store import RiskSnapshotStore, RiskStore, new_risk_snapshot_id, validate_positive
 from aqelyn.workflow import Playbook, Run, Step
 
@@ -95,12 +96,11 @@ class RiskIntelligenceEngine:
         )
 
     async def score(self, risk: Risk) -> Risk:
-        mission_factor, top_mission_id = await self._mission_context(risk)
+        mission_context = await self._mission_context(risk)
         return score_risk(
             risk,
             config=self.config,
-            mission_factor=mission_factor,
-            top_mission_id=top_mission_id,
+            mission_context=mission_context,
         )
 
     async def assess(
@@ -257,23 +257,13 @@ class RiskIntelligenceEngine:
         rows = await self.risk_store.query(tenant_id=tenant_id, limit=_ASSESS_QUERY_LIMIT)
         return {risk.correlation_key: risk for risk in rows}
 
-    async def _mission_context(self, risk: Risk) -> tuple[float, str | None]:
+    async def _mission_context(self, risk: Risk) -> RiskMissionContext:
         if self.mission_engine is None:
-            return 0.0, None
-        best_factor = 0.0
-        best_mission_id: str | None = None
+            return mission_context_from_results(None)
+        results: list[MissionImpactResult] = []
         for object_id in sorted(risk.affected_object_ids):
-            result = await self.mission_engine.mission_impact(object_id)
-            for impact in result.impacts:
-                candidate = impact.impact_score
-                mission_id = impact.mission.id
-                if candidate > best_factor or (
-                    candidate == best_factor
-                    and (best_mission_id is None or mission_id < best_mission_id)
-                ):
-                    best_factor = candidate
-                    best_mission_id = mission_id
-        return best_factor, best_mission_id
+            results.append(await self.mission_engine.mission_impact(object_id))
+        return mission_context_from_results(results)
 
     def _now(self) -> datetime:
         return self._clock() if self._clock is not None else utc_now()

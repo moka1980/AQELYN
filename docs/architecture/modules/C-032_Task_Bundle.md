@@ -79,6 +79,9 @@ trust + EA-0007 mission + EA-0010 compliance** into a replayable **EA-0020
   denominator **and** low coverage adjusts the result down. Denominator exclusion
   alone lets one known-good factor plus nine unknowns score like ten known-good
   factors, i.e. **"unknown" becomes "present"** (rules 4/5, ECR-0040).
+- **ECR-0076:** an empty EA-0007 mission result makes the composed EA-0013
+  `owner_risk` factor unknown and excluded. It is not numeric zero; an
+  unassessable credential cannot enter the well-governed result.
 - **Replay-or-reject** — `put_score` rejects a score whose derivation does not
   replay; driven against the **real scorer**.
 - **(a) Exposure is not averaged away** — an **active critical exposure** is

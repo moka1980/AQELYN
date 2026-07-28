@@ -29,8 +29,8 @@ from aqelyn.risk.store import (
 
 _RISK_COLS = (
     "id, tenant_id, correlation_key, title, category, likelihood, impact, score, band, "
-    "signals, affected_object_ids, top_mission_id, lifecycle, treatment, treatment_note, "
-    "treated_by, reason, factors, first_seen_at, last_scored_at, version"
+    "signals, affected_object_ids, top_mission_id, mission_context, lifecycle, treatment, "
+    "treatment_note, treated_by, reason, factors, first_seen_at, last_scored_at, version"
 )
 _SNAPSHOT_COLS = "id, tenant_id, run_at, total, band_counts, top_risks, overall_exposure"
 
@@ -58,7 +58,7 @@ async def _connect(url: str) -> asyncpg.Pool:
 
 def _row_to_risk(row: asyncpg.Record) -> Risk:
     data: dict[str, Any] = dict(row)
-    for key in ("signals", "affected_object_ids", "treated_by", "factors"):
+    for key in ("signals", "affected_object_ids", "mission_context", "treated_by", "factors"):
         data[key] = _json_value(data[key])
     return Risk.model_validate(data)
 
@@ -234,7 +234,7 @@ async def _insert_risk(conn: asyncpg.Connection, risk: Risk) -> None:
     try:
         await conn.execute(
             f"INSERT INTO aq_risk ({_RISK_COLS}) VALUES "
-            "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)",
+            "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)",
             *_risk_args(risk),
         )
     except asyncpg.UniqueViolationError as exc:
@@ -246,9 +246,9 @@ async def _update_risk(conn: asyncpg.Connection, risk: Risk) -> None:
         "UPDATE aq_risk SET "
         "tenant_id=$2, correlation_key=$3, title=$4, category=$5, likelihood=$6, "
         "impact=$7, score=$8, band=$9, signals=$10, affected_object_ids=$11, "
-        "top_mission_id=$12, lifecycle=$13, treatment=$14, treatment_note=$15, "
-        "treated_by=$16, reason=$17, factors=$18, first_seen_at=$19, "
-        "last_scored_at=$20, version=$21 "
+        "top_mission_id=$12, mission_context=$13, lifecycle=$14, treatment=$15, "
+        "treatment_note=$16, treated_by=$17, reason=$18, factors=$19, first_seen_at=$20, "
+        "last_scored_at=$21, version=$22 "
         "WHERE id=$1",
         *_risk_args(risk),
     )
@@ -268,6 +268,7 @@ def _risk_args(risk: Risk) -> tuple[Any, ...]:
         json.dumps([signal.model_dump(mode="json") for signal in risk.signals]),
         json.dumps(risk.affected_object_ids),
         risk.top_mission_id,
+        json.dumps(risk.mission_context.model_dump(mode="json")),
         risk.lifecycle,
         risk.treatment,
         risk.treatment_note,
