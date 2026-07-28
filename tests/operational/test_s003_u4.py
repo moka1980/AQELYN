@@ -198,9 +198,9 @@ async def test_u4_resolved_failure_stays_failed() -> None:
     )
 
     assert assessment.aggregate() == {
-        "passed": 0,
+        "passed": 1,
         "failed": 1,
-        "unknown": 4,
+        "unknown": 3,
     }
 
 

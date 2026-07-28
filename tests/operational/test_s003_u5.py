@@ -22,6 +22,8 @@ from tools.first_run import (
 from tools.s003_baseline import (
     BaselineClaim,
     BaselineDefinition,
+    assess_s003_baseline,
+    derive_baseline_observations,
 )
 from tools.s003_declaration import (
     CRITICALITY_NOT_DECLARED,
@@ -32,6 +34,8 @@ from tools.s003_estate import (
     SURFACE_NOT_DERIVED_REASONS,
     ServiceSurfaceDocument,
     UnitInventoryDocument,
+    UnitRecord,
+    canonical_asset_key,
 )
 from tools.s003_run import assemble_s003_report
 from tools.s003_surface import (
@@ -110,6 +114,33 @@ def _base_report() -> RunReport:
 
 def _inventory() -> UnitInventoryDocument:
     return UnitInventoryDocument(collected_at=NOW, units=[])
+
+
+def _privileged_documents() -> tuple[UnitInventoryDocument, ServiceSurfaceDocument]:
+    native_id = "synthetic.service"
+    inventory = UnitInventoryDocument(
+        collected_at=NOW,
+        units=[
+            UnitRecord(
+                asset_key=canonical_asset_key("systemd_unit", native_id),
+                native_id=native_id,
+                display_name="Synthetic service",
+                load_state="loaded",
+                active_state="active",
+                sub_state="running",
+                main_pid=42,
+            )
+        ],
+    )
+    surface = ServiceSurfaceDocument(
+        collected_at=NOW,
+        listeners_raw=('tcp LISTEN 0 128 0.0.0.0:1 0.0.0.0:* users:(("synthetic",pid=42,fd=1))'),
+        firewall_raw=None,
+        nginx_config="events {}",
+        listeners=[],
+        vhosts=[],
+    )
+    return inventory, surface
 
 
 def _surface(
@@ -260,7 +291,7 @@ async def test_u5_baseline_observations_derived_from_documents() -> None:
 
     assert passing.passed == 1
     assert failing.failed == 1
-    assert failing.passed == 0
+    assert failing.passed == 1
 
 
 async def test_u5_unresolvable_claim_still_unknown_via_gate() -> None:
@@ -280,6 +311,40 @@ async def test_u5_unresolvable_claim_still_unknown_via_gate() -> None:
         )
         == 5
     )
+
+
+async def test_u5_privileged_evidence_closes_c1_and_c5() -> None:
+    inventory, surface = _privileged_documents()
+    observations = {
+        observation.claim_id: observation
+        for observation in derive_baseline_observations(inventory, surface)
+    }
+
+    assert observations["C1"].model_dump() == {
+        "state": "resolved",
+        "claim_id": "C1",
+        "value": True,
+    }
+    assert observations["C5"].model_dump() == {
+        "state": "resolved",
+        "claim_id": "C5",
+        "value": True,
+    }
+
+    registry = ObjectTypeRegistry()
+    registry.register(ASSET_OBJECT_TYPE, 1, None)
+    assessment = await assess_s003_baseline(
+        InMemoryObjectStore(registry=registry),
+        definition=_definition(),
+        inventory=inventory,
+        surface=surface,
+        tenant_id=None,
+        observed_at=NOW,
+        source_id=new_id("src"),
+    )
+
+    assert assessment.aggregate() == {"passed": 3, "failed": 0, "unknown": 2}
+    assert assessment.roadmap_dependencies == []
 
 
 async def test_s003_kev_join_verified_and_reported(

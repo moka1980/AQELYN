@@ -15,7 +15,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from tools.first_run import FactorReading, RoadmapDependency
 from tools.s003_estate import ServiceSurfaceDocument, UnitInventoryDocument
-from tools.s003_surface import parse_listener_observations
+from tools.s003_surface import classify_bind, parse_listener_observations
 
 from aqelyn.assetconfig import ACGConfig, AssetConfigAnalyzer, Baseline, Check, Comparator
 from aqelyn.conventions import ActorRef
@@ -339,21 +339,47 @@ def derive_baseline_observations(
     """
 
     if surface.listeners_raw is None:
+        c1: ClaimObservation = UnresolvedObservation(
+            claim_id="C1",
+            unknown_class="privileged_read",
+        )
         c4: ClaimObservation = UnresolvedObservation(
             claim_id="C4",
             unknown_class="collection_scope",
         )
     else:
+        listeners = parse_listener_observations(surface, inventory)
+        externally_bound = [
+            observation
+            for observation in listeners
+            if classify_bind(observation.address) == "external"
+        ]
+        c1 = (
+            ResolvedObservation(claim_id="C1", value=True)
+            if all(observation.asset_key is not None for observation in externally_bound)
+            else UnresolvedObservation(
+                claim_id="C1",
+                unknown_class="privileged_read",
+            )
+        )
         c4 = ResolvedObservation(
             claim_id="C4",
-            value=bool(parse_listener_observations(surface, inventory)),
+            value=bool(listeners),
         )
+    c5: ClaimObservation = (
+        ResolvedObservation(claim_id="C5", value=True)
+        if surface.nginx_config is not None
+        else UnresolvedObservation(
+            claim_id="C5",
+            unknown_class="privileged_read",
+        )
+    )
     return [
-        UnresolvedObservation(claim_id="C1", unknown_class="privileged_read"),
+        c1,
         UnresolvedObservation(claim_id="C2", unknown_class="collection_scope"),
         UnresolvedObservation(claim_id="C3", unknown_class="collection_scope"),
         c4,
-        UnresolvedObservation(claim_id="C5", unknown_class="privileged_read"),
+        c5,
     ]
 
 
