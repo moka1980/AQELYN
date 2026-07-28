@@ -6,7 +6,7 @@
 **Status:** Accepted
 **Build milestone:** C-030 (see `C-030_Task_Bundle.md`)
 **Enhanced by:** C-031 H2 (evidence-backed ownership handoff to EA-0025), C-031 H3 (value-free identity-to-credential/workload bindings)
-**Change control:** ECR-0049, ECR-0050, ECR-0051, ECR-0052
+**Change control:** ECR-0049, ECR-0050, ECR-0051, ECR-0052, ECR-0074
 **Definition of Ready:** see §12
 
 ---
@@ -115,7 +115,9 @@ scoring; this composes it).
   favourably** (rules 4/5, the ECR-0040 shape). An account whose MFA status is
   **unknown** SHALL NOT score as MFA-present; a missing last-activity SHALL NOT
   score as recently-active. Absence removes a factor's vote; it never casts a
-  favourable one.
+  favourable one. The same rule applies to mission context: an EA-0007 result
+  with no impact SHALL NOT become mission factor `0.0`; the composed risk factor
+  is `unknown` and denominator-excluded (ECR-0074).
 - **S1c — A score without a replayable derivation is unrepresentable** (the
   EA-0020/EA-0024 gate).
 
@@ -345,7 +347,10 @@ idempotent. Consumers traverse it only through EA-0005 with explicit
 invented ids**), control facts, EA-0007 mission weight of what it reaches, EA-0006
 confidence. Build `PostureFactor`s — a factor whose fact is `unknown` gets
 `status="unknown"` and is **excluded from the denominator**, never scored
-favourably (S1b). Combine under `factor_weights` into 0–100; build the **EA-0020
+favourably (S1b). When EA-0007 returns no mission impact, the composed
+`iag_risk` factor is likewise `unknown` and excluded; the provisional EA-0013
+record remains pinned for replay but does not cast a favourable vote
+(ECR-0074). Combine under `factor_weights` into 0–100; build the **EA-0020
 `Derivation`**; render `statement` in **control language** (§0.3). The store
 **rejects** a score whose derivation does not replay (S1c).
 
@@ -373,7 +378,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 - **FR-3** Orphaned, dormant, over-privileged, SoD, and privileged-unreviewed risks SHALL be read from **EA-0011 `analyze_risk`** and pinned as the actual `AccessRisk` records (the shipped type has no id); the module SHALL NOT re-derive any of them (§0.1). A real normalization → `IdentityAccessGovernanceEngine.analyze_risk` → posture-score round trip SHALL prove that a normalized identity/account graph produces the expected non-empty risk and that the score cites that exact owner record; a spy or call assertion alone is insufficient.
 - **FR-4** Access paths SHALL come from **EA-0011 `access_paths`**; certification SHALL be **EA-0011 `open_certification`/`decide_item`/`complete_certification`**; the module SHALL NOT create a parallel certification model or `cert` prefix (§0.1, false friends).
 - **FR-5** Control facts (`mfa`, `lifecycle`, `last_activity`) SHALL be tri-state `present|absent|unknown` defaulting to `unknown`, each carrying the evidence or the reason it is unknown (D2).
-- **FR-6** A factor whose control fact is `unknown` SHALL be recorded `status="unknown"` and **excluded from the score denominator**; it SHALL NEVER contribute a favourable value (S1b, rules 4/5, ECR-0040 shape).
+- **FR-6** A factor whose control fact is `unknown` SHALL be recorded `status="unknown"` and **excluded from the score denominator**; it SHALL NEVER contribute a favourable value. An EA-0007 result with no mission impact SHALL make the composed `iag_risk` factor `unknown` and denominator-excluded, never mission factor `0.0` presented as known (S1b, rules 4/5, ECR-0040, ECR-0074).
 - **FR-7** `score_identity` SHALL be deterministic (same inputs + weights → same score) and SHALL carry an **EA-0020 `Derivation`**; a score whose `replay` does not reproduce it SHALL be rejected at `put_score` (S1a/S1c).
 - **FR-8** Score composition SHALL use **EA-0013 risk scoring / EA-0007 mission / EA-0006 trust**; the module SHALL NOT introduce a second scorer (§2.1).
 - **FR-9** `subject_ref` SHALL be an identity/account object id, and `statement` SHALL use control language; **no type, field, or method SHALL aggregate an individual's accounts into a person-level score or trust rating** (§0.3) — structurally unrepresentable.
@@ -439,6 +444,7 @@ requested, EA-0008 `propose(playbook, by=, source_finding=finding)` with
 | AC-22 | Health tenant-scoped, both tenant modes | `test_ispm_service_health[local]` / `[enterprise]` |
 | AC-23 | Ownership claim verifies before writes; real EA-0025 reconciliation pins known/unknown provenance on both stores | `test_nhi_ownership_*` |
 | AC-24 | Real EA-0032 object → evidence-backed EA-0002 binding → bounded EA-0005 traversal; value-free, tenant-safe, idempotent, and integrity is not authenticity | `test_nhi_binding_*` |
+| AC-25 | Empty EA-0007 mission result makes the composed risk factor unknown and denominator-excluded; an explicit impact of `0.0` remains known | `test_ispm_missing_mission_is_unknown_and_excluded` |
 
 ## 9. Error taxonomy (contributions)
 
@@ -464,6 +470,9 @@ event) — via `register_ispm_events()` (EA-0003 §7). **The module SHALL NOT em
   posture score; it SHALL NOT be emitted with the risk factors silently missing.
 - A control fact not establishable → `unknown` + reason, factor excluded from the
   denominator. **This is the correct outcome, not a degraded one** (S1b).
+- EA-0007 returns no mission impact → the composed `iag_risk` factor is
+  `unknown` + reason and excluded from the denominator; the empty result is
+  never rendered as favourable mission factor `0.0` (ECR-0074).
 - Score fails to replay → **withheld**, not served with a caveat (EA-0020/EA-0021
   precedent).
 - EA-0025 inventory bounded → `inventory_complete=false` with a note; the
@@ -534,3 +543,8 @@ EA-0033 does not fix ECR-0034; **it must not deepen it.**
   Recommendation unchanged: **decide after C-030 is green**, as a
   behaviour-preserving refactor against four real implementations — **not** part
   of this milestone.
+- **ECR-0074 — mission absence is not a favourable value.** EA-0007 returning no
+  impact makes the composed `iag_risk` factor unknown and denominator-excluded.
+  The determining run proved GC-001 AC-3 could not see the defect because the
+  numeric mission path bypassed the factor representation; ECR-0075 records the
+  separate cross-cutting guarantee repair.

@@ -381,6 +381,24 @@ rule 21 - mutate consumers, not only producers - but distinct: rule 21 is about 
 by reading, because every output is correct. Only mutating its subject distinguishes "verified" from
 "happens to be true".
 
+### 32. A synthesized fixture can manufacture a defect as easily as it can hide one
+S-003 U5 / PR #251 review: the product correctly required an externally bound listener's PID to
+match a collected unit before calling the listener attributable. A synthesized test used `pid=1`.
+That value satisfied the field's type while referring to no unit in the fixture, so the test accused
+correct code of leaving the listener unknown.
+
+Rules 26, 27, and 30 cover fixtures and corpora that are too generous and hide defects. This is the
+opposite failure: a plausible value satisfies the field's **shape** while violating what the field
+**refers to**, manufacturing a false defect report and inviting a fix to correct code.
+
+> **For every synthesized reference, construct the referent and verify the join before judging the
+> product.** A typed id, PID, cursor, evidence id, or object key is not valid merely because its
+> syntax is valid.
+
+**The tell:** if a result is surprising, test the fixture's referential claim independently before
+changing the implementation. The product remains strict: a PID matching no collected unit is
+unattributable, because resolving it would turn a plausible-looking reference into a false answer.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
