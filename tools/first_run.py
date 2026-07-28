@@ -79,6 +79,19 @@ class RunReport:
     stored: int
     findings: list[Any]
     coverage_factors: list[FactorReading] = field(default_factory=list)
+    roadmap_dependencies: list[RoadmapDependency] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class RoadmapDependency:
+    """One count-only owner decision shared by several unknowns."""
+
+    decision: Literal["privileged_read"]
+    dependents: int
+
+    def __post_init__(self) -> None:
+        if isinstance(self.dependents, bool) or self.dependents < 1:
+            raise ValueError("roadmap dependency count must be a positive integer")
 
 
 def _run(cmd: list[str], out: Path) -> None:
@@ -432,6 +445,13 @@ def density_report(report: RunReport) -> None:
         f"\n-- priority factors ({len(per_finding)} findings, "
         f"{len(report.coverage_factors)} coverage gaps, {total_factors} factors) --"
     )
+    if report.roadmap_dependencies:
+        dependencies: Counter[str] = Counter()
+        for dependency in report.roadmap_dependencies:
+            dependencies[dependency.decision] += dependency.dependents
+        print("\n-- shared owner decisions --")
+        for decision, dependents in sorted(dependencies.items()):
+            print(f"  {decision:24s} dependents={dependents}")
     # ECR-0066: with a tie at the top the ordering stops recommending anything, and
     # breaking it by sort stability would make an owner's decision invisibly. The
     # report states the tie and stops there; the tie-break -- cheapest-to-wire, or
