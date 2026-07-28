@@ -74,6 +74,9 @@ production change lands in the same commit.
 
 ## A2 — Classify the absence at each site
 
+**Classification output:**
+[C-041 A2 Mission Absence Classification](C-041_A2_Absence_Classification.md).
+
 ECR-0076 §5: ***not supplied*** and ***supplied as not-applicable*** look identical at
 the fold and are different states.
 
