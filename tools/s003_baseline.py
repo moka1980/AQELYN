@@ -14,6 +14,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from tools.first_run import FactorReading, RoadmapDependency
+from tools.s003_estate import ServiceSurfaceDocument, UnitInventoryDocument
+from tools.s003_surface import parse_listener_observations
 
 from aqelyn.assetconfig import ACGConfig, AssetConfigAnalyzer, Baseline, Check, Comparator
 from aqelyn.conventions import ActorRef
@@ -27,7 +29,6 @@ CLAIM_IDS = frozenset(("C1", "C2", "C3", "C4", "C5"))
 NO_BASELINE_DECLARED = "no approved baseline declared"
 PRIVILEGED_READ_REQUIRED = "privileged read decision pending"
 COLLECTION_SCOPE_INCOMPLETE = "collection scope does not provide required evidence"
-PRIVILEGED_READ_DEPENDENTS = 4
 
 _ACTOR = ActorRef(actor_type="user", actor_id="s003-owner")
 _BASELINE_TARGET_NATURAL_KEY = NaturalKey(
@@ -207,21 +208,27 @@ async def assess_s003_baseline(
     object_store: ObjectStore,
     *,
     definition: BaselineDefinition | None,
-    observations: Sequence[ClaimObservation],
+    inventory: UnitInventoryDocument | None,
+    surface: ServiceSurfaceDocument | None,
     tenant_id: str | None,
     observed_at: datetime,
     source_id: str,
 ) -> BaselineAssessment:
-    """Resolve first, then compare only values represented by ``ResolvedObservation``."""
+    """Derive from U1 documents, then compare only resolved values.
+
+    The public call accepts no observation list. That makes stepping around the
+    resolution gate with hand-written values impossible.
+    """
 
     if definition is None:
-        if observations:
-            raise S003BaselineError("an undeclared baseline cannot carry observations")
         return BaselineAssessment(
             baseline_declared=False,
             reason=NO_BASELINE_DECLARED,
         )
+    if inventory is None or surface is None:
+        raise S003BaselineError("a declared baseline requires the U1 documents")
 
+    observations = derive_baseline_observations(inventory, surface)
     resolutions = _resolution_map(definition, observations)
     observed_state: dict[str, object] = {
         claim_id: resolution.value
@@ -301,16 +308,14 @@ async def assess_s003_baseline(
     unknown = sum(outcome.status == "unknown" for outcome in outcomes)
     if drift.passed != passed or drift.failed != failed:
         raise S003BaselineError("EA-0012 aggregate contradicts the three-bucket result")
-    roadmap = (
-        [
-            RoadmapDependency(
-                decision="privileged_read",
-                dependents=PRIVILEGED_READ_DEPENDENTS,
-            )
-        ]
-        if any(outcome.unknown_class == "privileged_read" for outcome in outcomes)
-        else []
-    )
+    roadmap = [
+        RoadmapDependency(
+            decision="privileged_read",
+            dependent=f"baseline:{outcome.claim_id}",
+        )
+        for outcome in outcomes
+        if outcome.unknown_class == "privileged_read"
+    ]
     return BaselineAssessment(
         baseline_declared=True,
         passed=passed,
@@ -319,6 +324,37 @@ async def assess_s003_baseline(
         outcomes=outcomes,
         roadmap_dependencies=roadmap,
     )
+
+
+def derive_baseline_observations(
+    inventory: UnitInventoryDocument,
+    surface: ServiceSurfaceDocument,
+) -> list[ClaimObservation]:
+    """Resolve the C1-C5 handles from handed-in U1 documents.
+
+    Claim text remains private. The stable handles carry only which collected
+    evidence class can answer each claim. U1 has no evidence for C2/C3, while C1
+    and C5 share the owner-gated privileged read. C4 is the one claim whose value is
+    mechanically observable from the handed-in socket table.
+    """
+
+    if surface.listeners_raw is None:
+        c4: ClaimObservation = UnresolvedObservation(
+            claim_id="C4",
+            unknown_class="collection_scope",
+        )
+    else:
+        c4 = ResolvedObservation(
+            claim_id="C4",
+            value=bool(parse_listener_observations(surface, inventory)),
+        )
+    return [
+        UnresolvedObservation(claim_id="C1", unknown_class="privileged_read"),
+        UnresolvedObservation(claim_id="C2", unknown_class="collection_scope"),
+        UnresolvedObservation(claim_id="C3", unknown_class="collection_scope"),
+        c4,
+        UnresolvedObservation(claim_id="C5", unknown_class="privileged_read"),
+    ]
 
 
 def baseline_factor_readings(assessment: BaselineAssessment) -> list[FactorReading]:
