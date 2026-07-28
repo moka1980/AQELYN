@@ -123,6 +123,19 @@ def _listener(address: str, index: int, *, pid: int | None) -> str:
     return f"tcp LISTEN 0 128 {endpoint} *:*{process}"
 
 
+def _outside_bracket_scoped_listener(
+    address: str,
+    scope: str,
+    index: int,
+    *,
+    pid: int | None,
+) -> str:
+    selected_port = 20_000 + index
+    endpoint = f"[{address}]%{scope}:{selected_port}"
+    process = "" if pid is None else f' users:(("process",pid={pid},fd=1))'
+    return f"tcp LISTEN 0 128 {endpoint} *:*{process}"
+
+
 def _surface(*listeners: str) -> ServiceSurfaceDocument:
     return ServiceSurfaceDocument(
         collected_at=NOW,
@@ -239,6 +252,39 @@ async def test_s003_reachability_measured_from_bind(
     assert {item.kind for item in basis[selected_ids[units[3].asset_key]]} == {"inventory"}
 
 
+@pytest.mark.parametrize(("backend", "tenant_mode"), MATRIX)
+async def test_s003_scoped_ipv6_is_unknown_without_losing_other_listeners(
+    backend: str,
+    tenant_mode: str,
+) -> None:
+    units = [_unit(1, pid=101), _unit(2, pid=102)]
+    inventory_document = _inventory(*units)
+    selected_ids = _ids(inventory_document)
+    surface = _surface(
+        _outside_bracket_scoped_listener("fe80::1", "if0", 1, pid=101),
+        _listener(str(ipaddress.ip_address(0)), 2, pid=102),
+    )
+
+    async with _harness(backend, tenant_mode) as harness:
+        application, derived = await derive_surface_from_documents(
+            surface,
+            inventory_document,
+            inventory_owner=harness.inventory,
+            exposure_store=InMemoryExposureStore(mode=tenant_mode),
+            source=_source(),
+            tenant_id=harness.tenant_id,
+            asset_ids_by_key=selected_ids,
+        )
+
+    assert application.aggregate() == SurfaceSummary(
+        derived_external=1,
+        derived_unknown=1,
+    )
+    levels = {row.asset_ref.ref_id: row.exposure_level for row in derived}
+    assert levels[selected_ids[units[0].asset_key]] == "unknown"
+    assert levels[selected_ids[units[1].asset_key]] == "high"
+
+
 def _three_state_application() -> SurfaceApplication:
     unit = _unit(1, pid=101)
     inventory_document = _inventory(unit)
@@ -266,6 +312,8 @@ def test_s003_bind_classification_is_nonbinary() -> None:
     assert classify_bind(str(ipaddress.IPv6Address(1))) == "internal"
     assert classify_bind(str(ipaddress.ip_address(0x0A000001))) is None
     assert classify_bind(str(ipaddress.IPv6Address(0xFE80 << 112))) is None
+    assert classify_bind("fe80::1%if0") is None
+    assert classify_bind("unsupported-bind") is None
 
 
 def test_s003_observed_unattributable_named() -> None:
@@ -464,6 +512,10 @@ if classify_bind(str(ipaddress.ip_address(0x7F000001))) != "internal":
     raise SystemExit("loopback bind was not internal")
 if classify_bind(str(ipaddress.ip_address(0x0A000001))) is not None:
     raise SystemExit("specific bind was guessed")
+if classify_bind("fe80::1%if0") is not None:
+    raise SystemExit("scoped bind was guessed")
+if classify_bind("unsupported-bind") is not None:
+    raise SystemExit("unsupported bind was guessed")
 if ExposureBasis(
     kind="host_state",
     ref="s003:host-state:sha256:" + "0" * 64,

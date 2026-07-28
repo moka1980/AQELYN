@@ -245,8 +245,8 @@ def classify_bind(address: str) -> Reachability | None:
     without_scope = selected.partition("%")[0]
     try:
         parsed = ipaddress.ip_address(without_scope)
-    except ValueError as exc:
-        raise S003SurfaceError("listener address is not a numeric bind address") from exc
+    except ValueError:
+        return None
     if parsed.is_unspecified:
         return "external"
     if parsed.is_loopback:
@@ -506,10 +506,19 @@ def _protocol(value: str) -> Literal["tcp", "udp"]:
 def _endpoint(value: str) -> tuple[str, int]:
     if value.startswith("["):
         closing = value.find("]")
-        if closing < 0 or closing + 1 >= len(value) or value[closing + 1] != ":":
+        if closing < 0:
             raise S003SurfaceError("socket table contains a malformed bracketed endpoint")
         address = value[1:closing]
-        raw_port = value[closing + 2 :]
+        suffix = value[closing + 1 :]
+        if suffix.startswith(":"):
+            raw_port = suffix[1:]
+        elif suffix.startswith("%"):
+            zone, separator, raw_port = suffix[1:].rpartition(":")
+            if not separator or not zone:
+                raise S003SurfaceError("socket table contains a malformed scoped endpoint")
+            address = f"{address}%{zone}"
+        else:
+            raise S003SurfaceError("socket table contains a malformed bracketed endpoint")
     else:
         address, separator, raw_port = value.rpartition(":")
         if not separator:
