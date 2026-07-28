@@ -6,14 +6,16 @@ import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
-from aqelyn.conventions import new_id
+from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import OptimisticConcurrencyConflict
 from aqelyn.findings import Automation, Finding, InMemoryFindingStore, Remediation
 from aqelyn.graph import Path
-from aqelyn.mission import MissionImpact, MissionImpactResult, MissionView
+from aqelyn.mission import MissionEngine, MissionImpact, MissionImpactResult, MissionView
+from aqelyn.objects import AQObject, SourceRef
 from aqelyn.risk import (
     CorrelationSignal,
     InMemoryRiskSnapshotStore,
@@ -21,17 +23,20 @@ from aqelyn.risk import (
     Risk,
     RiskConfig,
     RiskIntelligenceEngine,
+    RiskMissionContext,
     RiskSnapshot,
     RiskSnapshotStore,
     RiskStore,
     correlate,
     new_risk_snapshot_id,
+    score_risk,
 )
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
 NOW = datetime(2026, 7, 14, 12, 30, tzinfo=UTC)
 TENANT_A = "018f0000-0000-7000-8000-000000000201"
 TENANT_B = "018f0000-0000-7000-8000-000000000202"
+SYSTEM = ActorRef(actor_type="system", actor_id="risk-r3-mission-test")
 
 
 @dataclass
@@ -355,6 +360,56 @@ async def test_risk_assess_upsert_snapshot(risk_persistence: RiskPersistence) ->
     assert first.band_counts["over_tolerance"] == 1
     assert second.total == 1
     assert await risk_persistence.snapshot_store.latest(tenant_id=None) == second
+
+
+async def test_risk_missing_mission_real_owner(graph_harness: Any) -> None:
+    asset = await graph_harness.object_store.upsert(
+        AQObject(
+            id="",
+            object_type="generic",
+            schema_version=1,
+            display_name="Mission-unmapped risk asset",
+            attributes={},
+            sources=[
+                SourceRef(
+                    source_id=new_id("src"),
+                    evidence_id=new_id("evd"),
+                    observed_at=NOW,
+                    method="risk-r3-real-mission-owner/v1",
+                )
+            ],
+            first_seen_at=NOW,
+            last_seen_at=NOW,
+            created_at=NOW,
+            updated_at=NOW,
+            created_by=SYSTEM,
+            updated_by=SYSTEM,
+        )
+    )
+    risk = _risk().model_copy(update={"affected_object_ids": [asset.id]}, deep=True)
+    engine = RiskIntelligenceEngine(
+        InMemoryFindingStore(),
+        InMemoryRiskStore(),
+        InMemoryRiskSnapshotStore(),
+        mission_engine=MissionEngine(graph_harness.object_store, graph_harness.graph),
+        clock=lambda: NOW,
+    )
+
+    unknown = await engine.score(risk)
+    explicit_zero = score_risk(
+        risk,
+        mission_context=RiskMissionContext(
+            status="known",
+            factor=0.0,
+            top_mission_id=new_id("obj"),
+            reason="EA-0007 explicitly assessed zero mission impact.",
+        ),
+    )
+
+    assert unknown.mission_context.status == "unknown"
+    assert unknown.mission_context.unknown_cause == "input_missing"
+    assert "mission_factor" not in unknown.factors
+    assert unknown.score > explicit_zero.score
 
 
 async def test_risk_trend(risk_persistence: RiskPersistence) -> None:

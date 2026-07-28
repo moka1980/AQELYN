@@ -4,7 +4,7 @@
 **Depends on:** ADR-0001, CONVENTIONS, EA-0001 (`AQService`), the Finding model (alerts), EA-0008 (response = gated Workflow runs), EA-0013 (risk context), EA-0014 (threat matches), EA-0005 (investigation pivots), EA-0007 (prioritization + owner notify), EA-0004 (case-timeline evidence)
 **Consumed by:** the analyst workspace + executive dashboard UI (queues, cases, timelines — a WCAG 2.2 AA surface), reporting, auditors (incident/case evidence packages)
 **Status:** Accepted
-**Change control:** ECR-0030 (hunts follow object pages until their result bound is satisfied); ECR-0031 (hunt work budget + explicit truncation)
+**Change control:** ECR-0030 (hunts follow object pages until their result bound is satisfied); ECR-0031 (hunt work budget + explicit truncation); ECR-0076 (typed mission context; unknown priority is not the favourable max identity)
 **Build milestone:** C-012 (see `C-012_Task_Bundle.md`)
 **Definition of Ready:** see §11
 
@@ -90,7 +90,8 @@ Alert   = { id, tenant_id, source_kind: "finding"|"threat_match"|"risk",
 IncidentStatus = "new"|"triaged"|"investigating"|"contained"|"resolved"|"closed"
 Incident = { id, tenant_id, title, status: IncidentStatus, priority: float,
              alert_ids: list[str], affected_object_ids: list[str],
-             top_mission_id: str | null, risk_score: float | null,
+             top_mission_id: str | null, mission_context: RiskMissionContext,
+             risk_score: float | null,
              assignee: ActorRef | null, timeline: list[TimelineEntry],
              created_by: ActorRef, created_at, updated_at, version: int }
 
@@ -147,6 +148,9 @@ and risks (EA-0013) into `Alert`s (dedupe by `source_ref`), carrying evidence
 within `incident_window_seconds`) into `Incident`s; priority from Mission impact
 (EA-0007) + risk score (EA-0013) (D2/D4). Deterministic. Emits
 `aqelyn.soc.incident_created`.
+Missing, empty, or truncated Mission input is retained as typed unknown on the
+incident and uses the conservative priority upper bound, never the favourable
+identity of `max` (ECR-0076).
 
 **Work a case.** `assign`/`transition`/`investigate` update the incident with
 optimistic version; each writes a `TimelineEntry` + `EvidenceRecord` (D3).
@@ -171,6 +175,8 @@ reached, `truncated=true`; `evaluated` records the work performed (ECR-0031).
 - **FR-1** `intake` SHALL create `Alert`s referencing findings/threat-matches/risks (by id + evidence), deduped by `source_ref`, without duplicating the underlying signal (D1).
 - **FR-2** `correlate` SHALL group alerts into incidents by the configured correlation key/window, deterministically (identical inputs → identical incidents) (D2).
 - **FR-3** Incident priority SHALL derive from Mission impact (EA-0007) + risk score (EA-0013); a higher-mission or higher-risk incident SHALL rank no lower (D4).
+- **FR-3a** Incident mission absence SHALL remain typed unknown with a semantic
+  cause; it SHALL NOT collapse to priority zero (ECR-0076).
 - **FR-4** Incidents/cases SHALL be versioned; `assign`/`transition`/`investigate` SHALL enforce optimistic `version` and write a `TimelineEntry` + `EvidenceRecord` (D3).
 - **FR-5** `investigate` SHALL run a Knowledge-Graph pivot and attach the result to the case as evidence (D5).
 - **FR-6** `propose_response` SHALL create a **proposed** EA-0008 Workflow run per action and SHALL NOT execute any action directly (§0/D6); it SHALL track each run's status via `ResponseAction`.
@@ -196,6 +202,7 @@ reached, `truncated=true`; `evaluated` records the work performed (ECR-0031).
 | AC-1 | Intake wraps signals as alerts, deduped | `test_soc_intake_alerts` |
 | AC-2 | Correlation groups alerts deterministically | `test_soc_correlate_incidents` |
 | AC-3 | Priority from Mission + Risk, monotonic | `test_soc_priority` |
+| AC-3a | Real empty Mission owner result remains visible and non-favourable | `test_soc_missing_mission_real_owner` |
 | AC-4 | Incident transitions versioned + evidence | `test_soc_transition_evidence` |
 | AC-5 | Assign writes timeline + evidence | `test_soc_assign` |
 | AC-6 | Investigate runs KG pivot, attaches evidence | `test_soc_investigate_pivot` |

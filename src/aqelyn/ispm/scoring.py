@@ -22,8 +22,8 @@ from aqelyn.decision.operations import JsonMap, JsonMapping, OperationRegistry
 from aqelyn.iag import AccessRisk
 from aqelyn.ispm.models import IdentityPostureScore, NormalizedIdentity, PostureFactor
 from aqelyn.mission.models import DEFAULT_SEVERITY_WEIGHTS, MissionImpactResult
-from aqelyn.risk.models import Risk, RiskConfig, SignalRef
-from aqelyn.risk.scoring import score_risk
+from aqelyn.risk.models import Risk, RiskConfig, RiskMissionContext, SignalRef
+from aqelyn.risk.scoring import mission_context_from_results, score_risk
 from aqelyn.trust import TrustAssessment
 
 _POSTURE_SCORE_OP = "ispm_posture_score"
@@ -42,13 +42,6 @@ class ComposedPosture:
     derivation: Derivation
     confidence: float
     statement: str
-
-
-@dataclass(frozen=True)
-class _MissionContext:
-    value: float | None
-    top_mission_id: str | None
-    reason: str
 
 
 def compose_posture(
@@ -74,10 +67,7 @@ def compose_posture(
         identity,
         account_id,
         iag_risks=selected_risks,
-        mission_factor=(
-            mission_context.value if selected_risks and mission_context.value is not None else 0.0
-        ),
-        top_mission_id=mission_context.top_mission_id,
+        mission_context=mission_context,
         risk_config=risk_config,
         computed_at=computed_at,
     )
@@ -187,8 +177,7 @@ def _owner_risk(
     account_id: str,
     *,
     iag_risks: Sequence[AccessRisk],
-    mission_factor: float,
-    top_mission_id: str | None,
+    mission_context: RiskMissionContext,
     risk_config: RiskConfig,
     computed_at: datetime,
 ) -> Risk:
@@ -230,11 +219,13 @@ def _owner_risk(
         first_seen_at=computed_at,
         last_scored_at=computed_at,
     )
+    selected_context = mission_context
+    if not iag_risks and mission_context.status == "known":
+        selected_context = mission_context.model_copy(update={"factor": 0.0})
     return score_risk(
         seed,
         config=risk_config,
-        mission_factor=mission_factor,
-        top_mission_id=top_mission_id,
+        mission_context=selected_context,
     )
 
 
@@ -244,11 +235,11 @@ def _posture_factors(
     iag_risks: Sequence[AccessRisk],
     trust: TrustAssessment,
     mission: MissionImpactResult,
-    mission_context: _MissionContext,
+    mission_context: RiskMissionContext,
     owner_risk: Risk,
     factor_weights: Mapping[str, float],
 ) -> list[PostureFactor]:
-    risk_known = mission_context.value is not None
+    risk_known = mission_context.status == "known"
     risk_factor = PostureFactor(
         name="iag_risk",
         value=round(1.0 - owner_risk.score / 100.0, 6) if risk_known else None,
@@ -361,25 +352,8 @@ def _score_params(derivation: Derivation) -> Mapping[str, Any]:
     raise PostureScoreNotReplayable("posture derivation is missing its score operation")
 
 
-def _mission_factor(result: MissionImpactResult) -> _MissionContext:
-    if not result.impacts:
-        return _MissionContext(
-            value=None,
-            top_mission_id=None,
-            reason=(
-                "EA-0013 risk is excluded because EA-0007 returned no mission "
-                "impact for this account."
-            ),
-        )
-    selected = max(
-        result.impacts,
-        key=lambda impact: (impact.impact_score, impact.mission.id),
-    )
-    return _MissionContext(
-        value=selected.impact_score,
-        top_mission_id=selected.mission.id,
-        reason=selected.reason,
-    )
+def _mission_factor(result: MissionImpactResult) -> RiskMissionContext:
+    return mission_context_from_results([result])
 
 
 def _statement(

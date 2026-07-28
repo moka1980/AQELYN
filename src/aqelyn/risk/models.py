@@ -15,12 +15,21 @@ SignalKind = Literal["finding", "compliance", "identity", "config", "threat_inte
 RiskBand = Literal["within_appetite", "elevated", "over_tolerance"]
 RiskLifecycle = Literal["identified", "assessed", "treated", "closed"]
 RiskTreatment = Literal["none", "accept", "mitigate", "transfer"]
+RiskMissionStatus = Literal["known", "unknown"]
+RiskMissionUnknownCause = Literal[
+    "provider_unconfigured",
+    "input_missing",
+    "assessment_incomplete",
+]
 
 VALID_SIGNAL_KINDS: frozenset[str] = frozenset(
     ("finding", "compliance", "identity", "config", "threat_intel")
 )
 VALID_BANDS: frozenset[str] = frozenset(("within_appetite", "elevated", "over_tolerance"))
 VALID_COMBINERS: frozenset[str] = frozenset(("mission_weighted/v1",))
+VALID_RISK_MISSION_UNKNOWN_CAUSES: frozenset[str] = frozenset(
+    ("provider_unconfigured", "input_missing", "assessment_incomplete")
+)
 RISK_WEIGHT_EPSILON = 1e-6
 
 
@@ -215,6 +224,68 @@ class RiskConfig(BaseModel):
         return self
 
 
+class RiskMissionContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: RiskMissionStatus
+    factor: float | None = None
+    top_mission_id: str | None = None
+    unknown_cause: RiskMissionUnknownCause | None = None
+    reason: str
+
+    @field_validator("factor")
+    @classmethod
+    def _factor(cls, value: float | None) -> float | None:
+        if value is None:
+            return None
+        return _require_unit_interval(value, field="mission factor")
+
+    @field_validator("top_mission_id")
+    @classmethod
+    def _top_mission_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return require_typed_id(value, "obj", field="mission context top_mission_id")
+
+    @field_validator("unknown_cause")
+    @classmethod
+    def _unknown_cause(cls, value: str | None) -> str | None:
+        if value is not None and value not in VALID_RISK_MISSION_UNKNOWN_CAUSES:
+            raise RiskConfigInvalid(f"unknown mission-context cause: {value!r}")
+        return value
+
+    @field_validator("reason")
+    @classmethod
+    def _reason(cls, value: str) -> str:
+        return _require_nonempty(value, field="mission context reason")
+
+    @model_validator(mode="after")
+    def _status_consistency(self) -> RiskMissionContext:
+        if self.status == "known":
+            if self.factor is None or self.top_mission_id is None:
+                raise RiskConfigInvalid(
+                    "known mission context requires a factor and top_mission_id"
+                )
+            if self.unknown_cause is not None:
+                raise RiskConfigInvalid("known mission context cannot carry an unknown cause")
+            return self
+        if self.factor is not None or self.top_mission_id is not None:
+            raise RiskConfigInvalid(
+                "unknown mission context cannot carry a factor or top_mission_id"
+            )
+        if self.unknown_cause is None:
+            raise RiskConfigInvalid("unknown mission context requires an unknown cause")
+        return self
+
+
+def default_risk_mission_context() -> RiskMissionContext:
+    return RiskMissionContext(
+        status="unknown",
+        unknown_cause="input_missing",
+        reason="EA-0007 mission context has not been supplied.",
+    )
+
+
 class Risk(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -230,6 +301,7 @@ class Risk(BaseModel):
     signals: list[SignalRef]
     affected_object_ids: list[str] = Field(default_factory=list)
     top_mission_id: str | None = None
+    mission_context: RiskMissionContext = Field(default_factory=default_risk_mission_context)
     lifecycle: RiskLifecycle = "identified"
     treatment: RiskTreatment = "none"
     treatment_note: str | None = None
@@ -308,6 +380,15 @@ class Risk(BaseModel):
     @classmethod
     def _version(cls, value: int) -> int:
         return _require_positive_int(value, field="version")
+
+    @model_validator(mode="after")
+    def _mission_consistency(self) -> Risk:
+        if self.mission_context.status == "known":
+            if self.top_mission_id != self.mission_context.top_mission_id:
+                raise RiskConfigInvalid("risk top_mission_id must match its known mission context")
+        elif self.top_mission_id is not None:
+            raise RiskConfigInvalid("risk with unknown mission context cannot carry top_mission_id")
+        return self
 
 
 class RiskSnapshot(BaseModel):

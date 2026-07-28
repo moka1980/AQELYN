@@ -5156,3 +5156,26 @@ wrong-cause is better than an invented right one, and it stays visible.
 The **19 declined units** and the **privileged read with four dependents** remain the
 owner's and are unaffected by this repair. ECR-0075's discovery mechanism itself is
 **not re-specified here** - this ECR consumes it and reports where it does not reach.
+
+### 8. C-041 progress record
+
+- **A1 landed first and separately:** `C-041_A1_Fold_Identity_Audit.md` enumerates
+  the class before any repair. It found four adapters plus the EA-0013
+  float-only contract boundary that would otherwise erase a typed fix.
+- **A2 classified the owner states:** `C-041_A2_Absence_Classification.md`
+  records provider-unconfigured, input-missing, assessment-incomplete, and
+  explicit-impact states. None of the affected owners has a declared
+  not-applicable token; explicit `0.0` remains known.
+- **A3 uses an EA-0013-owned `RiskMissionContext`:** the context crosses
+  `score_risk`, persists on risks, and is carried by newly scored exposure and
+  SOC records. Outer denominator scorers exclude unknown; max-based risk and SOC
+  paths retain the typed state and use the conservative upper bound.
+- **The shipped score change is intentional:** inputs previously folded to the
+  favourable identity now score no more favourably and retain their unknown
+  cause. Credential governance loses known coverage when mission input is
+  absent, so an unassessable credential cannot present as well-governed. This is
+  correction of a pre-existing wrong answer, not a regression.
+
+**Still open before this ECR can become Accepted:** A4 must revert each repaired
+site and prove ECR-0075 or a recorded local stopgap turns red. Until that
+mutation record exists, status remains Proposed.

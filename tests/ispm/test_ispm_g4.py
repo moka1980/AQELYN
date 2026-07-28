@@ -43,7 +43,7 @@ from aqelyn.ispm.models import ControlState
 from aqelyn.ispm.scoring import posture_operation_registry
 from aqelyn.mission import MissionImpact, MissionImpactResult, MissionView
 from aqelyn.objects import InMemoryObjectStore, ObjectQuery
-from aqelyn.risk import Risk, RiskConfig
+from aqelyn.risk import Risk, RiskConfig, RiskMissionContext
 from aqelyn.risk.scoring import score_risk as real_score_risk
 from aqelyn.trust import InMemorySourceReliabilityRegistry, TrustEngine
 
@@ -363,21 +363,19 @@ async def test_ispm_score_replay(kind: str) -> None:
 
 
 async def test_ispm_score_composed(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[tuple[Risk, RiskConfig | None, float, str | None]] = []
+    calls: list[tuple[Risk, RiskConfig | None, RiskMissionContext | None]] = []
 
     def recording_score_risk(
         risk: Risk,
         *,
         config: RiskConfig | None = None,
-        mission_factor: float = 0.0,
-        top_mission_id: str | None = None,
+        mission_context: RiskMissionContext | None = None,
     ) -> Risk:
-        calls.append((risk, config, mission_factor, top_mission_id))
+        calls.append((risk, config, mission_context))
         return real_score_risk(
             risk,
             config=config,
-            mission_factor=mission_factor,
-            top_mission_id=top_mission_id,
+            mission_context=mission_context,
         )
 
     monkeypatch.setattr(scoring_module, "score_risk", recording_score_risk)

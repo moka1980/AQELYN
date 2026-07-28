@@ -5,7 +5,8 @@
 **Consumed by:** EA-0023, EA-0013, and a future secrets/crypto UI
 **Status:** Accepted
 **Build milestone:** C-029 (see `C-029_Task_Bundle.md`)
-**Change control:** ECR-0043, ECR-0044, ECR-0045, ECR-0046, ECR-0047, ECR-0048
+**Change control:** ECR-0043, ECR-0044, ECR-0045, ECR-0046, ECR-0047, ECR-0048,
+ECR-0076
 
 ---
 
@@ -362,6 +363,10 @@ exposure, compliance, or risk engine.
 - **FR-15:** Work is bounded by `max_work`; partial results are marked truncated.
 - **FR-16:** `SecretsIntelligenceService` registers as `secrets_engine` and its
   health reflects config and required owner-read availability.
+- **FR-17:** A missing EA-0007 mission contribution SHALL make the composed
+  EA-0013 `owner_risk` governance factor unknown. It SHALL be excluded from the
+  known denominator and reduce coverage; an unassessable credential SHALL NOT
+  present as well-governed (ECR-0076).
 
 ## 8. Acceptance criteria
 
@@ -386,6 +391,7 @@ exposure, compliance, or risk engine.
 | AC-17 | Exactly four owned events carry fingerprints/references only | `test_crypto_events_value_free` |
 | AC-18 | Both factory runtimes exercise local and enterprise health; import isolation holds | `test_crypto_service_health` |
 | AC-19 | One missing asset basis makes that batch asset unknown+counted while the batch continues; direct assessment and tamper still refuse | `test_crypto_batch_missing_evidence_unknown` |
+| AC-20 | Real empty Mission owner output makes owner_risk unknown and prevents a well-governed result | `test_secrets_missing_mission_real_owner` / `test_secrets_unassessable_not_well_governed` |
 
 ## 9. Error taxonomy and ids
 

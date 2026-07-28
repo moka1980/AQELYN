@@ -9,7 +9,8 @@
 ECR-0041 (optional evidence-backed exposure impact context for DSPM), ECR-0044
 (semantic credential-sensitivity context with backward-compatible default),
 ECR-0048 (atomic persisted analyze-and-score plus tenant-scoped owner read),
-ECR-0073 (observed host-state basis and honest bind-derived reachability)
+ECR-0073 (observed host-state basis and honest bind-derived reachability),
+ECR-0076 (typed mission context bound into scored exposure)
 **Definition of Ready:** see §9
 
 ---
@@ -168,6 +169,7 @@ ExposureRecord = { id, tenant_id, asset_ref: AssetRef, exposure_type: str,
                    reachability: Reachability,                # (S2/D2)
                    basis: list[ExposureBasis],                # MANDATORY (S3/D1)
                    impact_context: ExposureImpactContext | null, # optional, ECR-0041
+                   mission_context: RiskMissionContext | null, # required on new scores
                    score: float | null, confidence: float | null,  # EA-0006 (S3)
                    derivation: "Derivation" | null,           # EA-0020 where composed (D4)
                    rationale: str, flagged: bool,             # unknown ⇒ flagged (S2)
@@ -308,6 +310,10 @@ gated run / EA-0020 recommendation; it never remediates (S8).
   observation. It SHALL NOT claim `inventory` or EA-0019 `telemetry`. Wildcard
   binds are external, loopback binds internal, and any other bind remains
   unknown; a degraded inventory SHALL still refuse the entire read (ECR-0073).
+- **FR-20** A newly scored exposure SHALL persist and derivation-bind EA-0013's
+  typed mission context. Empty or truncated EA-0007 input SHALL remain unknown
+  and SHALL use the conservative risk upper bound rather than numeric zero
+  (ECR-0076).
 
 ### Non-functional
 
@@ -351,6 +357,7 @@ gated run / EA-0020 recommendation; it never remediates (S8).
 | AC-21 | Omitted impact kind remains data_sensitivity and preserves the existing DSPM score/derivation | `test_exp_impact_context_kind_default_compat` |
 | AC-22 | Explicit credential_sensitivity is accepted, round-tripped, and pinned in replay | `test_exp_credential_impact_context_replay` |
 | AC-23 | Bind-derived inventory surface uses host_state basis, preserves the degraded refusal, and leaves non-wildcard/non-loopback binds unknown | `test_s003_reachability_measured_from_bind` / `test_s003_degraded_inventory_still_refuses` |
+| AC-24 | Real empty Mission owner result is persisted as typed unknown and replay-bound | `test_exp_missing_mission_real_owner` |
 
 ## 10. Error taxonomy (contributions)
 

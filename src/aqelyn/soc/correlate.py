@@ -9,7 +9,7 @@ from typing import Protocol
 
 from aqelyn.conventions import ActorRef, utc_now
 from aqelyn.mission import MissionImpactResult
-from aqelyn.risk import Risk
+from aqelyn.risk import Risk, RiskMissionContext, mission_context_from_results
 from aqelyn.soc.models import Alert, Incident, SOCConfig
 
 
@@ -62,6 +62,7 @@ def explain(incident: Incident) -> dict[str, object]:
         "priority": incident.priority,
         "risk_score": incident.risk_score,
         "top_mission_id": incident.top_mission_id,
+        "mission_context": incident.mission_context.model_dump(mode="json"),
         "alert_ids": list(incident.alert_ids),
         "affected_object_ids": list(incident.affected_object_ids),
         "timeline": [entry.model_dump(mode="json") for entry in incident.timeline],
@@ -87,9 +88,12 @@ async def _incident_for_group(
     ordered = sorted(alerts, key=_alert_sort_key)
     risks = risk_index.for_group(key, ordered)
     affected_object_ids = _affected_object_ids(key, ordered, risks)
-    mission_factor, top_mission_id = await _mission_context(affected_object_ids, mission_engine)
+    mission_context = await _mission_context(affected_object_ids, mission_engine)
     risk_score = max((risk.score for risk in risks), default=None)
-    priority = max(risk_score or 0.0, mission_factor * 100.0)
+    mission_priority = (
+        mission_context.factor * 100.0 if mission_context.factor is not None else 100.0
+    )
+    priority = max(risk_score or 0.0, mission_priority)
     return Incident(
         tenant_id=_tenant_id(ordered),
         title=_title(key, ordered),
@@ -97,7 +101,8 @@ async def _incident_for_group(
         priority=priority,
         alert_ids=[alert.id for alert in ordered],
         affected_object_ids=affected_object_ids,
-        top_mission_id=top_mission_id or _risk_top_mission_id(risks),
+        top_mission_id=mission_context.top_mission_id or _risk_top_mission_id(risks),
+        mission_context=mission_context,
         risk_score=risk_score,
         timeline=[],
         created_by=by,
@@ -172,23 +177,13 @@ def _asset_ids_from_key(key: str) -> list[str]:
 async def _mission_context(
     object_ids: Sequence[str],
     mission_engine: MissionImpactProvider | None,
-) -> tuple[float, str | None]:
+) -> RiskMissionContext:
     if mission_engine is None:
-        return 0.0, None
-    best_factor = 0.0
-    best_mission_id: str | None = None
+        return mission_context_from_results(None)
+    results: list[MissionImpactResult] = []
     for object_id in sorted(object_ids):
-        result = await mission_engine.mission_impact(object_id)
-        for impact in result.impacts:
-            candidate = impact.impact_score
-            mission_id = impact.mission.id
-            if candidate > best_factor or (
-                candidate == best_factor
-                and (best_mission_id is None or mission_id < best_mission_id)
-            ):
-                best_factor = candidate
-                best_mission_id = mission_id
-    return best_factor, best_mission_id
+        results.append(await mission_engine.mission_impact(object_id))
+    return mission_context_from_results(results)
 
 
 def _risk_top_mission_id(risks: Sequence[Risk]) -> str | None:

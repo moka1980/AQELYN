@@ -33,7 +33,8 @@ _ALERT_COLS = (
 )
 _INCIDENT_COLS = (
     "id, tenant_id, title, status, priority, alert_ids, affected_object_ids, "
-    "top_mission_id, risk_score, assignee, timeline, created_by, created_at, updated_at, version"
+    "top_mission_id, mission_context, risk_score, assignee, timeline, created_by, created_at, "
+    "updated_at, version"
 )
 
 
@@ -53,7 +54,14 @@ def _row_to_alert(row: asyncpg.Record) -> Alert:
 
 def _row_to_incident(row: asyncpg.Record) -> Incident:
     data: dict[str, Any] = dict(row)
-    for key in ("alert_ids", "affected_object_ids", "assignee", "timeline", "created_by"):
+    for key in (
+        "alert_ids",
+        "affected_object_ids",
+        "mission_context",
+        "assignee",
+        "timeline",
+        "created_by",
+    ):
         data[key] = _json_value(data[key])
     return Incident.model_validate(data)
 
@@ -224,7 +232,7 @@ async def _insert_incident(conn: asyncpg.Connection, incident: Incident) -> None
     try:
         await conn.execute(
             f"INSERT INTO aq_soc_incident ({_INCIDENT_COLS}) VALUES "
-            "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+            "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
             *_incident_args(incident),
         )
     except asyncpg.UniqueViolationError as exc:
@@ -234,9 +242,9 @@ async def _insert_incident(conn: asyncpg.Connection, incident: Incident) -> None
 async def _update_incident(conn: asyncpg.Connection, incident: Incident) -> None:
     await conn.execute(
         "UPDATE aq_soc_incident SET tenant_id=$2, title=$3, status=$4, priority=$5, "
-        "alert_ids=$6, affected_object_ids=$7, top_mission_id=$8, risk_score=$9, "
-        "assignee=$10, timeline=$11, created_by=$12, created_at=$13, updated_at=$14, "
-        "version=$15 WHERE id=$1",
+        "alert_ids=$6, affected_object_ids=$7, top_mission_id=$8, mission_context=$9, "
+        "risk_score=$10, assignee=$11, timeline=$12, created_by=$13, created_at=$14, "
+        "updated_at=$15, version=$16 WHERE id=$1",
         *_incident_args(incident),
     )
 
@@ -266,6 +274,7 @@ def _incident_args(incident: Incident) -> tuple[Any, ...]:
         json.dumps(incident.alert_ids),
         json.dumps(incident.affected_object_ids),
         incident.top_mission_id,
+        json.dumps(incident.mission_context.model_dump(mode="json")),
         incident.risk_score,
         None if incident.assignee is None else json.dumps(incident.assignee.model_dump()),
         json.dumps([entry.model_dump(mode="json") for entry in incident.timeline]),

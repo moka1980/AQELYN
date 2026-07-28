@@ -17,6 +17,13 @@ CREATE TABLE IF NOT EXISTS aq_risk (
     signals             jsonb NOT NULL DEFAULT '[]',
     affected_object_ids jsonb NOT NULL DEFAULT '[]',
     top_mission_id      text NULL,
+    mission_context     jsonb NOT NULL DEFAULT '{
+                            "status":"unknown",
+                            "factor":null,
+                            "top_mission_id":null,
+                            "unknown_cause":"input_missing",
+                            "reason":"EA-0007 mission context has not been supplied."
+                        }',
     lifecycle           text NOT NULL
                         CHECK (lifecycle IN ('identified','assessed','treated','closed')),
     treatment           text NOT NULL
@@ -29,6 +36,37 @@ CREATE TABLE IF NOT EXISTS aq_risk (
     last_scored_at      timestamptz NOT NULL,
     version             int NOT NULL DEFAULT 1 CHECK (version >= 1)
 );
+ALTER TABLE aq_risk
+    ADD COLUMN IF NOT EXISTS mission_context jsonb NULL;
+UPDATE aq_risk
+SET mission_context = CASE
+    WHEN top_mission_id IS NOT NULL AND factors ? 'mission_factor' THEN
+        jsonb_build_object(
+            'status', 'known',
+            'factor', factors->'mission_factor',
+            'top_mission_id', top_mission_id,
+            'unknown_cause', NULL,
+            'reason', 'Migrated from the historically persisted EA-0007 mission factor.'
+        )
+    ELSE
+        jsonb_build_object(
+            'status', 'unknown',
+            'factor', NULL,
+            'top_mission_id', NULL,
+            'unknown_cause', 'input_missing',
+            'reason', 'Historical risk did not preserve a known EA-0007 mission context.'
+        )
+END
+WHERE mission_context IS NULL;
+ALTER TABLE aq_risk
+    ALTER COLUMN mission_context SET DEFAULT '{
+        "status":"unknown",
+        "factor":null,
+        "top_mission_id":null,
+        "unknown_cause":"input_missing",
+        "reason":"EA-0007 mission context has not been supplied."
+    }'::jsonb,
+    ALTER COLUMN mission_context SET NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_risk_tenant_correlation
     ON aq_risk (tenant_id, correlation_key) NULLS NOT DISTINCT;
 CREATE INDEX IF NOT EXISTS ix_risk_tenant_band_score

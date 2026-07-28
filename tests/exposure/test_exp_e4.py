@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -23,7 +24,8 @@ from aqelyn.exposure import (
 )
 from aqelyn.findings import Finding, FindingQuery
 from aqelyn.graph import Path
-from aqelyn.mission import MissionImpact, MissionImpactResult, MissionView
+from aqelyn.mission import MissionEngine, MissionImpact, MissionImpactResult, MissionView
+from aqelyn.objects import AQObject, SourceRef
 from aqelyn.trust import TrustAssessment
 
 NOW = datetime(2026, 7, 16, 23, 0, tzinfo=UTC)
@@ -207,6 +209,52 @@ async def test_exp_score_composes_trust_mission_risk_derivation() -> None:
     assert replay(scored.derivation) == scored.derivation.result
     assert {claim.kind for claim in scored.derivation.inputs} == {"trust", "mission", "risk"}
     assert "EA-0013 risk band" in scored.rationale
+
+
+async def test_exp_missing_mission_real_owner(graph_harness: Any) -> None:
+    evidence = _evidence()
+    asset = await graph_harness.object_store.upsert(
+        AQObject(
+            id="",
+            object_type="generic",
+            schema_version=1,
+            display_name="Mission-unmapped exposed asset",
+            attributes={},
+            sources=[
+                SourceRef(
+                    source_id=new_id("src"),
+                    evidence_id=evidence.id,
+                    observed_at=NOW,
+                    method="exposure-e4-real-mission-owner/v1",
+                )
+            ],
+            first_seen_at=NOW,
+            last_seen_at=NOW,
+            created_at=NOW,
+            updated_at=NOW,
+            created_by=SYS,
+            updated_by=SYS,
+        )
+    )
+    engine = KnownDataExposureEngine(
+        InMemoryExposureStore(mode="enterprise"),
+        StaticKnownSurfaceSource([]),
+        evidence_lookup=_EvidenceLookup([evidence]),
+        trust_provider=_TrustSpy(_trust(evidence.id)),
+        mission_provider=MissionEngine(graph_harness.object_store, graph_harness.graph),
+    )
+
+    exposure = _exposure(asset.id, evidence.id).model_copy(
+        update={"reachability": "internal"},
+        deep=True,
+    )
+    scored = await engine.score_exposure(exposure)
+
+    assert scored.mission_context is not None
+    assert scored.mission_context.status == "unknown"
+    assert scored.mission_context.unknown_cause == "input_missing"
+    assert scored.score == 90.0
+    assert validate_replayable_exposure(scored) == scored
 
 
 async def test_exp_score_replay_mismatch_rejected() -> None:
