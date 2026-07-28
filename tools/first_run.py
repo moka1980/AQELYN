@@ -65,6 +65,47 @@ SCAN_CONFIDENCE = 0.9
 the scanner does not supply one — the parser refuses to invent it."""
 
 
+KevHitClass = Literal["vendored_binary_component", "package_component"]
+KevHypothesisStatus = Literal["falsified", "not_falsified", "not_tested"]
+
+
+@dataclass(frozen=True)
+class KevJoinMeasurement:
+    """Count- and class-only KEV join result safe to leave the estate."""
+
+    distinct_cves: int
+    matched_cves: int
+    hit_classes: tuple[tuple[KevHitClass, int], ...]
+    hypothesis_status: KevHypothesisStatus
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.distinct_cves, bool)
+            or isinstance(self.matched_cves, bool)
+            or self.distinct_cves < 0
+            or self.matched_cves < 0
+            or self.matched_cves > self.distinct_cves
+        ):
+            raise ValueError("KEV join counts are inconsistent")
+        class_total = sum(count for _, count in self.hit_classes)
+        if any(isinstance(count, bool) or count < 1 for _, count in self.hit_classes):
+            raise ValueError("KEV hit-class counts must be positive")
+        if class_total != self.matched_cves:
+            raise ValueError("KEV hit classes must cover every matched CVE exactly once")
+        class_names = {hit_class for hit_class, _ in self.hit_classes}
+        if len(class_names) != len(self.hit_classes):
+            raise ValueError("KEV hit classes must be unique")
+        has_binary_hit = "vendored_binary_component" in class_names
+        if self.hypothesis_status == "falsified" and not has_binary_hit:
+            raise ValueError("a falsified vendor-product hypothesis requires a binary-class hit")
+        if self.hypothesis_status == "not_falsified" and has_binary_hit:
+            raise ValueError("a binary-class hit falsifies the vendor-product hypothesis")
+        if self.hypothesis_status == "not_tested" and self.matched_cves:
+            raise ValueError("a non-zero KEV join tests the pre-run hypothesis")
+        if self.hypothesis_status != "not_tested" and not self.matched_cves:
+            raise ValueError("an empty KEV join cannot decide the pre-run hypothesis")
+
+
 @dataclass
 class RunReport:
     target: str
@@ -80,18 +121,19 @@ class RunReport:
     findings: list[Any]
     coverage_factors: list[FactorReading] = field(default_factory=list)
     roadmap_dependencies: list[RoadmapDependency] = field(default_factory=list)
+    kev_join: KevJoinMeasurement | None = None
 
 
 @dataclass(frozen=True)
 class RoadmapDependency:
-    """One count-only owner decision shared by several unknowns."""
+    """One non-identifying dependent of an owner decision."""
 
     decision: Literal["privileged_read"]
-    dependents: int
+    dependent: str
 
     def __post_init__(self) -> None:
-        if isinstance(self.dependents, bool) or self.dependents < 1:
-            raise ValueError("roadmap dependency count must be a positive integer")
+        if not self.dependent.strip():
+            raise ValueError("roadmap dependent key must not be empty")
 
 
 def _run(cmd: list[str], out: Path) -> None:
@@ -133,6 +175,71 @@ def check_cve_join(catalog: Any, vulns: dict[str, Any]) -> tuple[int, int]:
     return len(cves), hits
 
 
+def measure_kev_join(catalog: Any, vulns: dict[str, Any]) -> KevJoinMeasurement:
+    """Measure the existing join and retain only counts and source classes.
+
+    Each distinct matched CVE contributes to exactly one class. Product names,
+    component coordinates, paths, and vulnerability identifiers never cross this
+    boundary.
+    """
+
+    total, matched = check_cve_join(catalog, vulns)
+    matched_by_cve: dict[str, list[dict[str, Any]]] = {}
+    for raw_match in vulns.get("matches", []):
+        if not isinstance(raw_match, dict):
+            continue
+        vulnerability = raw_match.get("vulnerability")
+        if not isinstance(vulnerability, dict):
+            continue
+        cve_id = vulnerability.get("id")
+        if not isinstance(cve_id, str) or not cve_id.strip():
+            continue
+        if catalog.lookup(cve_id) is None:
+            continue
+        matched_by_cve.setdefault(cve_id, []).append(raw_match)
+    if len(matched_by_cve) != matched:
+        raise ValueError("KEV measurement disagrees with the shared CVE join")
+
+    classes: Counter[KevHitClass] = Counter()
+    for matches in matched_by_cve.values():
+        hit_class: KevHitClass = (
+            "vendored_binary_component"
+            if any(_is_binary_classifier_match(match) for match in matches)
+            else "package_component"
+        )
+        classes[hit_class] += 1
+    hypothesis_status: KevHypothesisStatus
+    if not matched:
+        hypothesis_status = "not_tested"
+    elif classes["vendored_binary_component"]:
+        hypothesis_status = "falsified"
+    else:
+        hypothesis_status = "not_falsified"
+    return KevJoinMeasurement(
+        distinct_cves=total,
+        matched_cves=matched,
+        hit_classes=tuple(sorted(classes.items())),
+        hypothesis_status=hypothesis_status,
+    )
+
+
+def _is_binary_classifier_match(match: dict[str, Any]) -> bool:
+    artifact = match.get("artifact")
+    if isinstance(artifact, dict):
+        artifact_type = str(artifact.get("type") or "").lower()
+        metadata_type = str(artifact.get("metadataType") or "").lower()
+        if "binary" in artifact_type or "binary" in metadata_type or metadata_type.startswith("pe"):
+            return True
+    details = match.get("matchDetails")
+    if not isinstance(details, list):
+        return False
+    return any(
+        isinstance(detail, dict)
+        and "binary" in str(detail.get("matcher") or detail.get("searchedBy") or "").lower()
+        for detail in details
+    )
+
+
 def check_purl_join(sbom: dict[str, Any], vulns: dict[str, Any]) -> tuple[int, int]:
     """Check the join explicitly. Inferring it from a finding count hides an orphan."""
     sbom_purls = {c.get("purl") for c in sbom.get("components", []) if c.get("purl")}
@@ -156,11 +263,14 @@ async def drive(target: str, tenant_mode: str, workdir: Path, *, reuse: bool) ->
 
     print("[3/5] parsing handed-in documents")
     catalog = parse_kev(collect_kev(workdir, reuse=reuse))
-    cve_total, cve_hits = check_cve_join(catalog, vulns_raw)
+    kev_join = measure_kev_join(catalog, vulns_raw)
     print(
         f"      KEV catalog            : {catalog.catalog_version} ({len(catalog.entries)} entries)"
     )
-    print(f"      CVE join               : {cve_hits} of {cve_total} distinct CVEs listed in KEV")
+    print(
+        "      CVE join               : "
+        f"{kev_join.matched_cves} of {kev_join.distinct_cves} distinct CVEs listed in KEV"
+    )
     # The SBOM file itself is the evidence. Recorded properly rather than minting a
     # bare id: a fabricated evidence reference would be exactly the kind of plausible
     # fill this milestone exists to avoid.
@@ -239,6 +349,7 @@ async def drive(target: str, tenant_mode: str, workdir: Path, *, reuse: bool) ->
         join_matched=join_matched,
         stored=len(stored),
         findings=findings,
+        kev_join=kev_join,
     )
 
 
@@ -356,6 +467,17 @@ def coverage_factor_readings(coverage: CoverageReport) -> list[FactorReading]:
     ]
 
 
+def roadmap_dependency_counts(
+    dependencies: list[RoadmapDependency],
+) -> dict[str, int]:
+    """Count discovered dependent records, de-duplicated by semantic key."""
+
+    discovered: dict[str, set[str]] = {}
+    for dependency in dependencies:
+        discovered.setdefault(dependency.decision, set()).add(dependency.dependent)
+    return {decision: len(dependents) for decision, dependents in sorted(discovered.items())}
+
+
 def density_report(report: RunReport) -> None:
     """Per-factor known/unknown with reasons -- or a refusal, never a partial table.
 
@@ -375,6 +497,31 @@ def density_report(report: RunReport) -> None:
     print("UNKNOWN-DENSITY REPORT")
     print("=" * 74)
 
+    if report.kev_join is not None:
+        measurement = report.kev_join
+        print(
+            "\n-- KEV join --\n"
+            f"  matched={measurement.matched_cves} "
+            f"distinct_cves={measurement.distinct_cves}"
+        )
+        for hit_class, count in measurement.hit_classes:
+            print(f"  class={hit_class} count={count}")
+        if measurement.matched_cves:
+            print(
+                "  interpretation: the non-zero intersection is the join's positive "
+                "control; the non-matches are therefore information, not a silent join."
+            )
+        else:
+            print(
+                "  interpretation: this run has no in-run positive control; a zero is "
+                "trustworthy only because a prior run proved the join can return a hit."
+            )
+        if measurement.hypothesis_status == "falsified":
+            print(
+                "  pre-run hypothesis: falsified; the observed class was a vendored "
+                "binary component, not the predicted vendor-product class."
+            )
+
     print(
         f"\n-- mapper boundary ({len(report.vuln_rejected)} refused of {report.grype_matches}) --"
     )
@@ -388,8 +535,8 @@ def density_report(report: RunReport) -> None:
 
     if errors:
         print(f"\n-- prioritization errors ({len(errors)}) --")
-        for message, count in Counter(f"{type(e).__name__}: {e}" for e in errors).most_common(5):
-            print(f"  {count:5d}  {message[:96]}")
+        for error_name, count in Counter(type(error).__name__ for error in errors).most_common(5):
+            print(f"  {count:5d}  {error_name}")
 
     # Refuse before reporting: read every factor on every finding first.
     unreadable: list[str] = []
@@ -398,8 +545,7 @@ def density_report(report: RunReport) -> None:
         try:
             per_finding.append(read_factors(priority))
         except UnreadableFactor as exc:
-            identifier = getattr(priority, "vulnerability_id", f"#{index}")
-            unreadable.append(f"{identifier}: {exc}")
+            unreadable.append(f"finding #{index}: {exc}")
 
     if unreadable:
         print("\n" + "!" * 74)
@@ -446,11 +592,8 @@ def density_report(report: RunReport) -> None:
         f"{len(report.coverage_factors)} coverage gaps, {total_factors} factors) --"
     )
     if report.roadmap_dependencies:
-        dependencies: Counter[str] = Counter()
-        for dependency in report.roadmap_dependencies:
-            dependencies[dependency.decision] += dependency.dependents
         print("\n-- shared owner decisions --")
-        for decision, dependents in sorted(dependencies.items()):
+        for decision, dependents in roadmap_dependency_counts(report.roadmap_dependencies).items():
             print(f"  {decision:24s} dependents={dependents}")
     # ECR-0066: with a tie at the top the ordering stops recommending anything, and
     # breaking it by sort stability would make an owner's decision invisibly. The

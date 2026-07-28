@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from tools.first_run import FactorReading
 from tools.s003_estate import UnitInventoryDocument, ensure_private_workdir
 
 from aqelyn.conventions import ActorRef, require_typed_id
@@ -199,6 +200,25 @@ class MissionDeclarationApplication(BaseModel):
             "undeclared": self.undeclared,
             "unregistered": self.unregistered,
         }
+
+
+def mission_factor_readings(
+    application: MissionDeclarationApplication,
+) -> list[FactorReading]:
+    """Translate U2 outcomes to the shared count-only factor vocabulary."""
+
+    return [
+        FactorReading(
+            name="mission",
+            status=outcome.status,
+            reason=("owner criticality declared" if outcome.status == "known" else outcome.reason),
+            source=(
+                "s003:mission:declared" if outcome.status == "known" else "s003:mission:missing"
+            ),
+            unknown_cause=outcome.unknown_cause,
+        )
+        for outcome in application.outcomes
+    ]
 
 
 class MissionOwner(Protocol):

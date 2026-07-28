@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,19 +16,20 @@ from tools.first_run import RunReport, density_report
 from tools.s003_baseline import (
     COLLECTION_SCOPE_INCOMPLETE,
     NO_BASELINE_DECLARED,
-    PRIVILEGED_READ_DEPENDENTS,
     PRIVILEGED_READ_REQUIRED,
     BaselineAssessment,
     BaselineClaim,
     BaselineDefinition,
     BaselineOutcome,
-    ClaimObservation,
-    ResolvedObservation,
-    S003BaselineError,
-    UnresolvedObservation,
     assess_s003_baseline,
     baseline_factor_readings,
+    derive_baseline_observations,
     s003_acg_config,
+)
+from tools.s003_estate import (
+    SURFACE_NOT_DERIVED_REASONS,
+    ServiceSurfaceDocument,
+    UnitInventoryDocument,
 )
 
 from aqelyn.assetconfig import ASSET_OBJECT_TYPE
@@ -84,26 +85,39 @@ def _definition() -> BaselineDefinition:
     )
 
 
-def _real_shape(*, evaluated_value: bool = True) -> list[ClaimObservation]:
-    return [
-        UnresolvedObservation(claim_id="C1", unknown_class="privileged_read"),
-        UnresolvedObservation(claim_id="C2", unknown_class="collection_scope"),
-        UnresolvedObservation(claim_id="C3", unknown_class="collection_scope"),
-        ResolvedObservation(claim_id="C4", value=evaluated_value),
-        UnresolvedObservation(claim_id="C5", unknown_class="privileged_read"),
-    ]
+def _documents(
+    *,
+    listeners_raw: str | None = "tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:*",
+) -> tuple[UnitInventoryDocument, ServiceSurfaceDocument]:
+    unavailable = (
+        {"listeners": SURFACE_NOT_DERIVED_REASONS["listeners"]} if listeners_raw is None else {}
+    )
+    return (
+        UnitInventoryDocument(collected_at=NOW, units=[]),
+        ServiceSurfaceDocument(
+            collected_at=NOW,
+            listeners_raw=listeners_raw,
+            firewall_raw=None,
+            nginx_config=None,
+            listeners=None if listeners_raw is None else [],
+            vhosts=[],
+            unavailable_details=unavailable,
+        ),
+    )
 
 
 async def _assess(
     store: ObjectStore,
     *,
-    observations: Sequence[ClaimObservation] | None = None,
+    listeners_raw: str | None = "tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:*",
     tenant_id: str | None = None,
 ) -> BaselineAssessment:
+    inventory, surface = _documents(listeners_raw=listeners_raw)
     return await assess_s003_baseline(
         store,
         definition=_definition(),
-        observations=_real_shape() if observations is None else observations,
+        inventory=inventory,
+        surface=surface,
         tenant_id=tenant_id,
         observed_at=NOW,
         source_id=new_id("src"),
@@ -180,13 +194,13 @@ async def test_u4_resolved_failure_stays_failed() -> None:
     registry.register(ASSET_OBJECT_TYPE, 1, None)
     assessment = await _assess(
         InMemoryObjectStore(registry=registry),
-        observations=_real_shape(evaluated_value=False),
+        listeners_raw="",
     )
 
     assert assessment.aggregate() == {
-        "passed": 0,
+        "passed": 1,
         "failed": 1,
-        "unknown": 4,
+        "unknown": 3,
     }
 
 
@@ -195,11 +209,7 @@ async def test_u4_resolution_change_clears_stale_observed_value() -> None:
     registry.register(ASSET_OBJECT_TYPE, 1, None)
     store = InMemoryObjectStore(registry=registry)
     first = await _assess(store)
-    second_observations = [
-        UnresolvedObservation(claim_id=claim_id, unknown_class="collection_scope")
-        for claim_id in ("C1", "C2", "C3", "C4", "C5")
-    ]
-    second = await _assess(store, observations=second_observations)
+    second = await _assess(store, listeners_raw=None)
 
     assert first.passed == 1
     assert second.aggregate() == {
@@ -251,10 +261,14 @@ async def test_u4_privileged_read_is_one_roadmap_item(
     registry.register(ASSET_OBJECT_TYPE, 1, None)
     assessment = await _assess(InMemoryObjectStore(registry=registry))
 
-    assert len(assessment.roadmap_dependencies) == 1
-    [dependency] = assessment.roadmap_dependencies
-    assert dependency.decision == "privileged_read"
-    assert dependency.dependents == PRIVILEGED_READ_DEPENDENTS
+    assert len(assessment.roadmap_dependencies) == 2
+    assert {dependency.decision for dependency in assessment.roadmap_dependencies} == {
+        "privileged_read"
+    }
+    assert {dependency.dependent for dependency in assessment.roadmap_dependencies} == {
+        "baseline:C1",
+        "baseline:C5",
+    }
 
     density_report(
         RunReport(
@@ -275,7 +289,7 @@ async def test_u4_privileged_read_is_one_roadmap_item(
     )
     rendered = capsys.readouterr().out
     assert rendered.count("privileged_read") == 1
-    assert f"dependents={PRIVILEGED_READ_DEPENDENTS}" in rendered
+    assert "dependents=2" in rendered
     assert all(claim_id not in rendered for claim_id in ("C1", "C2", "C3", "C4", "C5"))
 
 
@@ -285,7 +299,8 @@ async def test_s003_no_baseline_is_unknown_with_reason() -> None:
     assessment = await assess_s003_baseline(
         InMemoryObjectStore(registry=registry),
         definition=None,
-        observations=[],
+        inventory=None,
+        surface=None,
         tenant_id=None,
         observed_at=NOW,
         source_id=new_id("src"),
@@ -298,22 +313,23 @@ async def test_s003_no_baseline_is_unknown_with_reason() -> None:
     assert reading.reason == NO_BASELINE_DECLARED
 
 
-async def test_u4_observations_must_cover_every_claim() -> None:
-    registry = ObjectTypeRegistry()
-    registry.register(ASSET_OBJECT_TYPE, 1, None)
-    store = InMemoryObjectStore(registry=registry)
+def test_u4_observations_derive_from_documents() -> None:
+    inventory, with_listener = _documents()
+    _, without_listener = _documents(listeners_raw="")
 
-    with pytest.raises(S003BaselineError, match="cover exactly C1-C5"):
-        await assess_s003_baseline(
-            store,
-            definition=_definition(),
-            observations=[
-                ResolvedObservation(claim_id="C4", value=True),
-            ],
-            tenant_id=None,
-            observed_at=NOW,
-            source_id=new_id("src"),
-        )
+    with_value = derive_baseline_observations(inventory, with_listener)
+    without_value = derive_baseline_observations(inventory, without_listener)
+
+    assert with_value[3].model_dump() == {
+        "state": "resolved",
+        "claim_id": "C4",
+        "value": True,
+    }
+    assert without_value[3].model_dump() == {
+        "state": "resolved",
+        "claim_id": "C4",
+        "value": False,
+    }
 
 
 def test_u4_guards_survive_python_o() -> None:
@@ -327,10 +343,9 @@ from tools.s003_baseline import (
     BaselineClaim,
     BaselineDefinition,
     BaselineOutcome,
-    ResolvedObservation,
-    UnresolvedObservation,
     assess_s003_baseline,
 )
+from tools.s003_estate import ServiceSurfaceDocument, UnitInventoryDocument
 from aqelyn.assetconfig import ASSET_OBJECT_TYPE
 from aqelyn.conventions import new_id
 from aqelyn.objects import InMemoryObjectStore, ObjectTypeRegistry
@@ -342,20 +357,23 @@ definition = BaselineDefinition(
         for claim_id in ("C1", "C2", "C3", "C4", "C5")
     ]
 )
-observations = [
-    UnresolvedObservation(claim_id="C1", unknown_class="privileged_read"),
-    UnresolvedObservation(claim_id="C2", unknown_class="collection_scope"),
-    UnresolvedObservation(claim_id="C3", unknown_class="collection_scope"),
-    ResolvedObservation(claim_id="C4", value=True),
-    UnresolvedObservation(claim_id="C5", unknown_class="privileged_read"),
-]
+inventory = UnitInventoryDocument(collected_at=now, units=[])
+surface = ServiceSurfaceDocument(
+    collected_at=now,
+    listeners_raw="tcp LISTEN 0 128 0.0.0.0:443 0.0.0.0:*",
+    firewall_raw=None,
+    nginx_config=None,
+    listeners=[],
+    vhosts=[],
+)
 registry = ObjectTypeRegistry()
 registry.register(ASSET_OBJECT_TYPE, 1, None)
 assessment = asyncio.run(
     assess_s003_baseline(
         InMemoryObjectStore(registry=registry),
         definition=definition,
-        observations=observations,
+        inventory=inventory,
+        surface=surface,
         tenant_id=None,
         observed_at=now,
         source_id=new_id("src"),

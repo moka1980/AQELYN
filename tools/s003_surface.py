@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
-from tools.first_run import FactorReading
+from tools.first_run import FactorReading, RoadmapDependency
 from tools.s003_estate import (
     EstateAsset,
     ListenerObservation,
@@ -492,6 +492,30 @@ def surface_factor_readings(summary: SurfaceSummary) -> list[FactorReading]:
             for _ in range(count)
         )
     return readings
+
+
+def surface_roadmap_dependencies(
+    surface: ServiceSurfaceDocument,
+    summary: SurfaceSummary,
+) -> list[RoadmapDependency]:
+    """Name the U3 capabilities gated by the shared privileged-read decision."""
+
+    dependencies: list[RoadmapDependency] = []
+    if surface.nginx_config is None:
+        dependencies.append(
+            RoadmapDependency(
+                decision="privileged_read",
+                dependent="surface:proxy_topology",
+            )
+        )
+    if summary.observed_unattributable:
+        dependencies.append(
+            RoadmapDependency(
+                decision="privileged_read",
+                dependent="surface:listener_attribution",
+            )
+        )
+    return dependencies
 
 
 def _protocol(value: str) -> Literal["tcp", "udp"]:
