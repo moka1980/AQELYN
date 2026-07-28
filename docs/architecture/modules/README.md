@@ -101,6 +101,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | **S-003 — first real estate** (one.com VPS) | *(S track — operational)* | *config-derived surface, declared criticality, ECR-0069 data boundary, ECR-0070 transient collector boundary* | [S-003](S-003_Task_Bundle.md) | Accepted |
 | **C-039 — ECR-0071 purl-less identity** | EA-0030 | *classification not tolerance; `cpe` identity, explicit discriminator* | [C-039](C-039_Task_Bundle.md) | Accepted |
 | **C-040 — ECR-0072 absence is not a value** | EA-0030 + EA-0024 | *absent licence ≠ conflict; absent coverage ≠ clean* | [C-040](C-040_Task_Bundle.md) | Accepted |
+| ↳ S-003 U3 — exposure from observed binds | *(S track)* | *basis vocabulary widened; three states; residual made legible* | [U3 bundle](S-003_U3_Task_Bundle.md) | Accepted |
 | [IS-037 — conformant via EA-0023+0024+0025+0005](IS-037_Conformance_Analysis.md) | EA-0037 | *(no new module; no `Cyber*` namespace — see ECR-0059)* | [C-034](C-034_Task_Bundle.md) | Analysis |
 | [C-037 — `FindingStore` cursor implementation](C-037_Task_Bundle.md) | EA-0003 findings | *composite keyset on `(severity_score, id)`; index extended — see ECR-0062* | [C-037](C-037_Task_Bundle.md) | Accepted |
 | [C-038 — final backlog milestone](C-038_Task_Bundle.md) | EA-0018 + EA-0027 + EA-0003 | *flake diagnosed not clamped; GC-003 health guarantee; re-scoring option 3 — see ECR-0063* | [C-038](C-038_Task_Bundle.md) | Accepted |
