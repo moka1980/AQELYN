@@ -44,6 +44,13 @@ class ComposedPosture:
     statement: str
 
 
+@dataclass(frozen=True)
+class _MissionContext:
+    value: float | None
+    top_mission_id: str | None
+    reason: str
+
+
 def compose_posture(
     identity: NormalizedIdentity,
     account_id: str,
@@ -62,13 +69,15 @@ def compose_posture(
         (AccessRisk.model_validate(risk.model_dump(mode="json")) for risk in iag_risks),
         key=_risk_key,
     )
-    mission_factor, top_mission_id = _mission_factor(mission)
+    mission_context = _mission_factor(mission)
     owner_risk = _owner_risk(
         identity,
         account_id,
         iag_risks=selected_risks,
-        mission_factor=mission_factor if selected_risks else 0.0,
-        top_mission_id=top_mission_id,
+        mission_factor=(
+            mission_context.value if selected_risks and mission_context.value is not None else 0.0
+        ),
+        top_mission_id=mission_context.top_mission_id,
         risk_config=risk_config,
         computed_at=computed_at,
     )
@@ -77,6 +86,7 @@ def compose_posture(
         iag_risks=selected_risks,
         trust=trust,
         mission=mission,
+        mission_context=mission_context,
         owner_risk=owner_risk,
         factor_weights=factor_weights,
     )
@@ -234,24 +244,31 @@ def _posture_factors(
     iag_risks: Sequence[AccessRisk],
     trust: TrustAssessment,
     mission: MissionImpactResult,
+    mission_context: _MissionContext,
     owner_risk: Risk,
     factor_weights: Mapping[str, float],
 ) -> list[PostureFactor]:
+    risk_known = mission_context.value is not None
     risk_factor = PostureFactor(
         name="iag_risk",
-        value=round(1.0 - owner_risk.score / 100.0, 6),
+        value=round(1.0 - owner_risk.score / 100.0, 6) if risk_known else None,
         weight=factor_weights["iag_risk"],
-        status="known",
+        status="known" if risk_known else "unknown",
         source_ref={
             "owner": "EA-0011",
             "records": [risk.model_dump(mode="json") for risk in iag_risks],
             "ea0013_risk": owner_risk.model_dump(mode="json"),
             "ea0006_trust": trust.model_dump(mode="json"),
             "ea0007_mission": mission.model_dump(mode="json"),
+            "mission_status": "known" if risk_known else "unknown",
         },
         reason=(
-            f"EA-0011 returned {len(iag_risks)} account or identity control risks; "
-            f"EA-0013 scored their composed risk at {owner_risk.score:.0f}."
+            (
+                f"EA-0011 returned {len(iag_risks)} account or identity control risks; "
+                f"EA-0013 scored their composed risk at {owner_risk.score:.0f}."
+            )
+            if risk_known
+            else mission_context.reason
         ),
     )
     controls = identity.controls.model_dump(mode="json")
@@ -303,10 +320,10 @@ def _score_derivation(
         ref_id=trust.subject_ref,
         evidence_id=identity.evidence_id,
     )
-    _, top_mission_id = _mission_factor(mission)
+    mission_context = _mission_factor(mission)
     mission_claim = ClaimRef(
         kind="mission",
-        ref_id=top_mission_id or account_id,
+        ref_id=mission_context.top_mission_id or account_id,
         evidence_id=identity.evidence_id,
     )
     params: dict[str, Any] = {
@@ -344,14 +361,25 @@ def _score_params(derivation: Derivation) -> Mapping[str, Any]:
     raise PostureScoreNotReplayable("posture derivation is missing its score operation")
 
 
-def _mission_factor(result: MissionImpactResult) -> tuple[float, str | None]:
+def _mission_factor(result: MissionImpactResult) -> _MissionContext:
     if not result.impacts:
-        return 0.0, None
+        return _MissionContext(
+            value=None,
+            top_mission_id=None,
+            reason=(
+                "EA-0013 risk is excluded because EA-0007 returned no mission "
+                "impact for this account."
+            ),
+        )
     selected = max(
         result.impacts,
         key=lambda impact: (impact.impact_score, impact.mission.id),
     )
-    return selected.impact_score, selected.mission.id
+    return _MissionContext(
+        value=selected.impact_score,
+        top_mission_id=selected.mission.id,
+        reason=selected.reason,
+    )
 
 
 def _statement(

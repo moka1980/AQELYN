@@ -21,6 +21,7 @@ from aqelyn.conventions.errors import (
 from aqelyn.decision import replay
 from aqelyn.events import Subject
 from aqelyn.evidence import EvidenceRecord, InMemoryEvidenceStore
+from aqelyn.graph import Path
 from aqelyn.iag import AccessRisk, AccessRiskReport
 from aqelyn.inventory import InMemoryAssetStore, InventoryIntelligenceEngine
 from aqelyn.ispm import (
@@ -40,7 +41,7 @@ from aqelyn.ispm import (
 from aqelyn.ispm import scoring as scoring_module
 from aqelyn.ispm.models import ControlState
 from aqelyn.ispm.scoring import posture_operation_registry
-from aqelyn.mission import MissionImpactResult
+from aqelyn.mission import MissionImpact, MissionImpactResult, MissionView
 from aqelyn.objects import InMemoryObjectStore, ObjectQuery
 from aqelyn.risk import Risk, RiskConfig
 from aqelyn.risk.scoring import score_risk as real_score_risk
@@ -72,12 +73,37 @@ class _GovernanceOwner:
 
 
 class _MissionOwner:
-    def __init__(self) -> None:
+    def __init__(self, impact_score: float | None = None) -> None:
         self.calls: list[str] = []
+        self.impact_score = impact_score
 
     async def mission_impact(self, object_id: str) -> MissionImpactResult:
         self.calls.append(object_id)
+        if self.impact_score is not None:
+            mission_id = new_id("obj")
+            return MissionImpactResult(
+                impacts=[
+                    MissionImpact(
+                        mission=MissionView(
+                            id=mission_id,
+                            display_name="Owner-declared mission",
+                            criticality_tier=2,
+                            criticality_weight=self.impact_score,
+                            reason="The owner declared this mission.",
+                        ),
+                        impact_score=self.impact_score,
+                        via=Path(node_ids=[object_id, mission_id], length=1),
+                        source_object_id=object_id,
+                        reason="The mission depends on this account.",
+                    )
+                ]
+            )
         return MissionImpactResult()
+
+
+def _require(condition: bool, message: str) -> None:
+    if not condition:
+        raise AssertionError(message)
 
 
 @asynccontextmanager
@@ -144,6 +170,7 @@ async def _engine_with_identity(
     mfa: ControlState,
     risks: list[AccessRisk] | None = None,
     reliability: float = 0.8,
+    mission_impact: float | None = 0.5,
 ) -> tuple[ISPMEngine, NormalizedIdentity, str, _GovernanceOwner, _MissionOwner]:
     account_id = new_id("obj")
     identity_id = new_id("obj")
@@ -167,7 +194,7 @@ async def _engine_with_identity(
     )
     await store.upsert_identity(identity)
     owner = _GovernanceOwner(AccessRiskReport(risks=risks or [], evaluated=1, truncated=False))
-    mission = _MissionOwner()
+    mission = _MissionOwner(mission_impact)
     engine = ISPMEngine(
         store,
         object_store=InMemoryObjectStore(mode="enterprise"),
@@ -236,6 +263,74 @@ async def test_ispm_unknown_not_favourable() -> None:
         output = scores["unknown"].derivation.result
         assert output["known_only_score"] == 100.0
         assert output["coverage_adjustment"] == 0.8
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_ispm_missing_mission_is_unknown_and_excluded(kind: str) -> None:
+    async with _store(kind) as store:
+        risk = AccessRisk(
+            kind="dormant",
+            subject_id=new_id("obj"),
+            severity="medium",
+            reason="EA-0011 observed a dormant account.",
+        )
+        unknown_engine, _, unknown_account, unknown_owner, _ = await _engine_with_identity(
+            store,
+            mfa="present",
+            risks=[risk],
+            mission_impact=None,
+        )
+        unknown_owner.report = unknown_owner.report.model_copy(
+            update={
+                "risks": [
+                    unknown_owner.report.risks[0].model_copy(update={"subject_id": unknown_account})
+                ]
+            }
+        )
+        known_engine, _, known_account, known_owner, _ = await _engine_with_identity(
+            store,
+            mfa="present",
+            risks=[risk],
+            mission_impact=0.0,
+        )
+        known_owner.report = known_owner.report.model_copy(
+            update={
+                "risks": [
+                    known_owner.report.risks[0].model_copy(update={"subject_id": known_account})
+                ]
+            }
+        )
+
+        unknown = await unknown_engine.score_identity(unknown_account, tenant_id=TENANT)
+        known = await known_engine.score_identity(known_account, tenant_id=TENANT)
+
+        unknown_factor = next(factor for factor in unknown.factors if factor.name == "iag_risk")
+        known_factor = next(factor for factor in known.factors if factor.name == "iag_risk")
+        _require(unknown_factor.status == "unknown", "missing mission became a known factor")
+        _require(unknown_factor.value is None, "missing mission retained a numeric factor")
+        _require(
+            unknown_factor.source_ref["mission_status"] == "unknown",
+            "missing mission lost its typed source status",
+        )
+        _require(
+            "returned no mission impact" in unknown_factor.reason,
+            "missing mission lost its reason",
+        )
+        _require(
+            unknown.derivation.result["known_weight"] == 0.5,
+            "missing mission remained in the known denominator",
+        )
+        _require(
+            unknown.derivation.result["coverage_adjustment"] == 0.5,
+            "missing mission did not reduce score coverage",
+        )
+        _require(known_factor.status == "known", "real mission impact became unknown")
+        _require(known_factor.value is not None, "real mission impact lost its factor value")
+        _require(
+            known_factor.source_ref["mission_status"] == "known",
+            "real mission impact lost its typed source status",
+        )
+        _require(known.score > unknown.score, "missing mission scored favourably")
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])

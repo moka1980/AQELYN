@@ -77,7 +77,9 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0070 | S-track tooling | Accepted | **Transient collector boundary.** A complete filesystem inventory may consume one checksum-pinned temporary executable, but no package install or persistent estate change; cleanup and verified absence are part of success. |
 | ECR-0071 | EA-0030 | Accepted | **A real SBOM cannot be ingested.** 24 purl-less package components quarantine 131,685. Route (B): represent them, keyed on `cpe`. |
 | ECR-0072 | EA-0030 + EA-0024 | Accepted | **Absence is not a value.** Absent licence read as conflicting; absent coverage read as clean. Third and fourth arrivals of one error. |
-| ECR-0073 | EA-0023 (S-003 U3) | Proposed | **Surface from observed binds, not configuration.** The config reads failed; three attribution states; read-only ≠ unprivileged. |
+| ECR-0073 | EA-0023 (S-003 U3) | Accepted | **Surface from observed binds, not configuration.** The config reads failed; three attribution states; read-only ≠ unprivileged. |
+| ECR-0074 | EA-0033 + GC-001 | Accepted | **Why did AC-3 not catch this?** A mission factor returns the most favourable value with no provider; and a decision is recorded as an absence. |
+| ECR-0075 | GC-001 (cross-cutting) | Proposed | **Score-path closure.** A guarantee that enumerates factor representations cannot see numeric scoring paths that bypass them. |
 
 ---
 
@@ -4613,7 +4615,7 @@ the two doc-versus-code drift pins.
 
 **Raised by:** **S-003 U3**, on measuring what the real host's collection actually
 produced.
-**Status:** Proposed.
+**Status:** Accepted.
 **Number:** verified free at `e924aad` (`ECR-LOG.md` contiguous 0001-0072, no gaps);
 rule 20 checked. **Re-check before merging** (rule 1).
 **Data handling (ECR-0069):** counts and classes only throughout. No port, address,
@@ -4814,3 +4816,221 @@ memory bound; the two doc-versus-code drift pins; C-040's vacuous
 refusal.
 
 **U4's baseline remains conditional on U4's own criteria.**
+
+## ECR-0074 - A favourable value with no provider, and a decision recorded as an absence
+
+**Raised by:** **S-003 U2**, deferred through U3-U5 and taken up now.
+**Status:** Accepted.
+**Number:** verified free (`ECR-LOG.md` contiguous 0001-0073); rule 20 checked.
+**Re-checked before merge** (rule 1).
+
+**This ECR leads with a question rather than a defect**, because the answer matters
+more than the fix.
+
+---
+
+### 1. The question that comes first
+
+`ispm/scoring.py:347` read `if not result.impacts: return 0.0, None`. An asset with
+no mission object therefore contributed **0.0 - the most favourable mission value** -
+rendered `0.000` rather than `unknown`.
+
+**That is ECR-0040's shape exactly, in EA-0033.** And ECR-0040 was raised in 2026;
+**ECR-0066** widened GC-001 **AC-3** to per-factor precisely to catch it; **ECR-0068**
+widened AC-3 again for provider states. A factor returning a favourable value with no
+provider is **the literal subject of that guarantee.**
+
+> **So the first question is not "how do we fix line 347." It is: *why did AC-3 not
+> catch this?***
+
+The fix is a few lines. The answer to the question is a hole in the guarantee that
+passed green for three ECRs.
+
+### 2. Determination required before any fix - three candidates
+
+**The determining run happened before the fix**, per the ECR-0067 precedent. The
+three possible answers differed enormously in what they implied:
+
+| candidate | implies |
+|---|---|
+| **(a) ISPM's scorer is not discovered** by AC-3's enumeration | a **discovery gap** - fixable by widening the enumeration, the same shape as ECR-0066/0068 |
+| **(b) this path never constructs a factor** - `return 0.0, None` yields a bare score, so there is nothing for a factor-enumerating guard to inspect | **the guard's subject is wrong**, and **no amount of widening reaches it** |
+| **(c) covered, but the case was never written** | cheapest, and the least likely given two prior widenings |
+
+**(b) is the answer.** ISPM is present in GC-001's discovered scorer registry, but
+AC-3's ISPM case feeds hand-built `PostureFactor` records directly to
+`posture_score_result`. It never invokes `compose_posture`, EA-0007, or
+`_mission_factor`.
+
+The determining evidence was deliberately produced with the defect still active:
+
+```text
+PYTHONPATH=<worktree>/src;<worktree>/tests
+python -m pytest tests/guarantees/test_scorers.py -q --color=no
+.....................                                                    [100%]
+```
+
+The central guarantee stayed green while the favourable `0.0` path shipped.
+
+> **A guarantee that enumerates a *representation* cannot see a path that bypasses the
+> representation.** AC-3 asserts properties of factor objects. Code that produces a
+> score **without constructing one** is outside its reach entirely - not
+> under-covered, but **invisible**.
+
+This is **AC-3's third gap and the first of a different kind.** ECR-0066 was
+per-scorer -> per-factor; ECR-0068 was unwired -> all provider states; both were
+**widenings of the same subject**. The subject itself is wrong: the guard must
+enumerate **score-producing paths**, not only factors. The cross-cutting repair is
+recorded separately as ECR-0075 rather than being hidden inside this EA-0033 fix.
+
+**All three prior AC-3 gaps were found by real data rather than by the guard.** That
+pattern is itself the finding, and ECR-0068's standing recommendation - *ask once per
+S-milestone whether the suite still covers production reality after this change* -
+is what surfaced it.
+
+### 3. The defect, once the question was answered
+
+An undeclared asset must contribute **`unknown`, excluded from the denominator**, not
+`0.0`. The platform's own idiom is already in EA-0024
+(`PriorityFactor(status="known"|"unknown")`) and ECR-0040 already established the
+denominator rule.
+
+EA-0033 now wraps the EA-0013 owner record in its existing `iag_risk`
+`PostureFactor`. When EA-0007 returns no impact, that factor carries
+`status="unknown"`, `value=None`, a named reason, and zero normalized vote. The exact
+EA-0011 risks, EA-0013 record, EA-0006 trust, and EA-0007 result remain pinned for
+replay; the provisional numeric record cannot cast a favourable vote.
+
+**Rule 29 applies to the fix itself:** the closing question is not *"is line 347
+fixed"* but ***"is line 347 the only path that can return a score without a
+provider?"*** A typed/AST audit, verified by `mypy --strict src tests`, found numeric
+mission paths in EA-0013, EA-0014, EA-0015, EA-0017, EA-0023, EA-0024, EA-0032, and
+EA-0033. EA-0024 already materializes a typed `PriorityFactor`; the others belong to
+ECR-0075's score-path closure audit and are not silently declared correct here.
+
+### 4. The second residual: a decision recorded as an absence
+
+**19 of 26 units** are substrate the owner **deliberately declined to tier
+individually.** They return `input_missing`, which reads as *nobody has supplied this
+yet.*
+
+**The cause is misstated, and the cause is what determines the remediation:**
+
+| recorded | reads as | implied action |
+|---|---|---|
+| `input_missing` | nobody has answered | **closable** - go and declare it |
+| the truth: *declined* | someone considered it and answered | **nothing to do** |
+
+**So the density report currently carries 19 closable roadmap items that are not
+closable** - manufacturing work that does not exist, which is precisely the failure
+U4's `unknown_is_fail` analysis warned about, and the cost the owner's own baseline
+declaration named: *"the noise trains people to ignore the real ones."*
+
+**This is the third place in S-003 where a reason's *cause* was misstated** - U3's
+three attribution states, U4's two closability classes, and now this. The pattern is
+consistent enough to be worth naming: **an unknown's cause is not decoration; it is
+the field that decides what anyone should do about it.**
+
+#### The owner question this ECR must put, not answer
+
+**What does "declined to tier individually" mean for the mission factor?**
+
+- **deliberately unweighted** - the owner has answered, and the answer is *no
+  individual tier*. That is arguably **not an unknown at all**, but a declared
+  outcome, and it would need its own representation.
+- **deferred** - the owner may tier them later, so it is a genuine unknown that is
+  **closable by decision** rather than by collection.
+- **inherited** - they take a substrate tier, in which case the factor is **known**.
+
+**These produce three different report rows and three different roadmap
+implications.** The ECR records the question; the owner answers it. **Do not pick one
+to make the implementation proceed** - that would be inventing a declaration, in the
+same milestone that refused to invent a baseline.
+
+The report continues to say `input_missing` until it can say something truer:
+**an honest wrong-cause is better than an invented right one**, and it stays visible.
+
+### 5. Scope
+
+- **The determination (section 2) happened first**, and its evidence is recorded.
+- **The `0.000` fix** is applied in EA-0033.
+- **AC-3's change of subject** is recorded as the separate GC-track ECR-0075.
+- **Section 4's representation waits on the owner's answer.** No declaration was
+  invented to make the report look better.
+
+### 6. Proof
+
+- **The determination is written down** with evidence: candidate (b).
+- **An undeclared asset scores `unknown`, not `0.000`**, and is **excluded from the
+  denominator** - driven through the **real scorer**, not a spy.
+- **Positive control:** an explicit EA-0007 impact of `0.0` leaves the composed risk
+  factor known, proving that absence and a provider-reported zero remain distinct.
+- **Mutation:** restoring a known `0.0` context turns
+  `test_ispm_missing_mission_is_unknown_and_excluded` red. AC-3 stays green on the
+  original path; that is the recorded determination, not a falsely closed guarantee.
+- **Sibling paths enumerated** and recorded under ECR-0075 rather than silently
+  assumed safe.
+- Both backends, both tenant modes, `python -O`.
+
+## ECR-0075 - GC-001 must discover score-producing paths, not only factor representations
+
+**Raised by:** **ECR-0074's required pre-fix determination.**
+**Status:** Proposed.
+**Number:** verified free after ECR-0074; rule 20 checked.
+
+### 1. The finding
+
+GC-001 AC-3 discovers composition scorer packages and, for EA-0024, concrete
+factor-provider implementations. It asserts that typed factor objects represent
+unknown inputs honestly. That subject is necessary and insufficient.
+
+EA-0033 accepted an empty `MissionImpactResult`, converted it to bare numeric `0.0`,
+and only then constructed a known `iag_risk` factor around the resulting EA-0013
+record. The missing input had already disappeared. AC-3 could inspect every factor
+perfectly and never see the conversion.
+
+> **A guarantee over representation B cannot protect transformation A -> B when A
+> can erase uncertainty before B exists.**
+
+### 2. Current typed audit
+
+An AST inventory of shipped `mission_impact` consumers, followed by
+`mypy --strict src tests`, identifies numeric score/priority paths in:
+
+| owner | path |
+|---|---|
+| EA-0013 | `risk.engine.RiskIntelligenceEngine._mission_context` |
+| EA-0014 | `threat.engine.ThreatIntelligenceEngine._severity_score` |
+| EA-0015 | `soc.correlate._mission_context` |
+| EA-0017 | `detection.scoring._mission_factor` |
+| EA-0023 | `exposure.engine.score_exposure` / `_mission_factors` |
+| EA-0024 | `vuln.engine.VulnerabilityIntelligenceEngine._mission_factor` |
+| EA-0032 | `secrets.scoring._mission_factor` |
+| EA-0033 | `ispm.scoring._mission_factor` |
+
+EA-0024 is visible because it returns `PriorityFactor`. The others return or consume
+bare numerics. This table is an audit input, **not** a permanent hand-maintained
+registry.
+
+### 3. Required direction
+
+- Discover **score-producing paths** from shipped source. Omission must fail closed;
+  a hand-maintained roster repeats the defect.
+- Require an exact behavioral case or a reasoned exclusion for every discovered
+  path.
+- Drive at least provider absent, provider returns empty, provider returns impact,
+  malformed return, raised failure, and truncated result where the owner type permits
+  them. Do not assume those states are universal; record why a state cannot occur.
+- Mutate the pre-representation transformation so an unknown becomes favourable.
+  The central guarantee must turn red.
+- Preserve the distinction between scoring and roadmap: all unknown states are
+  non-favourable for scoring; their typed causes may imply different actions.
+- Do not weight-tune a correct scorer merely to satisfy a central ordering.
+
+### 4. Scope boundary
+
+ECR-0075 does not decide every owner's missing-mission policy inside ECR-0074.
+Each owner contract must say whether mission absence makes its output unknown,
+refusing, conservatively bounded, or legitimately irrelevant. The guarantee enforces
+the declared boundary and prevents silent favourable fallback; it does not invent the
+boundary.
