@@ -20,15 +20,17 @@ from tools.s003_surface import classify_bind, parse_listener_observations
 from aqelyn.assetconfig import ACGConfig, AssetConfigAnalyzer, Baseline, Check, Comparator
 from aqelyn.conventions import ActorRef
 from aqelyn.objects import AQObject, NaturalKey, ObjectQuery, ObjectStore, SourceRef
+from aqelyn.vuln import FactorUnknownCause
 
 ClaimId = Literal["C1", "C2", "C3", "C4", "C5"]
-UnknownClass = Literal["privileged_read", "collection_scope"]
+UnknownClass = Literal["privileged_read", "collection_scope", "certificate_lifecycle"]
 OutcomeStatus = Literal["pass", "fail", "unknown"]
 
 CLAIM_IDS = frozenset(("C1", "C2", "C3", "C4", "C5"))
 NO_BASELINE_DECLARED = "no approved baseline declared"
 PRIVILEGED_READ_REQUIRED = "privileged read decision pending"
 COLLECTION_SCOPE_INCOMPLETE = "collection scope does not provide required evidence"
+CERTIFICATE_LIFECYCLE_UNKNOWN = "certificate lifecycle owner could not establish validity"
 
 _ACTOR = ActorRef(actor_type="user", actor_id="s003-owner")
 _BASELINE_TARGET_NATURAL_KEY = NaturalKey(
@@ -38,6 +40,7 @@ _BASELINE_TARGET_NATURAL_KEY = NaturalKey(
 _UNKNOWN_REASONS: Mapping[UnknownClass, str] = {
     "privileged_read": PRIVILEGED_READ_REQUIRED,
     "collection_scope": COLLECTION_SCOPE_INCOMPLETE,
+    "certificate_lifecycle": CERTIFICATE_LIFECYCLE_UNKNOWN,
 }
 
 
@@ -229,6 +232,27 @@ async def assess_s003_baseline(
         raise S003BaselineError("a declared baseline requires the U1 documents")
 
     observations = derive_baseline_observations(inventory, surface)
+    return await _assess_baseline_observations(
+        object_store,
+        definition=definition,
+        observations=observations,
+        tenant_id=tenant_id,
+        observed_at=observed_at,
+        source_id=source_id,
+    )
+
+
+async def _assess_baseline_observations(
+    object_store: ObjectStore,
+    *,
+    definition: BaselineDefinition,
+    observations: Sequence[ClaimObservation],
+    tenant_id: str | None,
+    observed_at: datetime,
+    source_id: str,
+) -> BaselineAssessment:
+    """Compare only a complete set of already-gated claim observations."""
+
     resolutions = _resolution_map(definition, observations)
     observed_state: dict[str, object] = {
         claim_id: resolution.value
@@ -399,13 +423,18 @@ def baseline_factor_readings(assessment: BaselineAssessment) -> list[FactorReadi
     readings: list[FactorReading] = []
     for outcome in assessment.outcomes:
         if outcome.status == "unknown":
+            cause: FactorUnknownCause = (
+                "provider_unconfigured"
+                if outcome.unknown_class == "certificate_lifecycle"
+                else "input_missing"
+            )
             readings.append(
                 FactorReading(
                     name="baseline",
                     status="unknown",
                     reason=outcome.reason,
                     source=f"s003:baseline:{outcome.unknown_class}",
-                    unknown_cause="input_missing",
+                    unknown_cause=cause,
                 )
             )
         else:
