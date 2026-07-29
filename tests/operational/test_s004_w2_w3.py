@@ -8,13 +8,16 @@ import socket
 import subprocess
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import tools.s004_handin as s004_handin
 from pydantic import ValidationError
 from tools.s003_estate import (
     SURFACE_NOT_DERIVED_REASONS,
+    CommandTemplate,
     ServiceSurfaceDocument,
     UnitInventoryDocument,
     UnitRecord,
@@ -24,10 +27,12 @@ from tools.s003_estate import (
 from tools.s004_handin import (
     FirewallRulesetCapture,
     HandedInCaptureSet,
+    OwnerCaptureCommand,
     PrivilegedSocketCapture,
     ProxyConfigurationCapture,
     S004HandInError,
     capture_ref_for_document,
+    owner_capture_command_plan,
     parse_firewall_ruleset_capture,
     parse_privileged_socket_capture,
     parse_proxy_configuration_capture,
@@ -145,6 +150,55 @@ def test_s004_no_privileged_path_in_src() -> None:
     assert all("sudo" not in template.argv for template in templates)
 
 
+def test_s004_owner_capture_plan_derives_shipped_commands() -> None:
+    templates = collection_command_templates()
+    driver_by_name: dict[str, CommandTemplate] = {
+        template.name: template for template in templates if template.name in {"ss", "nft", "nginx"}
+    }
+
+    plan = owner_capture_command_plan(privilege_executable="owner-privilege-boundary")
+
+    assert {command.source.name for command in plan} == {"ss", "nft", "nginx"}
+    assert len(plan) == 3
+    for command in plan:
+        assert command.source is driver_by_name[command.source.name]
+        assert command.argv == ("owner-privilege-boundary", *command.source.argv)
+
+    firewall = next(command for command in plan if command.kind == "firewall_ruleset")
+    assert firewall.argv[1:] == ("nft", "--json", "list", "ruleset")
+
+
+def test_s004_owner_capture_plan_tracks_driver_changes(monkeypatch: pytest.MonkeyPatch) -> None:
+    templates = collection_command_templates()
+    changed = tuple(
+        replace(template, argv=(*template.argv, "--driver-change"))
+        if template.name == "nft"
+        else template
+        for template in templates
+    )
+
+    def changed_templates() -> tuple[CommandTemplate, ...]:
+        return changed
+
+    monkeypatch.setattr(s004_handin, "collection_command_templates", changed_templates)
+
+    plan = s004_handin.owner_capture_command_plan(privilege_executable="owner-privilege-boundary")
+    firewall = next(command for command in plan if command.kind == "firewall_ruleset")
+    assert firewall.argv[-1] == "--driver-change"
+    assert firewall.argv[1:] == firewall.source.argv
+
+
+def test_s004_owner_capture_command_refuses_argument_drift() -> None:
+    source = next(template for template in collection_command_templates() if template.name == "nft")
+
+    with pytest.raises(ValueError, match="add only one privilege executable"):
+        OwnerCaptureCommand(
+            kind="firewall_ruleset",
+            source=source,
+            argv=("owner-privilege-boundary", "nft", "list", "ruleset"),
+        )
+
+
 def test_s004_parsers_pure(monkeypatch: pytest.MonkeyPatch) -> None:
     def refused(*args: object, **kwargs: object) -> None:
         del args, kwargs
@@ -156,8 +210,10 @@ def test_s004_parsers_pure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(subprocess, "run", refused)
     monkeypatch.setattr(subprocess, "Popen", refused)
 
+    plan = owner_capture_command_plan(privilege_executable="owner-privilege-boundary")
     sockets, proxy, firewall = _w1_captures(NOW)
 
+    assert len(plan) == 3
     assert len(sockets.listeners) == 1
     assert sockets.listeners[0].asset_key is None
     assert {directive.kind for directive in proxy.directives} == {

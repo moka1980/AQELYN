@@ -11,16 +11,28 @@ import hashlib
 import json
 import shlex
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, field_validator, model_validator
-from tools.s003_estate import ListenerObservation, ServiceSurfaceDocument, UnitInventoryDocument
+from tools.s003_estate import (
+    CommandTemplate,
+    ListenerObservation,
+    ServiceSurfaceDocument,
+    UnitInventoryDocument,
+    collection_command_templates,
+)
 from tools.s003_surface import S003SurfaceError, parse_listener_rows
 
 CaptureKind = Literal[
     "unit_inventory",
     "service_surface",
+    "privileged_socket_table",
+    "proxy_configuration",
+    "firewall_ruleset",
+]
+OwnerCaptureKind = Literal[
     "privileged_socket_table",
     "proxy_configuration",
     "firewall_ruleset",
@@ -33,6 +45,11 @@ HandInFailureReason = Literal[
 ]
 
 _PROXY_DIRECTIVES = frozenset(("listen", "server_name", "proxy_pass", "ssl_certificate"))
+_OWNER_CAPTURE_COMMANDS: tuple[tuple[OwnerCaptureKind, str], ...] = (
+    ("privileged_socket_table", "ss"),
+    ("firewall_ruleset", "nft"),
+    ("proxy_configuration", "nginx"),
+)
 
 
 class S004HandInError(RuntimeError):
@@ -41,6 +58,29 @@ class S004HandInError(RuntimeError):
     def __init__(self, reason: HandInFailureReason, detail: str) -> None:
         self.reason = reason
         super().__init__(f"{reason}: {detail}")
+
+
+@dataclass(frozen=True)
+class OwnerCaptureCommand:
+    """One inert owner command derived from the shipped collector vocabulary."""
+
+    kind: OwnerCaptureKind
+    source: CommandTemplate
+    argv: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        expected_name = dict(_OWNER_CAPTURE_COMMANDS)[self.kind]
+        if self.source.name != expected_name:
+            raise ValueError("owner capture kind does not match its source command")
+        if (
+            len(self.argv) != len(self.source.argv) + 1
+            or not self.argv[0].strip()
+            or self.argv[1:] != self.source.argv
+        ):
+            raise ValueError(
+                "owner capture command must add only one privilege executable "
+                "to the shipped command"
+            )
 
 
 class CaptureRef(BaseModel):
@@ -178,6 +218,33 @@ class HandedInCaptureSet(BaseModel):
         if actual != expected or len(self.basis.capture_refs) != len(expected):
             raise ValueError("capture set basis must cite every consumed document exactly once")
         return self
+
+
+def owner_capture_command_plan(
+    *,
+    privilege_executable: str,
+) -> tuple[OwnerCaptureCommand, ...]:
+    """Describe the owner's manual captures without executing any command."""
+
+    if not privilege_executable.strip():
+        raise ValueError("owner privilege executable must not be empty")
+    templates = collection_command_templates()
+    plan: list[OwnerCaptureCommand] = []
+    for kind, command_name in _OWNER_CAPTURE_COMMANDS:
+        matches = [template for template in templates if template.name == command_name]
+        if len(matches) != 1:
+            raise RuntimeError(
+                f"shipped command registry must contain exactly one {command_name} template"
+            )
+        source = matches[0]
+        plan.append(
+            OwnerCaptureCommand(
+                kind=kind,
+                source=source,
+                argv=(privilege_executable, *source.argv),
+            )
+        )
+    return tuple(plan)
 
 
 def parse_privileged_socket_capture(
