@@ -37,7 +37,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MAX_OUTPUT_BYTES = 128 * 1024 * 1024
@@ -55,6 +55,10 @@ SURFACE_NOT_DERIVED_REASONS: dict[str, str] = {
     "listeners": "not derived in S-003 U1; raw socket output retained when available",
     "vhosts": "not derived in S-003 U1; raw nginx configuration retained when available",
 }
+CONTENT_OBSERVATION_TIME_DESCRIPTION = (
+    "The time the content described by this document was observed to be true. "
+    "Reading or reparsing cached content must preserve this value."
+)
 
 EstateAssetKind = Literal["systemd_unit", "nginx_vhost"]
 CommandName = Literal["syft", "systemctl", "ss", "nft", "nginx"]
@@ -137,7 +141,7 @@ class ListenerObservation(BaseModel):
 class UnitInventoryDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    collected_at: datetime
+    collected_at: datetime = Field(description=CONTENT_OBSERVATION_TIME_DESCRIPTION)
     units: list[UnitRecord]
     unavailable_details: dict[str, str] = Field(default_factory=dict)
 
@@ -145,7 +149,7 @@ class UnitInventoryDocument(BaseModel):
 class ServiceSurfaceDocument(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    collected_at: datetime
+    collected_at: datetime = Field(description=CONTENT_OBSERVATION_TIME_DESCRIPTION)
     listeners_raw: str | None
     firewall_raw: dict[str, Any] | None
     nginx_config: str | None
@@ -179,7 +183,7 @@ class CollectionManifestEntry(BaseModel):
 class CollectionManifest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    collected_at: datetime
+    collected_at: datetime = Field(description=CONTENT_OBSERVATION_TIME_DESCRIPTION)
     commands: list[CollectionManifestEntry]
     documents: list[str]
 
@@ -394,6 +398,24 @@ def command_with_executable(command: CommandTemplate, executable: str) -> Comman
         timeout_seconds=command.timeout_seconds,
         output_name=command.output_name,
     )
+
+
+def _cached_manifest_entry(
+    manifest: CollectionManifest,
+    command: CommandTemplate,
+) -> CollectionManifestEntry:
+    matches = [
+        entry
+        for entry in manifest.commands
+        if entry.name == command.name
+        and len(entry.argv) == len(command.argv)
+        and tuple(entry.argv[1:]) == command.argv[1:]
+    ]
+    if len(matches) != 1:
+        raise S003CollectionError(
+            f"cached collection does not identify exactly one {command.name} command"
+        )
+    return matches[0]
 
 
 def canonical_asset_key(kind: EstateAssetKind, native_id: str) -> str:
@@ -736,24 +758,132 @@ class EstateCollector:
         transient_root: Path | None = None,
     ) -> CollectionManifest:
         selected_workdir = ensure_private_workdir(workdir)
+        if reuse and transient_syft is None:
+            if syft_sha256 is not None:
+                raise S003CollectionError(
+                    "--syft-sha256 requires --transient-syft even when reusing a collection"
+                )
+            return self._collect_reused_snapshot(selected_workdir)
         with prepared_syft_runtime(
             transient_syft=transient_syft,
             syft_sha256=syft_sha256,
             transient_root=transient_root,
             tool_lookup=self.tool_lookup,
         ) as syft:
+            if reuse:
+                return self._collect_reused_snapshot(selected_workdir)
             return self._collect_with_runtime(
                 selected_workdir,
                 syft=syft,
-                reuse=reuse,
             )
+
+    def _collect_reused_snapshot(self, selected_workdir: Path) -> CollectionManifest:
+        """Reparse one complete cached observation without changing its time."""
+
+        try:
+            manifest = CollectionManifest.model_validate_json(
+                (selected_workdir / "collection-manifest.json").read_text(encoding="utf-8")
+            )
+            previous_units = UnitInventoryDocument.model_validate_json(
+                (selected_workdir / "unit-inventory.json").read_text(encoding="utf-8")
+            )
+            previous_surface = ServiceSurfaceDocument.model_validate_json(
+                (selected_workdir / "service-surface.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValidationError) as exc:
+            raise S003CollectionError(
+                "--reuse requires a complete, valid prior collection"
+            ) from exc
+        if manifest.documents != ["sbom.json", "unit-inventory.json", "service-surface.json"]:
+            raise S003CollectionError("--reuse found an unexpected prior document set")
+
+        outputs: dict[str, bytes] = {}
+        for template in COMMAND_TEMPLATES:
+            entry = _cached_manifest_entry(manifest, template)
+            outputs[template.output_name] = self._cached_command_output(
+                selected_workdir,
+                template,
+                entry,
+            )
+
+        units = parse_unit_list(outputs["systemctl-list-units.txt"].decode("utf-8"))
+        detailed_units: list[UnitRecord] = []
+        unavailable: dict[str, str] = {}
+        for unit in units:
+            command = unit_detail_command(unit.native_id)
+            entry = _cached_manifest_entry(manifest, command)
+            if entry.returncode != 0:
+                unavailable[unit.asset_key] = entry.stderr or "systemctl show failed"
+                continue
+            output = self._cached_command_output(selected_workdir, command, entry)
+            detailed_units.append(parse_unit_details(output.decode("utf-8"), unit))
+
+        unit_document = UnitInventoryDocument(
+            collected_at=previous_units.collected_at,
+            units=detailed_units,
+            unavailable_details=unavailable,
+        )
+
+        surface_unavailable: dict[str, str] = {}
+        listeners_raw = _optional_text_output(
+            manifest.commands,
+            outputs,
+            output_name="ss-listeners.txt",
+            command_name="ss",
+            unavailable=surface_unavailable,
+        )
+        firewall_raw = _optional_json_output(
+            manifest.commands,
+            outputs,
+            output_name="nft-ruleset.json",
+            command_name="nft",
+            unavailable=surface_unavailable,
+        )
+        nginx_entry = next(entry for entry in manifest.commands if entry.name == "nginx")
+        nginx_config = (
+            outputs["nginx-config.txt"].decode("utf-8") if nginx_entry.returncode == 0 else None
+        )
+        if nginx_entry.returncode != 0:
+            surface_unavailable["nginx"] = nginx_entry.stderr or "nginx config unavailable"
+        surface_unavailable.update(SURFACE_NOT_DERIVED_REASONS)
+        surface_document = ServiceSurfaceDocument(
+            collected_at=previous_surface.collected_at,
+            listeners_raw=listeners_raw,
+            firewall_raw=firewall_raw,
+            nginx_config=nginx_config,
+            unavailable_details=surface_unavailable,
+        )
+
+        _write_private_json(selected_workdir / "unit-inventory.json", unit_document)
+        _write_private_json(selected_workdir / "service-surface.json", surface_document)
+        return manifest
+
+    def _cached_command_output(
+        self,
+        selected_workdir: Path,
+        command: CommandTemplate,
+        entry: CollectionManifestEntry,
+    ) -> bytes:
+        if entry.returncode != 0:
+            if command.required:
+                raise S003CollectionError(f"cached required command {command.name} did not succeed")
+            return b""
+        path = selected_workdir / command.output_name
+        try:
+            output = path.read_bytes()
+        except OSError as exc:
+            raise S003CollectionError(f"cached {command.name} output is unavailable") from exc
+        if len(output) > self.max_output_bytes:
+            raise S003CollectionError(f"cached {command.name} output exceeds the size bound")
+        if len(output) != entry.stdout_bytes:
+            raise S003CollectionError(f"cached {command.name} output size changed")
+        return output
 
     def _collect_with_runtime(
         self,
         selected_workdir: Path,
         *,
         syft: SyftRuntime,
-        reuse: bool,
     ) -> CollectionManifest:
         executables: dict[CommandName, str | None] = {
             "syft": syft.executable,
@@ -784,7 +914,6 @@ class EstateCollector:
             result = self._execute(
                 command,
                 selected_workdir,
-                reuse=reuse,
                 environment=syft.environment if command.name == "syft" else None,
                 syft_executable=syft.executable,
             )
@@ -805,7 +934,6 @@ class EstateCollector:
             entry, output = self._execute(
                 command,
                 selected_workdir,
-                reuse=reuse,
                 environment=None,
                 syft_executable=syft.executable,
             )
@@ -866,26 +994,11 @@ class EstateCollector:
         command: CommandTemplate,
         workdir: Path,
         *,
-        reuse: bool,
         environment: Mapping[str, str] | None,
         syft_executable: str,
     ) -> tuple[CollectionManifestEntry, bytes]:
         validate_read_only_command(command.argv, syft_executable=syft_executable)
         path = workdir / command.output_name
-        if reuse and path.exists():
-            output = path.read_bytes()
-            if len(output) > self.max_output_bytes:
-                raise S003CollectionError(f"cached {command.name} output exceeds the size bound")
-            return (
-                CollectionManifestEntry(
-                    name=command.name,
-                    argv=list(command.argv),
-                    required=command.required,
-                    returncode=0,
-                    stdout_bytes=len(output),
-                ),
-                output,
-            )
         try:
             result = self.runner.run(
                 command.argv,
