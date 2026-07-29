@@ -169,6 +169,39 @@ def test_s004_parsers_pure(monkeypatch: pytest.MonkeyPatch) -> None:
     assert firewall.entries == []
 
 
+def test_s004_privileged_socket_header_is_explicitly_tolerated() -> None:
+    header = " ".join(
+        (
+            "Netid",
+            "State",
+            "Recv-Q",
+            "Send-Q",
+            "Local",
+            "Address:Port",
+            "Peer",
+            "Address:Port",
+            "Process",
+        )
+    )
+    captured = parse_privileged_socket_capture(
+        header + "\n" + _socket_table(pid=101) + _socket_table(pid=102),
+        captured_at=NOW,
+    )
+
+    assert len(captured.listeners) == 2
+    assert [listener.process_ids for listener in captured.listeners] == [[101], [102]]
+
+
+def test_s004_socket_parser_does_not_blind_skip_first_row() -> None:
+    with pytest.raises(S004HandInError) as malformed:
+        parse_privileged_socket_capture(
+            "not a socket table\n" + _socket_table(pid=101),
+            captured_at=NOW,
+        )
+
+    assert malformed.value.reason == "capture_document_malformed"
+
+
 def test_s004_derivation_cites_capture() -> None:
     capture_set = _capture_set(
         NOW,

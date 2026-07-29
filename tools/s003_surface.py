@@ -58,6 +58,15 @@ SurfaceState = Literal[
 
 _PID = re.compile(r"\bpid=(\d+)\b")
 _PROCESS_NAME = re.compile(r'\("([^"]+)"')
+_SS_HEADER_PREFIX = (
+    "Netid",
+    "State",
+    "Recv-Q",
+    "Send-Q",
+    "Local",
+    "Address:Port",
+    "Peer",
+)
 
 
 class S003SurfaceError(RuntimeError):
@@ -227,6 +236,8 @@ def parse_listener_rows(raw: str) -> list[ListenerObservation]:
         line = raw_line.strip()
         if not line:
             continue
+        if _is_ss_header(line):
+            continue
         fields = line.split(maxsplit=6)
         if len(fields) < 6:
             raise S003SurfaceError("socket table contains an incomplete listener row")
@@ -244,6 +255,18 @@ def parse_listener_rows(raw: str) -> list[ListenerObservation]:
             )
         )
     return observations
+
+
+def _is_ss_header(line: str) -> bool:
+    tokens = line.split()
+    if tuple(tokens[: len(_SS_HEADER_PREFIX)]) != _SS_HEADER_PREFIX:
+        return False
+    suffix = tokens[len(_SS_HEADER_PREFIX) :]
+    return suffix in (
+        ["Address:Port"],
+        ["Address:Port", "Process"],
+        ["Address:PortProcess"],
+    )
 
 
 def _listener_asset_key(
