@@ -86,6 +86,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0079 | S-track density reporter | Accepted | **Typed supplemental status must survive reporting.** Known factor readings were counted as unknown, preserving roadmap work after the owner resolved it. |
 | ECR-0080 | S-track tooling | Accepted | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
+| ECR-0082 | EA-0024 (+ GC) | Proposed | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
 
 ---
 
@@ -5550,3 +5551,138 @@ operation, no connectors, no dashboard. **One command, one report, one machine.*
 
 Those remain real and remain unbuilt; P-001 is the smallest change that makes the platform
 something a person can use, and it needs none of them.
+
+## ECR-0082 - Absence exiting the fold: excluded weight is redistributed to the survivors
+
+**Raised by:** **P-001**, on its first run against the real corpus - **the defect was visible
+because the report made the exclusions legible**, after forty-one milestones in which it was
+not.
+**Status:** Proposed.
+**Severity:** **high - demonstrated wrong answer on real data.** 114 findings occupy the top
+band on almost no evidence, and they **outrank the single KEV-confirmed exploited
+vulnerability.**
+**Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
+
+### 1. The measured curve, and why its shape is the diagnostic
+
+4,117 real findings, grouped by how many factors were **excluded** as unknown:
+
+| factors excluded | mean score |
+|---|---|
+| 3 | 76.9 |
+| 4 | 53.4 |
+| 5 | 30.3 |
+| **6** | **90.0** (n=114) |
+
+**Scores fall as evidence thins - and then jump to the top band when almost everything is
+unknown.**
+
+**The shape is the finding, not the 90.0.** The monotone decline across 3-4-5 is an averaging
+effect; the jump at 6 is where **so few factors survive that a single high-valued one becomes
+the score.** One finding read directly: **six factors excluded, only Trust known, rendered
+`Immediate`.**
+
+### 2. The mechanism: two scorers, two normalisations
+
+| module | normalises by | consequence |
+|---|---|---|
+| `ispm/scoring.py` | **total weight, including unknowns** | knowing less **lowers** the score - `known_only x coverage_adjustment` |
+| `vuln/engine.py:61` | **known weights only** | one known factor normalises to weight **1.0**; its value **becomes** the score |
+
+**`vuln` applies no coverage adjustment at all.** The absent factors' weight is not
+discarded - it is **redistributed to whatever survives.**
+
+### 3. It is not merely unpenalised. It is inverted.
+
+If exclusion were only unpenalised, low-coverage findings would score *like* high-coverage
+ones. They score **higher**, and the reason is statistical rather than semantic:
+
+> **Fewer surviving factors means higher variance.** A score computed from six factors tends
+> toward their mean; a score computed from **one** *is* that factor. So thinning evidence
+> **widens the distribution**, and a priority ranking shows only the upper tail - which
+> becomes **systematically populated by the findings the platform knows least about.**
+
+**That is not a mis-ranking. It is an inversion of what the ranking is for.**
+
+### 4. Which normalisation is right, and the principle that settles it
+
+**`ispm`'s.** Not by seniority - by **ECR-0040**, whose whole point was that uncertainty
+**removes a factor's vote**:
+
+> **Removing a voter must not amplify the remaining voters.** Excluding a factor from the
+> denominator does not discard its weight; it **hands that weight to the survivors.**
+> Discounting and amplifying are opposite operations, and only one of them is what
+> "exclusion" was ever supposed to mean.
+
+**ECR-0054 §3.1 already stated this explicitly**, in the credential scorer, and it is the
+same sentence one module over:
+
+> *"Denominator exclusion alone is insufficient: without the coverage adjustment, a credential
+> with one known-good factor and nine unknowns scores like one with ten known-good factors -
+> i.e. 'unknown' silently becomes 'present'."*
+
+**Resolution: `vuln` adopts `known_only x coverage_adjustment`**, matching `ispm` and
+`secrets`. And per **rule 29**, the closing question is not *"is `vuln` fixed"* but
+***"which other scorers normalise by known-only?"*** - enumerated with the type system, not
+grep (rule 22), and every composition scorer checked, not only the two named here.
+
+### 5. The defence that does not hold
+
+**"EA-0024 reports coverage separately, so the consumer can combine them."** Coverage is
+mandatory in EA-0024's spec, so this is a real design possibility rather than an oversight.
+
+**It fails on the use.** A priority score exists **to order a list.** If the number that
+sorts the list is uninterpretable without an adjacent number, then:
+
+> **A priority score that requires a second figure to be read correctly is not a priority
+> score.** Either the coverage adjustment is inside it, or it cannot order anything - and
+> sorting is the only thing anyone does with it.
+
+P-001 is the proof: the report sorts by this score, and the top of the list is wrong.
+
+### 6. GC-001 AC-3's **fourth** gap - and the property that is missing
+
+**AC-3 passes, and the defect exists.** AC-3 asserts that **unknown is not the favourable
+result** - and in `vuln` an unknown factor does not make a finding look *safer*. It makes it
+look **more certain**, by amplifying whatever remains. **The guard checks the direction of
+unknown's effect on one factor; it says nothing about what exclusion does to the weight of the
+others.**
+
+That is the **fourth** AC-3 gap, and the third of a distinct kind: per-scorer -> per-factor
+(ECR-0066), unwired -> all provider states (ECR-0068), representation-bypass (ECR-0075), and
+now **effect-on-siblings**.
+
+**The missing property, stated so it is testable:**
+
+> **Coverage monotonicity - for any finding, removing a known factor must not increase its
+> score.**
+
+**Comparable by construction**, because it compares a finding **to itself** with less
+evidence, which sidesteps the incommensurability of two different findings. **Mutation-
+testable directly**, and it fails against `vuln` today. **GC candidate**, in the
+discovery-not-declaration form: enumerate composition scorers, assert monotonicity on each,
+**negative control** being a scorer that normalises by known-only.
+
+### 7. Not a P-001 defect - and the argument for the P track, made by the P track
+
+**The report is correct.** It renders the exclusions faithfully, names Trust as the sole
+survivor, and shows six factors as `Not scored / Excluded / 0 points` with their causes. **It
+is why the defect is visible at all.**
+
+Forty-one milestones of mutation-verified guarantees did not surface it, because **every one
+of them asked whether a value was wrong** and this defect is in a **relationship between
+values** - which nothing sees until a person reads them side by side, ordered.
+
+**P-001's stated purpose was to make the platform usable. Its first run made the platform
+*correctable* in a way no engine milestone had.**
+
+### 8. Scope
+
+- **`vuln/engine.py` adopts the coverage adjustment**; scores change materially and **records
+  with thin evidence will drop out of the top band.** That is the correction, not a
+  regression - and per the C-041 precedent it is **a record for the first deployment**, not a
+  communication, since there are none.
+- **Enumerate every composition scorer** for known-only normalisation (rule 29 / rule 22).
+- **Coverage monotonicity** raised as a GC milestone rather than folded here.
+- **Re-run P-001's report** afterwards: the top band is the acceptance evidence, and the
+  KEV-confirmed vulnerability should be in it.
