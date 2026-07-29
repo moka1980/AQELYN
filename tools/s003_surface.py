@@ -15,6 +15,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -209,12 +210,23 @@ def parse_listener_observations(
 
     if surface.listeners_raw is None:
         raise S003SurfaceError("listener observations are unavailable")
+    return attribute_listener_observations(
+        parse_listener_rows(surface.listeners_raw),
+        inventory,
+    )
+
+
+def attribute_listener_observations(
+    observations: Sequence[ListenerObservation],
+    inventory: UnitInventoryDocument,
+) -> list[ListenerObservation]:
+    """Join parsed listener rows to units only through observed process ids."""
+
     pid_to_assets: dict[int, set[str]] = defaultdict(set)
     for unit in inventory.units:
         if unit.main_pid is not None:
             pid_to_assets[unit.main_pid].add(unit.asset_key)
 
-    observations = parse_listener_rows(surface.listeners_raw)
     return [
         observation.model_copy(
             update={
@@ -356,6 +368,29 @@ def build_surface_application(
 ) -> SurfaceApplication:
     """Build the three honest states and the inventory-bound host-state overlay."""
 
+    return build_surface_application_from_observations(
+        parse_listener_observations(surface, inventory),
+        inventory,
+        registered_asset_ids=registered_asset_ids,
+        evidence_root=_surface_ref(surface),
+        observed_at=surface.collected_at,
+        unregistered_assets=unregistered_assets,
+    )
+
+
+def build_surface_application_from_observations(
+    observations: Sequence[ListenerObservation],
+    inventory: UnitInventoryDocument,
+    *,
+    registered_asset_ids: Mapping[str, str],
+    evidence_root: str,
+    observed_at: datetime,
+    unregistered_assets: Sequence[EstateAsset] = (),
+) -> SurfaceApplication:
+    """Build the surface state machine from already-attributed listener rows."""
+
+    if not evidence_root.strip():
+        raise S003SurfaceError("surface evidence root must not be empty")
     roster = {unit.asset_key for unit in inventory.units}
     if set(registered_asset_ids) != roster:
         raise S003SurfaceError("registered asset roster differs from unit inventory")
@@ -368,8 +403,12 @@ def build_surface_application(
         raise S003SurfaceError("unregistered surface assets must be unique")
     if any(asset_key in roster for asset_key in unregistered_keys):
         raise S003SurfaceError("an unregistered surface asset is already registered")
+    if any(
+        observation.asset_key is not None and observation.asset_key not in roster
+        for observation in observations
+    ):
+        raise S003SurfaceError("listener attribution names an asset outside the unit inventory")
 
-    observations = parse_listener_observations(surface, inventory)
     attributed: dict[str, list[ListenerObservation]] = defaultdict(list)
     outcomes: list[SurfaceOutcome] = []
     for observation in observations:
@@ -395,7 +434,6 @@ def build_surface_application(
             )
         )
 
-    evidence_root = _surface_ref(surface)
     observed_surface: list[ObservedHostSurface] = []
     for asset_key, asset_id in sorted(selected_ids.items()):
         asset_observations = attributed.get(asset_key, [])
@@ -421,7 +459,7 @@ def build_surface_application(
                         for observation in asset_observations
                     }
                 ),
-                observed_at=surface.collected_at,
+                observed_at=observed_at,
                 rationale=(AMBIGUOUS_BIND if reachability is None else MEASURED_REACHABILITY),
             )
         )

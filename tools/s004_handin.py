@@ -9,13 +9,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import shlex
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 from tools.s003_estate import (
     CommandTemplate,
     ListenerObservation,
@@ -134,11 +133,39 @@ class ProxyDirective(BaseModel):
         return value
 
 
+class ProxyRouteDeclaration(BaseModel):
+    """One explicit front-end-to-upstream route inside a single server block."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    frontend_ref: str
+    upstream_ref: str
+    server_names: tuple[str, ...] = ()
+    certificate_refs: tuple[str, ...] = ()
+
+    @field_validator("frontend_ref", "upstream_ref")
+    @classmethod
+    def _endpoint_ref(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("proxy route endpoint references must not be empty")
+        return value
+
+    @field_validator("server_names", "certificate_refs")
+    @classmethod
+    def _optional_refs(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values):
+            raise ValueError("proxy route references must not be empty")
+        if len(values) != len(set(values)):
+            raise ValueError("proxy route references must not contain duplicates")
+        return values
+
+
 class ProxyConfigurationCapture(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     capture: CaptureRef
     directives: list[ProxyDirective]
+    routes: list[ProxyRouteDeclaration] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _kind_and_content(self) -> ProxyConfigurationCapture:
@@ -146,6 +173,25 @@ class ProxyConfigurationCapture(BaseModel):
             raise ValueError("proxy configuration capture has the wrong capture kind")
         if not self.directives:
             raise ValueError("proxy configuration contains no supported directives")
+        route_keys = [
+            (route.frontend_ref, route.upstream_ref, route.server_names, route.certificate_refs)
+            for route in self.routes
+        ]
+        if len(route_keys) != len(set(route_keys)):
+            raise ValueError("proxy configuration routes must not contain duplicates")
+        listens = {
+            directive.arguments[0] for directive in self.directives if directive.kind == "listen"
+        }
+        upstreams = {
+            directive.arguments[0]
+            for directive in self.directives
+            if directive.kind == "proxy_pass"
+        }
+        if any(
+            route.frontend_ref not in listens or route.upstream_ref not in upstreams
+            for route in self.routes
+        ):
+            raise ValueError("proxy routes must cite retained configuration directives")
         return self
 
 
@@ -273,22 +319,8 @@ def parse_proxy_configuration_capture(
     """Extract only the proxy directives later S-004 milestones are allowed to use."""
 
     selected = _capture_text(raw)
-    directives: list[ProxyDirective] = []
     try:
-        statements = _semicolon_statements(selected)
-        for statement in statements:
-            candidate = statement.rsplit("{", maxsplit=1)[-1].rsplit("}", maxsplit=1)[-1].strip()
-            if not candidate:
-                continue
-            tokens = shlex.split(candidate, comments=False, posix=True)
-            if not tokens or tokens[0] not in _PROXY_DIRECTIVES:
-                continue
-            directives.append(
-                ProxyDirective(
-                    kind=cast(ProxyDirectiveKind, tokens[0]),
-                    arguments=tuple(tokens[1:]),
-                )
-            )
+        directives, routes = _proxy_configuration(selected)
     except (ValueError, S004HandInError) as exc:
         if isinstance(exc, S004HandInError):
             raise
@@ -303,6 +335,7 @@ def parse_proxy_configuration_capture(
     return ProxyConfigurationCapture(
         capture=_capture_ref("proxy_configuration", selected, captured_at),
         directives=directives,
+        routes=routes,
     )
 
 
@@ -451,42 +484,166 @@ def _capture_text(raw: str) -> str:
     return raw
 
 
-def _semicolon_statements(raw: str) -> list[str]:
-    statements: list[str] = []
+def _proxy_configuration(
+    raw: str,
+) -> tuple[list[ProxyDirective], list[ProxyRouteDeclaration]]:
+    directives: list[ProxyDirective] = []
+    server_directives: list[list[ProxyDirective]] = []
+    stack: list[tuple[str, int | None]] = []
+    current: list[str] = []
+
+    for token in _nginx_tokens(raw):
+        if token == "{":
+            if not current:
+                raise S004HandInError(
+                    "capture_document_malformed",
+                    "proxy configuration contains a block without a name",
+                )
+            inherited_server = stack[-1][1] if stack else None
+            if current[0] == "server":
+                inherited_server = len(server_directives)
+                server_directives.append([])
+            stack.append((current[0], inherited_server))
+            current.clear()
+            continue
+        if token == ";":
+            if not current:
+                continue
+            directive = _supported_proxy_directive(current)
+            if directive is not None:
+                directives.append(directive)
+                active_server = stack[-1][1] if stack else None
+                if active_server is not None:
+                    server_directives[active_server].append(directive)
+            current.clear()
+            continue
+        if token == "}":
+            if current or not stack:
+                raise S004HandInError(
+                    "capture_document_malformed",
+                    "proxy configuration contains an invalid block boundary",
+                )
+            stack.pop()
+            continue
+        current.append(token)
+
+    if current or stack:
+        raise S004HandInError(
+            "capture_document_malformed",
+            "proxy configuration contains an unterminated directive or block",
+        )
+
+    routes: list[ProxyRouteDeclaration] = []
+    seen: set[tuple[str, str, tuple[str, ...], tuple[str, ...]]] = set()
+    for selected in server_directives:
+        frontends = _first_arguments(selected, "listen")
+        upstreams = _first_arguments(selected, "proxy_pass")
+        server_names = _first_arguments(selected, "server_name")
+        certificate_refs = _first_arguments(selected, "ssl_certificate")
+        for frontend_ref in frontends:
+            for upstream_ref in upstreams:
+                key = (frontend_ref, upstream_ref, server_names, certificate_refs)
+                if key in seen:
+                    continue
+                seen.add(key)
+                routes.append(
+                    ProxyRouteDeclaration(
+                        frontend_ref=frontend_ref,
+                        upstream_ref=upstream_ref,
+                        server_names=server_names,
+                        certificate_refs=certificate_refs,
+                    )
+                )
+    return directives, routes
+
+
+def _supported_proxy_directive(tokens: Sequence[str]) -> ProxyDirective | None:
+    if not tokens or tokens[0] not in _PROXY_DIRECTIVES:
+        return None
+    return ProxyDirective(
+        kind=cast(ProxyDirectiveKind, tokens[0]),
+        arguments=tuple(tokens[1:]),
+    )
+
+
+def _first_arguments(
+    directives: Sequence[ProxyDirective],
+    kind: ProxyDirectiveKind,
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(directive.arguments[0] for directive in directives if directive.kind == kind)
+    )
+
+
+def _nginx_tokens(raw: str) -> list[str]:
+    """Tokenize nginx configuration without assigning meaning to unsupported syntax."""
+
+    tokens: list[str] = []
     current: list[str] = []
     quote: str | None = None
     escaped = False
     comment = False
+    variable_braces = 0
+
+    def flush() -> None:
+        if current:
+            tokens.append("".join(current))
+            current.clear()
+
     for character in raw:
         if comment:
             if character == "\n":
                 comment = False
-                current.append(character)
+            continue
+        if variable_braces:
+            current.append(character)
+            if character == "{":
+                variable_braces += 1
+            elif character == "}":
+                variable_braces -= 1
             continue
         if quote is not None:
-            current.append(character)
             if escaped:
+                current.append(character)
                 escaped = False
             elif character == "\\":
                 escaped = True
             elif character == quote:
                 quote = None
+            else:
+                current.append(character)
+            continue
+        if escaped:
+            current.append(character)
+            escaped = False
             continue
         if character == "#":
+            flush()
             comment = True
             continue
         if character in ('"', "'"):
             quote = character
-            current.append(character)
             continue
-        if character == ";":
-            statements.append("".join(current))
-            current.clear()
+        if character == "\\":
+            escaped = True
+            continue
+        if character == "{" and current and current[-1] == "$":
+            current.append(character)
+            variable_braces = 1
+            continue
+        if character.isspace():
+            flush()
+            continue
+        if character in "{};":
+            flush()
+            tokens.append(character)
             continue
         current.append(character)
-    if quote is not None:
+
+    if quote is not None or escaped or variable_braces:
         raise S004HandInError(
             "capture_document_malformed",
-            "proxy configuration contains an unterminated quote",
+            "proxy configuration contains an unterminated quote or escape",
         )
-    return statements
+    flush()
+    return tokens

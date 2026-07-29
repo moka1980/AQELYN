@@ -21,7 +21,14 @@ from aqelyn.workflow.models import ActionSpec
 
 Reachability = Literal["external", "internal", "unknown"]
 AssetKind = Literal["asset", "cloud", "api", "identity", "domain", "cert"]
-ExposureBasisKind = Literal["inventory", "telemetry", "access", "graph", "host_state"]
+ExposureBasisKind = Literal[
+    "inventory",
+    "telemetry",
+    "access",
+    "graph",
+    "host_state",
+    "configuration",
+]
 ExposureStatus = Literal["open", "revalidated", "closed"]
 ExposureLevel = Literal["high", "medium", "low", "unknown"]
 ExposureImpactKind = Literal["data_sensitivity", "credential_sensitivity", "identity_sensitivity"]
@@ -32,7 +39,7 @@ VALID_ASSET_KINDS: Final[frozenset[str]] = frozenset(
     ("asset", "cloud", "api", "identity", "domain", "cert")
 )
 VALID_BASIS_KINDS: Final[frozenset[str]] = frozenset(
-    ("inventory", "telemetry", "access", "graph", "host_state")
+    ("inventory", "telemetry", "access", "graph", "host_state", "configuration")
 )
 VALID_EXPOSURE_STATUS: Final[frozenset[str]] = frozenset(("open", "revalidated", "closed"))
 VALID_EXPOSURE_LEVELS: Final[frozenset[str]] = frozenset(("high", "medium", "low", "unknown"))

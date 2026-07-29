@@ -581,10 +581,13 @@ def density_report(report: RunReport) -> None:
                     structural[reading.name] += 1
                 reasons.setdefault(reading.name, Counter())[reading.reason] += 1
     for reading in report.coverage_factors:
-        unknown[reading.name] += 1
-        if not reading.closable:
-            structural[reading.name] += 1
-        reasons.setdefault(reading.name, Counter())[reading.reason] += 1
+        if reading.status == "known":
+            known[reading.name] += 1
+        else:
+            unknown[reading.name] += 1
+            if not reading.closable:
+                structural[reading.name] += 1
+            reasons.setdefault(reading.name, Counter())[reading.reason] += 1
 
     total_factors = sum(known.values()) + sum(unknown.values())
     print(
