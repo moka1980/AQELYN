@@ -58,6 +58,15 @@ SurfaceState = Literal[
 
 _PID = re.compile(r"\bpid=(\d+)\b")
 _PROCESS_NAME = re.compile(r'\("([^"]+)"')
+_SS_HEADER_PREFIX = (
+    "Netid",
+    "State",
+    "Recv-Q",
+    "Send-Q",
+    "Local",
+    "Address:Port",
+    "Peer",
+)
 
 
 class S003SurfaceError(RuntimeError):
@@ -205,10 +214,29 @@ def parse_listener_observations(
         if unit.main_pid is not None:
             pid_to_assets[unit.main_pid].add(unit.asset_key)
 
+    observations = parse_listener_rows(surface.listeners_raw)
+    return [
+        observation.model_copy(
+            update={
+                "asset_key": _listener_asset_key(
+                    observation,
+                    pid_to_assets=pid_to_assets,
+                )
+            }
+        )
+        for observation in observations
+    ]
+
+
+def parse_listener_rows(raw: str) -> list[ListenerObservation]:
+    """Parse a handed-in ``ss`` table without claiming an asset join."""
+
     observations: list[ListenerObservation] = []
-    for raw_line in surface.listeners_raw.splitlines():
+    for raw_line in raw.splitlines():
         line = raw_line.strip()
         if not line:
+            continue
+        if _is_ss_header(line):
             continue
         fields = line.split(maxsplit=6)
         if len(fields) < 6:
@@ -217,15 +245,8 @@ def parse_listener_observations(
         address, port = _endpoint(fields[4])
         process_ids = sorted({int(value) for value in _PID.findall(line)})
         process_names = sorted(set(_PROCESS_NAME.findall(line)))
-        matched_assets = {
-            asset_key
-            for process_id in process_ids
-            for asset_key in pid_to_assets.get(process_id, set())
-        }
-        asset_key = next(iter(matched_assets)) if len(matched_assets) == 1 else None
         observations.append(
             ListenerObservation(
-                asset_key=asset_key,
                 protocol=protocol,
                 address=address,
                 port=port,
@@ -234,6 +255,31 @@ def parse_listener_observations(
             )
         )
     return observations
+
+
+def _is_ss_header(line: str) -> bool:
+    tokens = line.split()
+    if tuple(tokens[: len(_SS_HEADER_PREFIX)]) != _SS_HEADER_PREFIX:
+        return False
+    suffix = tokens[len(_SS_HEADER_PREFIX) :]
+    return suffix in (
+        ["Address:Port"],
+        ["Address:Port", "Process"],
+        ["Address:PortProcess"],
+    )
+
+
+def _listener_asset_key(
+    observation: ListenerObservation,
+    *,
+    pid_to_assets: Mapping[int, set[str]],
+) -> str | None:
+    matched_assets = {
+        asset_key
+        for process_id in observation.process_ids
+        for asset_key in pid_to_assets.get(process_id, set())
+    }
+    return next(iter(matched_assets)) if len(matched_assets) == 1 else None
 
 
 def classify_bind(address: str) -> Reachability | None:
