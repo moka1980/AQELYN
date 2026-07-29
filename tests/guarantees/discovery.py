@@ -225,6 +225,58 @@ def assert_vulnerability_factor_provider_registry_complete(
         )
 
 
+def discover_mission_score_paths(
+    aqelyn_root: Path | None = None,
+) -> frozenset[str]:
+    """Discover every production path that can turn mission input into an output.
+
+    Discovery deliberately starts wider than scorers. A mission owner call may feed a
+    score, priority, correlation, health probe, or another owner adapter, and a new
+    path must be classified before the central guarantee accepts it. The registry
+    therefore records behavioral cases and reasoned exclusions; omission is never an
+    implicit exclusion.
+    """
+
+    root = aqelyn_root or aqelyn_source_root()
+    paths: set[str] = set()
+    for path in source_python_files(root):
+        tree = _parse(path)
+        relative = path.relative_to(root).with_suffix("")
+        module = ".".join(("aqelyn", *relative.parts))
+        for qualified_name, node in _qualified_functions(tree):
+            if (
+                _calls_attribute(node, "mission_impact")
+                or _calls_name(node, "mission_context_from_results")
+                or _accepts_optional_risk_mission_context(node)
+            ):
+                paths.add(f"{module}.{qualified_name}")
+    return frozenset(paths)
+
+
+def assert_mission_score_path_registry_complete(
+    registered: Mapping[str, object],
+    exclusions: Mapping[str, str],
+    *,
+    aqelyn_root: Path | None = None,
+) -> None:
+    blank_reasons = sorted(path for path, reason in exclusions.items() if not reason.strip())
+    if blank_reasons:
+        raise GuaranteeViolation(f"mission score-path exclusions require reasons: {blank_reasons}")
+    overlap = sorted(frozenset(registered) & frozenset(exclusions))
+    if overlap:
+        raise GuaranteeViolation(
+            f"mission score-path registry has cases also marked excluded: {overlap}"
+        )
+    discovered = discover_mission_score_paths(aqelyn_root)
+    selected = frozenset(registered) | frozenset(exclusions)
+    missing = sorted(discovered - selected)
+    extra = sorted(selected - discovered)
+    if missing or extra:
+        raise GuaranteeViolation(
+            f"mission score-path registry mismatch: missing={missing}, extra={extra}"
+        )
+
+
 def assert_unknown_less_favourable(observations: Sequence[ScorerObservation]) -> None:
     if not observations:
         raise GuaranteeViolation("no composition scorer observations were supplied")
@@ -397,6 +449,64 @@ def _returns_priority_factor(node: ast.AsyncFunctionDef) -> bool:
         isinstance(item, ast.Call) and _expression_tail(item.func) == "PriorityFactor"
         for item in ast.walk(node)
     )
+
+
+def _qualified_functions(
+    tree: ast.Module,
+) -> tuple[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef], ...]:
+    functions: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            functions.append((node.name, node))
+        elif isinstance(node, ast.ClassDef):
+            functions.extend(
+                (f"{node.name}.{item.name}", item)
+                for item in node.body
+                if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)
+            )
+    return tuple(functions)
+
+
+def _calls_attribute(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    attribute: str,
+) -> bool:
+    return any(
+        isinstance(item, ast.Call)
+        and isinstance(item.func, ast.Attribute)
+        and item.func.attr == attribute
+        for item in ast.walk(node)
+    )
+
+
+def _calls_name(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+    name: str,
+) -> bool:
+    return any(
+        isinstance(item, ast.Call) and _expression_tail(item.func) == name
+        for item in ast.walk(node)
+    )
+
+
+def _accepts_optional_risk_mission_context(
+    node: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> bool:
+    for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+        annotation = argument.annotation
+        if not isinstance(annotation, ast.BinOp) or not isinstance(annotation.op, ast.BitOr):
+            continue
+        members = {
+            (
+                "None"
+                if isinstance(member, ast.Constant) and member.value is None
+                else _annotation_tail(member)
+            )
+            for member in (annotation.left, annotation.right)
+        }
+        if members == {"RiskMissionContext", "None"}:
+            return True
+    return False
 
 
 def _literal_values(node: ast.expr) -> set[str]:

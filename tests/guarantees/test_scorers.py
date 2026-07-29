@@ -14,15 +14,31 @@ from typing import cast
 
 import pytest
 
+import aqelyn.soc.correlate as soc_correlate
 from aqelyn.assetconfig import InMemoryDriftSnapshotStore
 from aqelyn.conventions import new_id
 from aqelyn.conventions.errors import VulnConfigInvalid
 from aqelyn.exposure import AssetRef, InMemoryExposureStore
+from aqelyn.exposure import engine as exposure_engine
+from aqelyn.findings import InMemoryFindingStore
 from aqelyn.ispm import PostureFactor
+from aqelyn.ispm import scoring as ispm_scoring
 from aqelyn.ispm.scoring import posture_score_result
 from aqelyn.mission import MissionImpactResult
-from aqelyn.risk.scoring import score_risk
+from aqelyn.risk import (
+    InMemoryRiskSnapshotStore,
+    InMemoryRiskStore,
+    Risk,
+    RiskConfig,
+    RiskIntelligenceEngine,
+    RiskMissionContext,
+    SignalRef,
+)
+from aqelyn.risk import engine as risk_engine
+from aqelyn.risk import scoring as risk_scoring
+from aqelyn.risk.scoring import mission_context_from_results, score_risk
 from aqelyn.secrets import GovernanceFactor
+from aqelyn.secrets import scoring as secrets_scoring
 from aqelyn.secrets.models import LEGACY_GOVERNANCE_FACTOR_NAMES
 from aqelyn.secrets.scoring import governance_score_result
 from aqelyn.threat.parse import KevCatalog, KevExploitationProvider
@@ -45,10 +61,12 @@ from guarantees.controls import unsafe_status_score
 from guarantees.discovery import (
     GuaranteeViolation,
     ScorerObservation,
+    assert_mission_score_path_registry_complete,
     assert_scorer_registry_complete,
     assert_unknown_less_favourable,
     assert_vulnerability_factor_provider_registry_complete,
     discover_composition_scorer_packages,
+    discover_mission_score_paths,
     discover_vulnerability_factor_providers,
 )
 
@@ -60,8 +78,8 @@ SCORER_CASES: dict[str, Callable[[], ScorerObservation]] = {
 }
 SCORER_EXCLUSIONS = {
     "aqelyn.risk.scoring.score_risk": (
-        "EA-0013 score_risk is a bounded max/impact combinator with no unknown lever; "
-        "unknown belongs to its factor producers."
+        "EA-0013 score_risk consumes a typed RiskMissionContext rather than a local "
+        "Factor model; the mission score-path guarantee covers that boundary."
     )
 }
 
@@ -117,8 +135,8 @@ def test_gc_scorer_exclusion_documented() -> None:
     assert callable(score_risk)
     assert "risk" not in discover_composition_scorer_packages()
     [reason] = SCORER_EXCLUSIONS.values()
-    assert "no unknown lever" in reason
-    assert "factor producers" in reason
+    assert "typed RiskMissionContext" in reason
+    assert "mission score-path guarantee" in reason
 
 
 def test_gc_negative_control_unguarded_scorer() -> None:
@@ -153,7 +171,9 @@ from guarantees.discovery import (
     assert_unknown_less_favourable,
 )
 from guarantees.test_scorers import (
+    MISSION_SCORE_PATH_CASES,
     VULNERABILITY_FACTOR_PROVIDER_CASES,
+    _assert_mission_score_path_case,
     _assert_provider_case,
 )
 
@@ -182,6 +202,9 @@ else:
 
 for provider_name in sorted(VULNERABILITY_FACTOR_PROVIDER_CASES):
     asyncio.run(_assert_provider_case(provider_name))
+
+for path in sorted(MISSION_SCORE_PATH_CASES):
+    asyncio.run(_assert_mission_score_path_case(path))
 
 bad = ScorerObservation(
     name='optimized-control',
@@ -547,6 +570,313 @@ class _EmptyMissionProvider:
     async def mission_impact(self, object_id: str) -> MissionImpactResult:
         _ = object_id
         return MissionImpactResult()
+
+
+@dataclass(frozen=True)
+class _MissionScorePathCase:
+    check: Callable[[], Awaitable[None]]
+
+
+MISSION_SCORE_PATH_CASES: dict[str, _MissionScorePathCase] = {
+    "aqelyn.exposure.engine._mission_factors": _MissionScorePathCase(
+        lambda: _check_context_adapter(exposure_engine._mission_factors)
+    ),
+    "aqelyn.ispm.scoring._mission_factor": _MissionScorePathCase(
+        lambda: _check_context_adapter(ispm_scoring._mission_factor)
+    ),
+    "aqelyn.risk.engine.RiskIntelligenceEngine._mission_context": _MissionScorePathCase(
+        lambda: _check_risk_engine_mission_path()
+    ),
+    "aqelyn.risk.scoring.score_risk": _MissionScorePathCase(
+        lambda: _check_risk_score_mission_boundary()
+    ),
+    "aqelyn.secrets.scoring._mission_factor": _MissionScorePathCase(
+        lambda: _check_context_adapter(secrets_scoring._mission_factor)
+    ),
+    "aqelyn.soc.correlate._mission_context": _MissionScorePathCase(
+        lambda: _check_soc_mission_path()
+    ),
+    "aqelyn.vuln.engine.VulnerabilityIntelligenceEngine._mission_factor": (
+        _MissionScorePathCase(lambda: _check_vulnerability_mission_path())
+    ),
+}
+MISSION_SCORE_PATH_EXCLUSIONS = {
+    "aqelyn.detection.scoring._mission_factor": (
+        "EA-0017 declares MissionConfig.default_tier for an empty owner result; it "
+        "does not use the fold identity and records the configured policy."
+    ),
+    "aqelyn.detection.service.ThreatDetectionService._check_mission_engine": (
+        "Service health probes owner availability and emits no score or priority."
+    ),
+    "aqelyn.exposure.engine.KnownDataExposureEngine.score_exposure": (
+        "The owner path delegates its conversion to the separately discovered and "
+        "behaviorally checked exposure.engine._mission_factors adapter."
+    ),
+    "aqelyn.exposure.service.ExposureManagementService._check_mission_provider": (
+        "Service health probes owner availability and emits no score or priority."
+    ),
+    "aqelyn.ispm.engine.ISPMEngine.score_identity": (
+        "The owner path delegates its conversion to the separately discovered and "
+        "behaviorally checked ispm.scoring._mission_factor adapter."
+    ),
+    "aqelyn.mission.engine.MissionEngine.assess_finding_impact": (
+        "EA-0007 is the mission owner: this path returns typed MissionImpactResult "
+        "records and does not convert absence into a downstream score."
+    ),
+    "aqelyn.risk.service.RiskIntelligenceService._check_mission_engine": (
+        "Service health probes owner availability and emits no score or priority."
+    ),
+    "aqelyn.secrets.engine.SecretsIntelligenceEngine._score_asset": (
+        "The owner path delegates its conversion to the separately discovered and "
+        "behaviorally checked secrets.scoring._mission_factor adapter."
+    ),
+    "aqelyn.soc.service.SecurityOperationsService._check_mission_engine": (
+        "Service health probes owner availability and emits no score or priority."
+    ),
+    "aqelyn.threat.engine.ThreatFusionEngine._severity_score": (
+        "EA-0014 uses 1.0, the conservative maximum severity multiplier, when no "
+        "mission impact is supplied; absence is not favourable in this orientation."
+    ),
+    "aqelyn.threat.service.ThreatFusionService._check_mission_engine": (
+        "Service health probes owner availability and emits no score or priority."
+    ),
+    "aqelyn.vuln.service.VulnerabilityIntelligenceService._check_mission_provider": (
+        "Service health probes owner availability and emits no score or priority."
+    ),
+}
+
+
+def test_gc_mission_score_path_discovery_complete() -> None:
+    assert_mission_score_path_registry_complete(
+        MISSION_SCORE_PATH_CASES,
+        MISSION_SCORE_PATH_EXCLUSIONS,
+    )
+
+
+def test_gc_mission_score_path_discovery_detects_new_path(tmp_path: Path) -> None:
+    root = tmp_path / "aqelyn"
+    package = root / "future_score"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text('"""Future mission scorer control."""\n', encoding="utf-8")
+    (package / "scoring.py").write_text(
+        "\n".join(
+            (
+                "async def score_future(provider: object) -> float:",
+                "    result = await provider.mission_impact('obj_future')",
+                "    return max((item.impact_score for item in result.impacts), default=0.0)",
+                "",
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    discovered = discover_mission_score_paths(root)
+
+    assert discovered == frozenset(("aqelyn.future_score.scoring.score_future",))
+    with pytest.raises(GuaranteeViolation, match="score_future"):
+        assert_mission_score_path_registry_complete({}, {}, aqelyn_root=root)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", sorted(MISSION_SCORE_PATH_CASES))
+async def test_gc_discovered_mission_score_path_state(path: str) -> None:
+    await _assert_mission_score_path_case(path)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    [
+        "aqelyn.exposure.engine._mission_factors",
+        "aqelyn.risk.engine.RiskIntelligenceEngine._mission_context",
+        "aqelyn.risk.scoring.score_risk",
+        "aqelyn.secrets.scoring._mission_factor",
+        "aqelyn.soc.correlate._mission_context",
+    ],
+)
+async def test_gc_a3_reversion_turns_central_guard_red(
+    path: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _apply_a3_reversion(path, monkeypatch)
+
+    with pytest.raises(GuaranteeViolation, match="mission"):
+        await _assert_mission_score_path_case(path)
+
+
+async def _assert_mission_score_path_case(path: str) -> None:
+    case = MISSION_SCORE_PATH_CASES.get(path)
+    if case is None:
+        raise GuaranteeViolation(f"no behavioral mission score-path case for {path}")
+    await case.check()
+
+
+async def _check_context_adapter(
+    adapter: Callable[[MissionImpactResult], RiskMissionContext],
+) -> None:
+    _require_unknown_mission_context(
+        adapter(MissionImpactResult()),
+        path=f"{adapter.__module__}.{adapter.__name__}",
+    )
+
+
+async def _check_risk_engine_mission_path() -> None:
+    engine = RiskIntelligenceEngine(
+        InMemoryFindingStore(),
+        InMemoryRiskStore(),
+        InMemoryRiskSnapshotStore(),
+        mission_engine=_EmptyMissionProvider(),
+    )
+    scored = await engine.score(_mission_guard_risk())
+    _require_unknown_mission_context(
+        scored.mission_context,
+        path="aqelyn.risk.engine.RiskIntelligenceEngine._mission_context",
+    )
+    if "mission_factor" in scored.factors:
+        raise GuaranteeViolation("risk mission absence cast a numeric mission vote")
+
+
+async def _check_risk_score_mission_boundary() -> None:
+    risk = _mission_guard_risk()
+    unknown = risk_scoring.score_risk(
+        risk,
+        mission_context=mission_context_from_results([MissionImpactResult()]),
+    )
+    known_zero = risk_scoring.score_risk(
+        risk,
+        mission_context=_known_zero_mission_context(),
+    )
+    _require_unknown_mission_context(
+        unknown.mission_context,
+        path="aqelyn.risk.scoring.score_risk",
+    )
+    if "mission_factor" in unknown.factors:
+        raise GuaranteeViolation("score_risk inserted an unknown mission factor")
+    if unknown.score <= known_zero.score:
+        raise GuaranteeViolation(
+            "score_risk made missing mission no less favourable than explicit zero"
+        )
+
+
+async def _check_soc_mission_path() -> None:
+    context = await soc_correlate._mission_context(
+        [new_id("obj")],
+        _EmptyMissionProvider(),
+    )
+    _require_unknown_mission_context(
+        context,
+        path="aqelyn.soc.correlate._mission_context",
+    )
+
+
+async def _check_vulnerability_mission_path() -> None:
+    engine = VulnerabilityIntelligenceEngine(
+        InMemoryVulnerabilityStore(mode="local"),
+        mission_provider=_EmptyMissionProvider(),
+    )
+    factor = await engine._mission_factor(_vulnerability())
+    if factor.status != "unknown" or factor.unknown_cause != "input_missing":
+        raise GuaranteeViolation(
+            "vulnerability mission path failed to retain input_missing as unknown"
+        )
+    factors = _known_factors()
+    factors["mission"] = factor
+    _, payload = vuln_engine._compose_score(
+        _vulnerability(),
+        factors=factors,
+        config=VulnConfig(),
+    )
+    if payload["mission"]["weight"] != 0.0:
+        raise GuaranteeViolation("vulnerability unknown mission received a score weight")
+
+
+def _require_unknown_mission_context(
+    context: RiskMissionContext,
+    *,
+    path: str,
+) -> None:
+    if (
+        context.status != "unknown"
+        or context.unknown_cause != "input_missing"
+        or context.factor is not None
+        or context.top_mission_id is not None
+    ):
+        raise GuaranteeViolation(
+            f"{path} erased missing mission input: "
+            f"status={context.status!r}, cause={context.unknown_cause!r}, "
+            f"factor={context.factor!r}, top_mission_id={context.top_mission_id!r}"
+        )
+
+
+def _mission_guard_risk() -> Risk:
+    return Risk(
+        id="risk-gc-mission",
+        correlation_key="gc:mission",
+        title="Central mission-boundary control",
+        category="guarantee",
+        likelihood=0.0,
+        impact=0.2,
+        score=0.0,
+        band="within_appetite",
+        signals=[
+            SignalRef(
+                kind="finding",
+                ref_id=new_id("fnd"),
+                weight=0.6,
+            )
+        ],
+        affected_object_ids=[new_id("obj")],
+        reason="Unscored central mission-boundary control.",
+        first_seen_at=NOW,
+        last_scored_at=NOW,
+    )
+
+
+def _known_zero_mission_context() -> RiskMissionContext:
+    return RiskMissionContext(
+        status="known",
+        factor=0.0,
+        top_mission_id=new_id("obj"),
+        reason="Central negative control explicitly assessed zero mission impact.",
+    )
+
+
+def _apply_a3_reversion(path: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    if path == "aqelyn.risk.scoring.score_risk":
+        original = risk_scoring.score_risk
+
+        def unsafe_score_risk(
+            risk: Risk,
+            *,
+            config: RiskConfig | None = None,
+            mission_context: RiskMissionContext | None = None,
+        ) -> Risk:
+            _ = mission_context
+            return original(
+                risk,
+                config=config,
+                mission_context=_known_zero_mission_context(),
+            )
+
+        monkeypatch.setattr(risk_scoring, "score_risk", unsafe_score_risk)
+        return
+    targets = {
+        "aqelyn.exposure.engine._mission_factors": exposure_engine,
+        "aqelyn.risk.engine.RiskIntelligenceEngine._mission_context": risk_engine,
+        "aqelyn.secrets.scoring._mission_factor": secrets_scoring,
+        "aqelyn.soc.correlate._mission_context": soc_correlate,
+    }
+    module = targets.get(path)
+    if module is None:
+        raise GuaranteeViolation(f"no A3 reversion control registered for {path}")
+    monkeypatch.setattr(module, "mission_context_from_results", _unsafe_mission_context)
+
+
+def _unsafe_mission_context(
+    results: object,
+) -> RiskMissionContext:
+    _ = results
+    return _known_zero_mission_context()
 
 
 class _MalformedThreatProvider:

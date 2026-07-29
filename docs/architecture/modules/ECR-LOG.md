@@ -80,7 +80,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0073 | EA-0023 (S-003 U3) | Accepted | **Surface from observed binds, not configuration.** The config reads failed; three attribution states; read-only ≠ unprivileged. |
 | ECR-0074 | EA-0033 + GC-001 | Accepted | **Why did AC-3 not catch this?** A mission factor returns the most favourable value with no provider; and a decision is recorded as an absence. |
 | ECR-0075 | GC-001 (cross-cutting) | Accepted | **Score-path closure.** A guarantee that enumerates factor representations cannot see numeric scoring paths that bypass them. |
-| ECR-0076 | EA-0032 + EA-0013 + EA-0023 (+) | Proposed | **The cross-cutting repair.** Absence is the fold's identity element, and in risk arithmetic the identity is always the safe end. |
+| ECR-0076 | EA-0032 + EA-0013 + EA-0023 (+) | Accepted | **The cross-cutting repair.** Absence is the fold's identity element, and in risk arithmetic the identity is always the safe end. |
 
 ---
 
@@ -3609,7 +3609,7 @@ and the next run produces the unknown-density report with real content.
 
 **Raised by:** **S-001**, the first real run. **162 of 200 real records fail
 replay** - S-001 success criterion #2 - on a chain that passes every fixture.
-**Status:** Proposed.
+**Status:** Accepted.
 **Number:** verified free by the reviewer at `1528f35`; rule 1.
 
 ### The defect, exactly
@@ -5175,7 +5175,16 @@ owner's and are unaffected by this repair. ECR-0075's discovery mechanism itself
   cause. Credential governance loses known coverage when mission input is
   absent, so an unassessable credential cannot present as well-governed. This is
   correction of a pre-existing wrong answer, not a regression.
-
-**Still open before this ECR can become Accepted:** A4 must revert each repaired
-site and prove ECR-0075 or a recorded local stopgap turns red. Until that
-mutation record exists, status remains Proposed.
+- **A4 closes ECR-0075's discovery gap:** the central guarantee discovers 19
+  production paths from shipped source. Seven have behavioral cases and twelve
+  non-scoring or owner-health paths carry explicit reasons. Registry equality
+  fails closed when a new path appears or an existing path disappears.
+- **Every A3 repair is centrally guarded:** independent reversions of the EA-0013,
+  EA-0023, EA-0032, and EA-0015 adapters, plus the EA-0013 `score_risk`
+  contract boundary, each turn the central guarantee red. The controls run under
+  optimized Python as well as the normal interpreter.
+- **A5 records the score correction:** records with missing mission input may
+  now score less favourably than their historical output because unknown no
+  longer enters a fold as its favourable identity. Explicit owner-reported
+  `0.0` remains known and unchanged. This is the intended correction that the
+  first deployment inherits.
