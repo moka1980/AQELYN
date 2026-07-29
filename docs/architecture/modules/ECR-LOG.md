@@ -57,20 +57,20 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0050 | EA-0033 + EA-0027 | Accepted | Reuse EA-0027's existing platform `IdentityNotFound` error in ISPM instead of registering a duplicate code owner; EA-0033 contributes only its three net-new errors. |
 | ECR-0051 | EA-0033 | Accepted | Make unknown identity classification visibly fail-safe in every representation: `NormalizedIdentity.identity_kind="unknown"` requires `flagged=true`, rather than relying on an EA-0002 label that disappears from normalized-store reads. |
 | ECR-0052 | EA-0033 + EA-0011 | Accepted | Make assessment-to-finding routing durable and tenant-correct: assessments pin exact posture-score ids, both stores persist them append-only, and EA-0011's finding path accepts an optional tenant scope while preserving local callers. |
-| ECR-0053 | IS-034 / EA-0033 + EA-0011 + EA-0025 + EA-0032 | Proposed | IS-034 is a distributed restatement, not a new machine-identity module. Verify conformance, then close only ownership, typed credential/workload binding, and lifecycle-mapping gaps in their existing owners (C-031). |
-| ECR-0054 | IS-035 / EA-0032 | Proposed | IS-035 renames EA-0032; conformance + additive governance score, **no second secrets engine**. |
-| ECR-0055 | IS-036 / EA-0018+EA-0008 | Proposed | Archive is a template; capability ships. Conformance only, **no second orchestrator, no un-gated execution**. |
+| ECR-0053 | IS-034 / EA-0033 + EA-0011 + EA-0025 + EA-0032 | Accepted | IS-034 is a distributed restatement, not a new machine-identity module. Verify conformance, then close only ownership, typed credential/workload binding, and lifecycle-mapping gaps in their existing owners (C-031). |
+| ECR-0054 | IS-035 / EA-0032 | Accepted | IS-035 renames EA-0032; conformance + additive governance score, **no second secrets engine**. |
+| ECR-0055 | IS-036 / EA-0018+EA-0008 | Accepted | Archive is a template; capability ships. Conformance only, **no second orchestrator, no un-gated execution**. |
 | ECR-0056 | EA-0008 / IS-036 | Resolved | K1 found and closed two shipped gate gaps: non-human approvals were accepted and rollback invoked handlers without a fresh human/capability gate. |
-| ECR-0057 | GC-001 (cross-cutting) | Proposed | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
-| ECR-0058 | GC-002 (cross-cutting) | Proposed | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
-| ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Proposed | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
+| ECR-0057 | GC-001 (cross-cutting) | Accepted | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
+| ECR-0058 | GC-002 (cross-cutting) | Accepted | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
+| ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Accepted | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
 | ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive exhausted as a requirements source. |
 | ECR-0061 | EA-0025 (+ EA-0023, EA-0024) | Accepted (C-036) | ECR-0034's second half: `AssetStore` gains cursor pagination (EA-0002 D8), the engine pages under `InventoryConfig.page_budget`. **Moves the truncation threshold; does not remove `degraded`.** Budget exhausted -> partial + flag; `sweep_unreported` -> exhaust or refuse, never partial. |
 | ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
 | ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
-| ECR-0064 | EA-0024 + EA-0030 | Proposed | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
+| ECR-0064 | EA-0024 + EA-0030 | Accepted | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
 | ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Accepted | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
-| ECR-0066 | EA-0024 (+ GC-001 AC-3) | Proposed | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
+| ECR-0066 | EA-0024 (+ GC-001 AC-3) | Accepted | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
 | ECR-0067 | EA-0023 + EA-0020 | Accepted | **A replay check that asserts less than its name.** `replay()` was called and its return discarded; comparison absent entirely. |
 | ECR-0068 | GC-001 | Accepted | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
 | ECR-0069 | S-track tooling | Accepted | **Data-handling boundary for real-estate milestones.** Aggregate counts may leave; per-asset detail may not — structurally, not by convention. |
@@ -2509,7 +2509,7 @@ durable assessment, finding binding, and service wiring ship atomically.
 
 **Raised by:** EA-0034 pre-implementation verification against the IS-034
 archive, shipped owner contracts, and ECR-0015.
-**Status:** Proposed - required before C-031 implementation.
+**Status:** Accepted - C-031 shipped.
 **Severity:** architectural - building the archive's named engine would fork
 multiple existing capability owners while appearing net-new under a literal
 event/type check.
@@ -2571,7 +2571,7 @@ posture-normalization implementation while that decision is open.
 ## ECR-0054 - IS-035 renames EA-0032; no second secrets engine
 
 **Raised by:** planning (IS-035 spec pass), on the reviewer's verified handover.
-**Status:** Proposed - owner decision.
+**Status:** Accepted - C-032 shipped.
 **Severity:** architectural - literal construction duplicates a shipped engine wholesale.
 
 **Finding.** IS-035 ("Secrets, Keys & Certificate Lifecycle Governance Engine") is
@@ -2638,7 +2638,7 @@ authority.
 ## ECR-0055 - IS-036: template archive; conformance via EA-0018 + EA-0008; no autonomous execution
 
 **Raised by:** planning (IS-036 spec pass), on the reviewer's verified handover.
-**Status:** Proposed - owner decision.
+**Status:** Accepted - C-033 shipped the conformance work; K2 remains an optional owner-gated enhancement.
 **Severity:** safety-critical - a plausible-sounding spec here could breach the
 platform's foundational boundary.
 
@@ -2749,7 +2749,7 @@ historical data model unparseable.
 
 **Raised by:** planning, on the reviewer's guarantee-coverage audit
 (`GUARANTEE_COVERAGE_READ.md`, main @a5696bf, 157 test files).
-**Status:** Proposed - owner decision (owner has sequenced GC-001 before IS-037).
+**Status:** Accepted - GC-001 shipped.
 
 **Finding.** The hypothesis that §0 guarantees were "stated everywhere, enforced
 nowhere" is **too strong**. Refusal tests mostly exist: ~16 engines cover
@@ -2821,7 +2821,7 @@ local guarantees and are neither weakened nor duplicated.
 
 **Raised by:** planning (IS-037 pass exposed the gap); owner sequenced GC-002
 before C-034.
-**Status:** Proposed - owner decision.
+**Status:** Accepted - GC-002 shipped.
 
 **The gap.** GC-001's three ACs are engine-no-execute, `SignalKind` closure, and
 the scorer registry. **None asserts anything about event namespaces.** With **51**
@@ -2887,7 +2887,7 @@ event-minting rather than reviewer-protected.
 ## ECR-0059 - IS-037: template stub; CAASM ships distributed; no `Cyber*` event namespace
 
 **Raised by:** planning (IS-037 pass), on the reviewer's verified handover.
-**Status:** Proposed - owner decision.
+**Status:** Accepted - C-034 shipped.
 
 **Finding A - template stub, second consecutive.** `archive/EA-0037/EA-0037_Master.md`
 is 424 lines of the generic 40-section template: §012-032 **byte-identical
@@ -3361,8 +3361,7 @@ work.
 **Raised by:** **S-001**, the first real run - `postgres:16` scanned with syft
 v1.49.0 and grype v0.116.0, yielding **7,367 SBOM components** and **302
 vulnerability matches**.
-**Status:** Proposed. Gaps 1 and 2 are settled in direction; **Gap 3 is a
-production change to a shipped engine and is the owner's call.**
+**Status:** Accepted - all three gaps shipped.
 **Number:** verified free by the reviewer at `0c21a94`; re-check `ECR-LOG.md`
 before merging (rule 1).
 
@@ -3775,7 +3774,7 @@ today's values**. It is the replay that is wrong, not the score.
 ## ECR-0066 - Three priority factors report `known` with no provider supplied
 
 **Raised by:** **S-001**'s density report, on its first correct run.
-**Status:** Proposed.
+**Status:** Accepted - the factor repair and per-factor GC-001 widening shipped.
 **Severity:** **high** - a demonstrated wrong answer on **every** real finding, in
 the path that decides what a security team looks at first.
 **Number:** verified free by the reviewer at `69a1b7e`; rule 1.
