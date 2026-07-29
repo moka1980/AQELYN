@@ -60,7 +60,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0053 | IS-034 / EA-0033 + EA-0011 + EA-0025 + EA-0032 | Proposed | IS-034 is a distributed restatement, not a new machine-identity module. Verify conformance, then close only ownership, typed credential/workload binding, and lifecycle-mapping gaps in their existing owners (C-031). |
 | ECR-0054 | IS-035 / EA-0032 | Proposed | IS-035 renames EA-0032; conformance + additive governance score, **no second secrets engine**. |
 | ECR-0055 | IS-036 / EA-0018+EA-0008 | Proposed | Archive is a template; capability ships. Conformance only, **no second orchestrator, no un-gated execution**. |
-| ECR-0056 | EA-0008 / IS-036 | Proposed | K1 found two shipped gate gaps: non-human approvals were accepted and rollback invoked handlers without a fresh human/capability gate. |
+| ECR-0056 | EA-0008 / IS-036 | Resolved | K1 found and closed two shipped gate gaps: non-human approvals were accepted and rollback invoked handlers without a fresh human/capability gate. |
 | ECR-0057 | GC-001 (cross-cutting) | Proposed | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
 | ECR-0058 | GC-002 (cross-cutting) | Proposed | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
 | ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Proposed | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
@@ -69,7 +69,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
 | ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
 | ECR-0064 | EA-0024 + EA-0030 | Proposed | **Real data falsifies three availability assumptions.** `cvss` required with no unknown; severity vocabulary incomplete; SBOM parser requires `purl` on every component. |
-| ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Proposed | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
+| ECR-0065 | EA-0020 + EA-0024 (+ EA-0033, EA-0032, EA-0023) | Accepted | **Replay performs different arithmetic from composition** - scale-then-round vs round-then-scale. 162/200 real records fail replay. The shape recurs in four modules. |
 | ECR-0066 | EA-0024 (+ GC-001 AC-3) | Proposed | **HIGH: three priority factors report `known` with no provider supplied** - a confident vote nobody cast, on every real finding. ECR-0040 applied to an instance, not the pattern. AC-3 widens per-scorer -> per-factor. |
 | ECR-0067 | EA-0023 + EA-0020 | Accepted | **A replay check that asserts less than its name.** `replay()` was called and its return discarded; comparison absent entirely. |
 | ECR-0068 | GC-001 | Accepted | **AC-3's coverage decays as the platform matures.** It asserts *unwired → unknown*; production is increasingly *wired*, and those states are unchecked. |
@@ -1510,7 +1510,7 @@ the repeated full-result sort/copy that made the measured paging cost superlinea
 ## ECR-0032 — Consider a shared posture-normalization base (CSPM + SSPM + DSPM + ISPM)
 
 **Raised by:** planning (IS-029 spec pass).
-**Status:** Proposed — owner decision; **not** part of C-030.
+**Status:** Rejected after the post-C-037 reviewer audit recorded below.
 **Numbering note:** first drafted as ECR-0017 in error — that number was already
 Accepted (EA-0027 S3 confidence-floor value, PR #141). Corrected to ECR-0032, the
 next free number after the log's ECR-0031. The floor decision is untouched.
@@ -2708,7 +2708,7 @@ code** is the correct result, not an under-delivery.
 ## ECR-0056 - K1 closes non-human approval and ungated rollback in EA-0008
 
 **Raised by:** Codex during C-033 K1 real-engine conformance verification.
-**Status:** Proposed - owner decision.
+**Status:** Resolved by C-033 K1.
 **Severity:** safety-critical - two states forbidden by ECR-0055 were constructible
 through the platform's only action engine.
 
@@ -4167,8 +4167,8 @@ measurement is reported unavailable.
 
 **Raised by:** **S-003 U1** - the first SBOM the platform has collected from a real
 estate.
-**Status:** Proposed. **Route (B) decided by the owner 2026-07-27**; routes (A) and
-(C) are off the table.
+**Status:** Accepted. **Route (B) was decided by the owner 2026-07-27 and
+implemented by C-039**; routes (A) and (C) are off the table.
 **Blocks:** S-003 U2.
 **Number:** verified free at `b1520f1`; rule 20 checked - archive numbering stops at
 EA-0051, so no `EA-0071` exists to collide with. **Re-check before merging** (rule 1).
@@ -4411,7 +4411,8 @@ must not become the rule.
 
 **Raised by:** **S-003**, running the real estate document through the real parser
 at `bb970df` / `f96d7e5`.
-**Status:** Proposed.
+**Status:** Accepted - implemented by C-040 and verified against the unedited
+real-estate document.
 **Blocks:** S-003 U2 - the real estate must ingest **unedited**.
 **Number:** verified free; rule 20 checked (archive stops at EA-0051). **Re-check
 before merging** (rule 1).
@@ -5040,7 +5041,7 @@ boundary.
 
 **Raised by:** ECR-0075's audit, which found the pre-fix ISPM function **byte-identical**
 in another module and the same shape in at least two more.
-**Status:** Proposed.
+**Status:** Accepted - C-041 A1 through A5 completed.
 **Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
 
 **ECR-0074 fixed one instance. ECR-0075 explained why the guarantee could not see it.
