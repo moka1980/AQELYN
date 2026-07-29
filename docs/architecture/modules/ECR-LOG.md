@@ -84,7 +84,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0077 | S-003 / EA-0023 + EA-0032 | Accepted | **Privileged read resolved:** manual capture complete; handed-in implementation closes four dependents without a privileged collector. |
 | ECR-0078 | EA-0023 + S-004 | Accepted | **Configuration is its own exposure basis.** A proxy-declared route must not be durably mislabeled as host state, graph, or telemetry. |
 | ECR-0079 | S-track density reporter | Accepted | **Typed supplemental status must survive reporting.** Known factor readings were counted as unknown, preserving roadmap work after the owner resolved it. |
-| ECR-0080 | S-track tooling | Proposed | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
+| ECR-0080 | S-track tooling | Accepted | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
 
 ---
@@ -5375,7 +5375,8 @@ That is correction of a pre-existing wrong report, not a scoring change.
 
 **Raised by:** the reviewer, during the S-004 recapture - **by making the mistake, not by
 finding it.**
-**Status:** Proposed.
+**Status:** Accepted - the producer timestamp semantics and `--reuse` preservation shipped
+in PR #263 (`main @f2c573c`).
 **Severity:** **the bypass is on the convenience path**, not an edge case (§4).
 **Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
 
