@@ -81,6 +81,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0074 | EA-0033 + GC-001 | Accepted | **Why did AC-3 not catch this?** A mission factor returns the most favourable value with no provider; and a decision is recorded as an absence. |
 | ECR-0075 | GC-001 (cross-cutting) | Accepted | **Score-path closure.** A guarantee that enumerates factor representations cannot see numeric scoring paths that bypass them. |
 | ECR-0076 | EA-0032 + EA-0013 + EA-0023 (+) | Accepted | **The cross-cutting repair.** Absence is the fold's identity element, and in risk arithmetic the identity is always the safe end. |
+| ECR-0077 | S-003 / EA-0023 + EA-0032 | Proposed | **Privileged read resolved:** manual capture complete; handed-in implementation closes four dependents without a privileged collector. |
 
 ---
 
@@ -5188,3 +5189,103 @@ owner's and are unaffected by this repair. ECR-0075's discovery mechanism itself
   longer enters a fold as its favourable identity. Explicit owner-reported
   `0.0` remains known and unchanged. This is the intended correction that the
   first deployment inherits.
+
+## ECR-0077 - The privileged read, resolved: manual capture, handed in, no privileged collector
+
+**Raised by:** the owner's decision, 2026-07-29, closing the item ECR-0073 §6 opened.
+**Status:** Proposed - owner directed it 2026-07-29 ("ok do it"); W1 is complete
+and W2-W7 remain to ship.
+**Implementation closes:** the four dependents - U3's proxy topology, U3's listener attribution,
+baseline C1, baseline C5.
+**Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
+
+### 1. The distinction ECR-0073 drew, and what it makes possible
+
+ECR-0073 §6 recorded that **read-only and unprivileged are different constraints, and only
+one was chosen**: read-only was adopted deliberately; unprivileged was **inherited from how
+collection happened to run.** A privileged read changes nothing on the estate.
+
+That left a decision, and the decision looked expensive - a privileged collector on a live
+production box running services that move money.
+
+**It is not that decision.** The objection does not apply, because:
+
+> **The driver does not need privilege. The owner needs it, once.**
+
+Every engine consumes **handed-in documents**. A document produced by a privileged command
+**run manually by the owner** is indistinguishable, to every engine, from one the driver
+produced. So the capability arrives with **no privileged collector, no elevated automation,
+and no new standing risk surface.**
+
+### 2. What is preserved, by construction
+
+- **No privileged automation.** No `sudo` for any code, no root-running scanner, nothing
+  scheduled. The elevated step is a person typing commands once.
+- **Read-only holds.** The commands dump configuration and list state; **none mutates.**
+- **The handed-in boundary is unchanged.** Nothing under `src/aqelyn/` learns a host exists,
+  and the driver gains no privileged path (S-003 U3 §2, ECR-0070's enumerated command list
+  remains the driver's contract - **these commands are not added to it**, because the driver
+  does not run them).
+- **Nothing restarts, reloads or is stressed** on a production box.
+
+### 3. What is new, and it is the sensitive part
+
+**A proxy configuration is materially more sensitive than a socket table.** It can carry
+certificate paths, upstream credentials and internal topology.
+
+**ECR-0069 therefore applies harder to these documents than to anything collected so far:**
+
+| | |
+|---|---|
+| local disk only | **yes** - alongside the other collection documents |
+| committed as a fixture | **never** - reproducibility is not worth committing the estate's topology |
+| PR body, shared report, density output | **never** - counts and classes only, as before |
+| the density report | unchanged - it remains structurally incapable of per-asset detail |
+
+**The temptation this time is stronger than before**, because a hand-captured document is
+awkward to reproduce and committing it would make the run repeatable. **That is exactly the
+trade ECR-0069 forbids.**
+
+### 4. Two disciplines the new evidence requires
+
+**(a) Pin the capture.** A configuration dump is a **point-in-time snapshot**, like the KEV
+catalogue. A derivation citing it must cite **which** capture, or it replays against a
+moving target - the ECR-0067 shape arriving through data rather than code.
+
+**(b) Freshness across documents is a real join hazard.** The socket observations and the
+proxy configuration are **captured at different times**. Joining a listener observed at one
+moment to a topology captured at another can produce a confident wrong answer - a service
+that has since restarted, moved, or been reconfigured.
+
+> **Record each document's capture time, and make a stale join refuse rather than resolve.**
+> The tolerance is an owner decision; the *distinguishability* is not. A join across
+> documents whose ages are unknown is the same defect family as an unpinned catalogue.
+
+### 5. What each dependent becomes
+
+| dependent | before | with the capture |
+|---|---|---|
+| **listener attribution** (U3) | 14 of 16 unattributable | most should attribute; **the state must not be removed** - some may still not join |
+| **two-hop chain** (U3) | not derivable | derivable **where the configuration declares it** |
+| **baseline C1** | not checkable | **checkable** |
+| **baseline C5** | not checkable | **partly** - see below |
+
+**C5 needs two things, not one.** The certificate *path* comes from the proxy
+configuration; the certificate's *validity* does not. **Route the certificate metadata to
+EA-0032**, which already owns certificate lifecycle with tri-state expiry, chain and
+revocation - rather than inventing a validity check inside the baseline comparator. **One
+capability, one owner**; C5 becomes a claim evaluated against EA-0032's assessment, not a
+bespoke read.
+
+**And U3's three states survive.** Attribution shrinking is the point; **"observed but not
+attributable" must remain expressible**, because a listener from a process that has since
+exited, or one owned outside the visible namespace, is still exactly that. A state that
+becomes rare is not a state that becomes wrong.
+
+### 6. What this does not resolve
+
+- **The 19 declined units** remain the owner's, and are unaffected.
+- **The remaining first-deployment items** are unaffected - this is not a deployment.
+- **`FIRST_DEPLOYMENT_ITEMS.md` gains nothing and loses nothing**; the privileged read was
+  never in it, because it was never deployment-gated. That was ECR-0073's finding and it
+  holds.
