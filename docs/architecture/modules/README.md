@@ -105,6 +105,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | ↳ S-003 U4 — baseline | *(S track)* | *three buckets; both settings of `unknown_is_fail` are collapses* | [U4 bundle](S-003_U4_Task_Bundle.md) | Accepted |
 | ↳ S-003 U5 — run, KEV re-check, density report | *(S track)* | *KEV 1 of 2,319 — the hit is the join's own positive control* | [U5 bundle](S-003_U5_Task_Bundle.md) | Accepted |
 | **S-004 — the privileged capture** | *(S track — operational)* | *manual capture, handed in; no privileged collector; honest configuration basis and density status — see ECR-0077/0078/0079* | [S-004](S-004_Task_Bundle.md) | Accepted |
+| **P-001 — a way in and a way to see** | *(P track — product, new)* | *one command, one report; acceptance is a person — see ECR-0081* | [P-001](P-001_Task_Bundle.md) | Accepted |
 | **C-041 — ECR-0076 cross-cutting repair** | EA-0032/0013/0023/SOC | *absence is the fold's identity; enumerate the class, not the instances* | [C-041](C-041_Task_Bundle.md) | Accepted |
 | [IS-037 — conformant via EA-0023+0024+0025+0005](IS-037_Conformance_Analysis.md) | EA-0037 | *(no new module; no `Cyber*` namespace — see ECR-0059)* | [C-034](C-034_Task_Bundle.md) | Analysis |
 | [C-037 — `FindingStore` cursor implementation](C-037_Task_Bundle.md) | EA-0003 findings | *composite keyset on `(severity_score, id)`; index extended — see ECR-0062* | [C-037](C-037_Task_Bundle.md) | Accepted |
