@@ -85,6 +85,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0078 | EA-0023 + S-004 | Accepted | **Configuration is its own exposure basis.** A proxy-declared route must not be durably mislabeled as host state, graph, or telemetry. |
 | ECR-0079 | S-track density reporter | Accepted | **Typed supplemental status must survive reporting.** Known factor readings were counted as unknown, preserving roadmap work after the owner resolved it. |
 | ECR-0080 | S-track tooling | Proposed | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
+| ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
 
 ---
 
@@ -5481,3 +5482,70 @@ which declined to establish validity rather than inventing it), C2/C3 correctly 
 **Both pre-registered checks held**: attribution improved from 2/14 to 18/2 **without** the
 *observed-but-not-attributable* state vanishing - two listeners remain in it, so it stays
 exercised.
+
+## ECR-0081 - A new track, and the rigor that does not transfer to it
+
+**Raised by:** planning, on the owner's direction 2026-07-29 ("go").
+**Status:** Accepted - owner directed it.
+**Number:** next free; **re-check `ECR-LOG.md` before merging** (rule 1).
+
+### 1. Why a new track rather than S-005
+
+**The instrument stopped naming work.** After S-004, `roadmap_dependencies: none`; the
+four-way tie has resolved; what remains closable is **C2/C3** (one small collection change)
+and the **19 declined units** (one owner decision). **The density report was built to say
+what to connect next, and it has stopped naming anything substantial.**
+
+That is the signal to stop connecting. Further S-milestones would improve **correctness** -
+they have been extremely productive at it - but none of them changes what the platform
+**is**, because every one of them ends at a terminal.
+
+**P-001 opens the P track: making the platform usable by a person.** Different question,
+different acceptance, and that is the point of separating it.
+
+### 2. The rigor question, stated because it will otherwise be applied wrongly
+
+**Forty-one milestones have run on one discipline: *verify against shipped code, refuse to
+guess*.** It has been correct every time. **It does not fully transfer here, and applying it
+anyway would stall the milestone.**
+
+**A surface has nothing to verify against.** *What should the report show first? What does a
+non-expert need to see?* No repository answers those. The only test is showing it to a
+person.
+
+**What still applies, without exception:**
+
+| | |
+|---|---|
+| **unknowns render as unknowns, with their reasons** | the differentiator, and the easiest thing to quietly drop when a report looks better without them |
+| **ECR-0069's boundary** | the findings report carries per-asset detail; the density report carries counts. **Two reports, two boundaries** - do not blur them |
+| **nothing invented** | no placeholder findings, no sample data, no illustrative numbers |
+| **the derivation must be viewable** | a replayable derivation nobody can look at is worth the same as no derivation |
+| **the platform proposes; it does not act** | the report must not read as though anything was done |
+
+**What does not apply:**
+
+> ***"Do not claim what you have not verified"* governs claims about shipped code. A design
+> choice is not that kind of claim.** It is a decision made, then tested by use. **Waiting
+> for evidence that does not exist yet is how this milestone fails to start.**
+
+**And the acceptance mechanism changes.** Not mutation-verified guarantees - those cannot
+answer *"is this legible?"* The acceptance test is:
+
+> **Can someone who did not build this read one finding and answer: what is the problem, how
+> bad is it and why, what do we not know, and what would I do about it?**
+
+### 3. On the first reader
+
+**The owner reading it is a weaker test than a stranger reading it**, because the owner
+knows what the platform does. That does not make it useless - it is the reader who is
+available - but **the result should be recorded as the weaker test it is**, and not treated
+as evidence that the report is legible to a newcomer.
+
+### 4. What this track is not
+
+**Not the `C-700` column.** No server, no HTTP API, no authentication, no multi-user
+operation, no connectors, no dashboard. **One command, one report, one machine.**
+
+Those remain real and remain unbuilt; P-001 is the smallest change that makes the platform
+something a person can use, and it needs none of them.
