@@ -81,9 +81,10 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0074 | EA-0033 + GC-001 | Accepted | **Why did AC-3 not catch this?** A mission factor returns the most favourable value with no provider; and a decision is recorded as an absence. |
 | ECR-0075 | GC-001 (cross-cutting) | Accepted | **Score-path closure.** A guarantee that enumerates factor representations cannot see numeric scoring paths that bypass them. |
 | ECR-0076 | EA-0032 + EA-0013 + EA-0023 (+) | Accepted | **The cross-cutting repair.** Absence is the fold's identity element, and in risk arithmetic the identity is always the safe end. |
-| ECR-0077 | S-003 / EA-0023 + EA-0032 | Proposed | **Privileged read resolved:** manual capture complete; handed-in implementation closes four dependents without a privileged collector. |
-| ECR-0078 | EA-0023 + S-004 | Proposed | **Configuration is its own exposure basis.** A proxy-declared route must not be durably mislabeled as host state, graph, or telemetry. |
-| ECR-0079 | S-track density reporter | Proposed | **Typed supplemental status must survive reporting.** Known factor readings were counted as unknown, preserving roadmap work after the owner resolved it. |
+| ECR-0077 | S-003 / EA-0023 + EA-0032 | Accepted | **Privileged read resolved:** manual capture complete; handed-in implementation closes four dependents without a privileged collector. |
+| ECR-0078 | EA-0023 + S-004 | Accepted | **Configuration is its own exposure basis.** A proxy-declared route must not be durably mislabeled as host state, graph, or telemetry. |
+| ECR-0079 | S-track density reporter | Accepted | **Typed supplemental status must survive reporting.** Known factor readings were counted as unknown, preserving roadmap work after the owner resolved it. |
+| ECR-0080 | S-track tooling | Proposed | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
 
 ---
 
@@ -5195,8 +5196,8 @@ owner's and are unaffected by this repair. ECR-0075's discovery mechanism itself
 ## ECR-0077 - The privileged read, resolved: manual capture, handed in, no privileged collector
 
 **Raised by:** the owner's decision, 2026-07-29, closing the item ECR-0073 §6 opened.
-**Status:** Proposed - owner directed it 2026-07-29 ("ok do it"); W1 is complete
-and W2-W7 remain to ship.
+**Status:** Accepted - owner directed it 2026-07-29 ("ok do it"); W1-W7 shipped,
+and the reviewer verified the fresh private corpus on 2026-07-29.
 **Implementation closes:** the four dependents - U3's proxy topology, U3's listener attribution,
 baseline C1, baseline C5.
 **Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
@@ -5295,8 +5296,8 @@ becomes rare is not a state that becomes wrong.
 ## ECR-0078 - Configuration is its own exposure basis
 
 **Raised by:** Codex during S-004 W5 implementation.
-**Status:** Proposed - implementation is in the S-004 W4-W7 review branch and
-requires the real-corpus review before merge.
+**Status:** Accepted - owner directed S-004 on 2026-07-29 ("ok do it"), and the
+reviewer verified the configuration-derived routes against the fresh private corpus.
 
 ### Problem
 
@@ -5334,8 +5335,8 @@ constraint, so this additive vocabulary change requires no DDL migration.
 ## ECR-0079 - Typed supplemental status must survive the density reporter
 
 **Raised by:** Codex during S-004 W7 convergence.
-**Status:** Proposed - implementation is in the S-004 W4-W7 review branch and
-requires the real-corpus review before merge.
+**Status:** Accepted - owner directed S-004 on 2026-07-29 ("ok do it"), and the
+reviewer verified the count-only convergence report against the fresh private corpus.
 
 ### Problem
 
@@ -5368,3 +5369,115 @@ That is correction of a pre-existing wrong report, not a scoring change.
 - Reverting the status branch turns the dedicated control red.
 - The S-004 end-to-end count-only report reflects W4-W6 owner results and emits
   no capture or asset identifiers.
+
+## ECR-0080 - A documented flag silently defeats the freshness gate
+
+**Raised by:** the reviewer, during the S-004 recapture - **by making the mistake, not by
+finding it.**
+**Status:** Proposed.
+**Severity:** **the bypass is on the convenience path**, not an edge case (§4).
+**Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
+
+### 1. The defect
+
+`--reuse` returns **cached document content** while setting `collected_at` **fresh**. A
+recapture therefore produced a document stamped minutes old carrying unit details from two
+days earlier - process identifiers from a **different boot** - and attribution came back
+**0 of 20**.
+
+**W3's freshness gate compared two `collected_at` values twelve seconds apart and resolved
+happily.**
+
+### 2. The gate is correct. Its input lies to it.
+
+This is worth stating carefully, because the instinct is to fix the gate:
+
+> **W3's gate does exactly what it was specified to do.** It compares capture times and
+> refuses beyond tolerance. **Nothing is wrong with it.** What is wrong is that one of the
+> values it compares does not mean what the gate assumes it means.
+
+**A guarantee inherits every ambiguity in the fields it reads.** The gate's correctness is
+contingent on a semantic that lives **outside the gate**, and nothing enforced that
+semantic.
+
+### 3. The root: one field, two meanings, nobody chose
+
+`collected_at` conflates:
+
+| | meaning |
+|---|---|
+| **(a)** | when **this document was produced** |
+| **(b)** | when **the content it describes was true** |
+
+**For a fresh capture these are identical, so the conflation was invisible.** `--reuse` is
+the first operation that makes them differ - and when they differed, a code path picked (a)
+while the gate assumed (b). **Neither choice was made deliberately**; the field's meaning was
+never pinned, so each site chose independently and correctly-looking.
+
+**This is the absence-is-the-fold's-identity shape (ECR-0076) in a different register**: not
+an unwritten decision about a *value*, but an unwritten decision about a *meaning*. Nobody
+wrote *"`collected_at` means when the run started"* - they wrote a timestamp, and the
+timestamp took whichever meaning its site implied.
+
+### 4. Severity: the bypass is the happy path
+
+`--reuse` exists **precisely so re-runs are cheap**, which makes it the flag anyone
+re-running will use. **The bypass is therefore not exotic - it is the default convenience
+route**, and the reviewer hit it **on the first try**.
+
+> **A guarantee that a documented flag defeats silently is not a guarantee.** It is a
+> guarantee for people who do not use the documented flag.
+
+### 5. The fix: pin the meaning, and `--reuse` has no choice
+
+**Do not start from `--reuse`.** Starting there produces *"make `--reuse` preserve the
+timestamp"* - correct, and it leaves the next producer free to choose again.
+
+> **Define `collected_at` at the field: the time the described content was true.** Then
+> `--reuse` preserving the cached value is not a special case; it is the **only** thing it
+> can do, and any future producer that sets it otherwise is wrong by the definition rather
+> than by convention.
+
+**The reviewer's route (b) - refusing `--reuse` for any document a freshness gate consumes -
+is a fallback, not the answer.** It makes caching unusable for exactly the documents where
+caching is most valuable, and it is a prohibition where a definition would do.
+
+**If the two meanings are both genuinely needed**, add a second field for *"when this run
+read it"* - never overload the one the gate consumes. **Two meanings, two fields** is the
+same discipline this platform applies to unknown-versus-absent everywhere else.
+
+### 6. The mutation that would have caught it - and why the existing one did not
+
+W3 was proven by driving documents whose capture times **differ**. That mutation exercises
+the comparison and cannot detect a **lying producer**, because both values it is handed are
+honest.
+
+> **Mutate the producer, not the values.** Rule 31 says: for *A must equal B*, mutate **A or
+> B, never the comparator**. This extends it - **also mutate what fills A and B.** A gate
+> whose inputs are always produced correctly has never been tested against the case where
+> they are not.
+
+**Required control:** a producer that sets `collected_at` to the read time rather than the
+capture time **must make the gate refuse**. Under the current code that mutation **passes**,
+which is the defect stated as a test.
+
+### 7. Recorded because it is the third instance
+
+The reviewer **nearly filed 0-of-20 as a W4 defect** before checking. That is **rule 32** -
+a check manufacturing a finding as readily as missing one - and it is now the **third**
+occurrence: the `pid=1` fixture, the ad-hoc status regex, and this.
+
+**All three came from the reviewer's own instrument rather than from the product**, and all
+three were caught by the same move: **investigating the surprise instead of reporting it.**
+Worth recording as a pattern about *who checks the checker*, not as three separate incidents.
+
+### 8. Not in scope
+
+The **S-004 outcome stands and needs no rework** - the four dependents resolved against a
+genuinely fresh corpus, C1 to `pass`, **C5 to `certificate_lifecycle`** (moved to EA-0032,
+which declined to establish validity rather than inventing it), C2/C3 correctly still
+`collection_scope`, and `roadmap_dependencies: none`.
+
+**Both pre-registered checks held**: attribution improved from 2/14 to 18/2 **without** the
+*observed-but-not-attributable* state vanishing - two listeners remain in it, so it stays
+exercised.
