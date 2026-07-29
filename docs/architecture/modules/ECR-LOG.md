@@ -82,6 +82,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0075 | GC-001 (cross-cutting) | Accepted | **Score-path closure.** A guarantee that enumerates factor representations cannot see numeric scoring paths that bypass them. |
 | ECR-0076 | EA-0032 + EA-0013 + EA-0023 (+) | Accepted | **The cross-cutting repair.** Absence is the fold's identity element, and in risk arithmetic the identity is always the safe end. |
 | ECR-0077 | S-003 / EA-0023 + EA-0032 | Proposed | **Privileged read resolved:** manual capture complete; handed-in implementation closes four dependents without a privileged collector. |
+| ECR-0078 | EA-0023 + S-004 | Proposed | **Configuration is its own exposure basis.** A proxy-declared route must not be durably mislabeled as host state, graph, or telemetry. |
+| ECR-0079 | S-track density reporter | Proposed | **Typed supplemental status must survive reporting.** Known factor readings were counted as unknown, preserving roadmap work after the owner resolved it. |
 
 ---
 
@@ -5289,3 +5291,80 @@ becomes rare is not a state that becomes wrong.
 - **`FIRST_DEPLOYMENT_ITEMS.md` gains nothing and loses nothing**; the privileged read was
   never in it, because it was never deployment-gated. That was ECR-0073's finding and it
   holds.
+
+## ECR-0078 - Configuration is its own exposure basis
+
+**Raised by:** Codex during S-004 W5 implementation.
+**Status:** Proposed - implementation is in the S-004 W4-W7 review branch and
+requires the real-corpus review before merge.
+
+### Problem
+
+EA-0023's `ExposureBasisKind` can name inventory, telemetry, access, graph, and
+host state. S-004 W5 derives a front-end-to-upstream route from a fresh handed-in
+proxy configuration. None of the shipped tokens names that source class.
+
+Using `host_state` would claim the route was observed in the running socket
+state. Using `graph` would claim an EA-0005 path. Using `telemetry` would claim
+an EA-0019 event that does not exist. The full basis is replay-pinned by
+EA-0023, so any convenient substitute becomes a durable false audit fact.
+
+### Decision
+
+- Add `configuration` to `ExposureBasisKind` and `VALID_BASIS_KINDS`.
+- Preserve every existing token and default. `ExposureBasis.kind` remains
+  required, so no existing caller changes meaning.
+- A configuration-derived route cites the exact content-addressed proxy capture
+  and route. The host listener evidence remains a separate `host_state` basis.
+- Off-estate or ambiguous upstreams remain typed unknowns and do not mint a
+  configuration surface row.
+
+`ExposureRecord.basis` is stored as JSONB with no database enum or CHECK
+constraint, so this additive vocabulary change requires no DDL migration.
+
+### Proof
+
+- Two nginx server blocks produce only their declared routes, never a flattened
+  cross-product.
+- A local route reaches the real EA-0023 owner with both `configuration` and
+  `host_state` bases.
+- Existing omitted behavior is unchanged because there is no omitted-kind
+  default.
+
+## ECR-0079 - Typed supplemental status must survive the density reporter
+
+**Raised by:** Codex during S-004 W7 convergence.
+**Status:** Proposed - implementation is in the S-004 W4-W7 review branch and
+requires the real-corpus review before merge.
+
+### Problem
+
+`FactorReading` already carries `status=known|unknown`, but
+`density_report()` unconditionally added every supplemental
+`report.coverage_factors` entry to the unknown counter. S-003 began placing
+surface, baseline, and mission readings in that collection, including known
+ones. The platform could resolve a factor correctly while the roadmap continued
+to report it as unknown.
+
+S-004 makes the defect operational: privileged attribution and declared
+topology can close exposure unknowns, and C1 can become checkable, but the report
+would show no improvement. That is not conservative uncertainty; it is a
+reporting contradiction.
+
+### Decision
+
+- Count a supplemental reading according to its typed status.
+- Only unknown readings contribute reasons, structural counts, and closable
+  roadmap density.
+- Do not infer status from source text or reason prose.
+
+Historical S-003 density output may show more known and fewer unknown factors.
+That is correction of a pre-existing wrong report, not a scoring change.
+
+### Proof
+
+- One known and one unknown supplemental exposure reading render as
+  `known=1 unknown=1`.
+- Reverting the status branch turns the dedicated control red.
+- The S-004 end-to-end count-only report reflects W4-W6 owner results and emits
+  no capture or asset identifiers.
