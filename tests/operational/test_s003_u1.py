@@ -4,9 +4,11 @@ import hashlib
 import json
 import shutil
 from collections.abc import Mapping, Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import tools.s003_estate as s003_estate
 from pydantic import ValidationError
 from tools.s003_estate import (
     COMMAND_TEMPLATES,
@@ -27,6 +29,13 @@ from tools.s003_estate import (
     parse_unit_list,
     unit_detail_command,
     validate_read_only_command,
+)
+from tools.s004_handin import (
+    S004HandInError,
+    parse_firewall_ruleset_capture,
+    parse_privileged_socket_capture,
+    parse_proxy_configuration_capture,
+    prepare_handed_in_capture_set,
 )
 
 
@@ -251,6 +260,75 @@ def test_s003_collects_three_private_documents(tmp_path: Path) -> None:
     assert sbom["bomFormat"] == "CycloneDX"
     assert not runtime_root.exists()
     assert list(transient_root.iterdir()) == []
+
+
+def test_s003_reuse_preserves_observation_time_for_freshness_gate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    old = datetime(2026, 7, 27, tzinfo=UTC)
+    new = datetime(2026, 7, 29, tzinfo=UTC)
+
+    class _Clock:
+        current = old
+
+        @classmethod
+        def now(cls, timezone: object) -> datetime:
+            assert timezone is UTC
+            return cls.current
+
+    monkeypatch.setattr(s003_estate, "datetime", _Clock)
+    runner = _CollectionRunner()
+    workdir = tmp_path / "private"
+    collector = EstateCollector(runner, tool_lookup=_tool_lookup)
+    initial = collector.collect(
+        workdir,
+        transient_root=tmp_path / "transient",
+    )
+    command_count = len(runner.commands)
+
+    _Clock.current = new
+    reused = collector.collect(workdir, reuse=True)
+    inventory = UnitInventoryDocument.model_validate_json(
+        (workdir / "unit-inventory.json").read_text(encoding="utf-8")
+    )
+    surface = ServiceSurfaceDocument.model_validate_json(
+        (workdir / "service-surface.json").read_text(encoding="utf-8")
+    )
+
+    assert len(runner.commands) == command_count
+    for model in (CollectionManifest, UnitInventoryDocument, ServiceSurfaceDocument):
+        description = model.model_json_schema()["properties"]["collected_at"]["description"]
+        assert "content described by this document was observed to be true" in description
+
+    privileged = parse_privileged_socket_capture(
+        'tcp LISTEN 0 4096 127.0.0.1:8000 0.0.0.0:* users:(("alpha",pid=41))\n',
+        captured_at=new,
+    )
+    proxy = parse_proxy_configuration_capture(
+        """
+        server {
+            listen endpoint-reference;
+            proxy_pass upstream-reference;
+        }
+        """,
+        captured_at=new,
+    )
+    firewall = parse_firewall_ruleset_capture('{"nftables":[]}', captured_at=new)
+    with pytest.raises(S004HandInError) as stale:
+        prepare_handed_in_capture_set(
+            inventory,
+            surface,
+            privileged_sockets=privileged,
+            proxy_configuration=proxy,
+            firewall_ruleset=firewall,
+            max_skew=timedelta(hours=1),
+        )
+    assert stale.value.reason == "capture_time_skew_exceeded"
+    assert initial.collected_at == old
+    assert reused.collected_at == old
+    assert inventory.collected_at == old
+    assert surface.collected_at == old
 
 
 def test_s003_structured_surface_not_derived_is_explicit() -> None:
