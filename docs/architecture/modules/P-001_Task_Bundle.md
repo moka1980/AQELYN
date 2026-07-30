@@ -104,6 +104,36 @@ it as evidence that the report is legible to a newcomer.
 **If a question cannot be answered, that is the finding.** It is a report defect, not a
 reader failure.
 
+### Acceptance record — protocol item 8
+
+**Date:** 2026-07-30. **Verdict: accepted.**
+
+**Who read it:** the **project owner** (GitHub `moka1980`), recorded at their own instruction.
+They did not build the report — Codex implemented it, Claude Code reviewed it — so they satisfy
+*"someone who did not build this."*
+
+**What they read:** the real-corpus run of the merged implementation (`main` @ `879bdcd`), the
+one that wrote **10,173 local findings** from the owner's actual estate, with 50,394 unknown
+factors disclosed in the headline. Not a sample, not a constructed example.
+
+**Recorded verbatim:** *"I read p-001 and is good … I accept it."*
+
+**Three things this record does not claim, stated here so nobody later reads more into it:**
+
+1. **The four questions were not transcribed individually.** The owner returned a single overall
+   judgement, not four separate yeses. What is attested is acceptance by the reader, in aggregate.
+   Which finding they read is not recorded.
+2. **This is the weaker test, exactly as this section predicted.** The owner already knows what
+   the platform does. Per the paragraph above: *do not treat it as evidence that the report is
+   legible to a newcomer.* **The stranger read remains unrun**, and remains the stronger test
+   whenever a stranger is available.
+3. **The reader did not find ECR-0082.** The scoring inversion the first real run exposed was
+   found by the reviewer, reading the rendered derivation. The report made it visible; the
+   acceptance read is not what surfaced it, and this record must not be cited as though it were.
+
+**What it does establish:** the milestone's own acceptance mechanism was run on a named person
+rather than declared satisfied by a test suite, which is the only thing item 8 ever asked for.
+
 ## What is explicitly out of scope
 
 No server · no HTTP API · no authentication · no accounts · no multi-user operation ·
