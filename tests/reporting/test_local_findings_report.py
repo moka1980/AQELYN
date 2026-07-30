@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,53 @@ import pytest
 from aqelyn.reporting.analyze import ReportInputError, analyze_collection
 from aqelyn.reporting.cli import main
 from aqelyn.reporting.html import render_findings_report
+
+
+class _RenderedArithmeticParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.score_headings: list[Decimal] = []
+        self.arithmetic: list[list[Decimal]] = []
+        self._current_arithmetic: list[Decimal] | None = None
+        self._capture: str | None = None
+        self._capture_text: list[str] = []
+        self._next_score_strong = False
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        classes = set((dict(attrs).get("class") or "").split())
+        if tag == "div" and "score-block" in classes:
+            self._next_score_strong = True
+        elif tag == "p" and "calculation-total" in classes:
+            self._current_arithmetic = []
+        elif tag == "strong":
+            if self._next_score_strong:
+                self._capture = "score"
+                self._next_score_strong = False
+                self._capture_text = []
+            elif self._current_arithmetic is not None:
+                self._capture = "arithmetic"
+                self._capture_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._capture is not None:
+            self._capture_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "strong" and self._capture is not None:
+            value = Decimal("".join(self._capture_text).strip())
+            if self._capture == "score":
+                self.score_headings.append(value)
+            elif self._current_arithmetic is not None:
+                self._current_arithmetic.append(value)
+            self._capture = None
+            self._capture_text = []
+        elif tag == "p" and self._current_arithmetic is not None:
+            self.arithmetic.append(self._current_arithmetic)
+            self._current_arithmetic = None
 
 
 def _match(
@@ -141,6 +190,20 @@ async def test_report_drives_real_owners_and_keeps_unknowns_beside_findings(
     assert "uncertainty points" in second_article
     assert "No action was taken." in second_article
     assert "Human approval is required" in second_article
+
+    arithmetic = _RenderedArithmeticParser()
+    arithmetic.feed(rendered)
+    assert len(arithmetic.score_headings) == len(analysis.findings)
+    assert len(arithmetic.arithmetic) == len(analysis.findings)
+    for heading, terms in zip(
+        arithmetic.score_headings,
+        arithmetic.arithmetic,
+        strict=True,
+    ):
+        assert len(terms) == 3
+        rendered_known_points, uncertainty_points, total_points = terms
+        assert rendered_known_points + uncertainty_points == total_points
+        assert total_points == heading
 
 
 @pytest.mark.asyncio

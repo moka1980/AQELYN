@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 from collections.abc import Mapping
+from decimal import Decimal
 from typing import Any
 
 from aqelyn.reporting.analyze import CollectionAnalysis, ReportFinding
@@ -178,12 +179,15 @@ def _finding(item: ReportFinding, index: int) -> str:
         for name, factor in priority.factors.items()
         if isinstance(factor, Mapping)
     )
-    known_contribution = sum(_number(factor.get("contribution")) * 100.0 for _, factor in knowns)
     surcharge = priority.uncertainty_surcharge
+    known_points_text, surcharge_points_text, total_points_text = _display_score_arithmetic(
+        total_points=priority.score,
+        uncertainty_points=surcharge.contribution,
+    )
     surcharge_row = _uncertainty_surcharge_row(
         rate=surcharge.rate,
         unknown_weight=surcharge.unknown_weight,
-        contribution=surcharge.contribution,
+        contribution_text=surcharge_points_text,
     )
     derivation_steps = "\n".join(
         f"""
@@ -218,8 +222,8 @@ def _finding(item: ReportFinding, index: int) -> str:
           <h2>{_e(finding.title)}</h2>
           <p class="asset-ref">{_e(vulnerability.asset_ref.ref_id)}</p>
         </div>
-        <div class="score-block" aria-label="Priority score {priority.score:.1f} out of 100">
-          <strong>{priority.score:.1f}</strong>
+        <div class="score-block" aria-label="Priority score {total_points_text} out of 100">
+          <strong>{total_points_text}</strong>
           <span>of 100</span>
           <div class="score-track"><span style="width:{score_width:.3f}%"></span></div>
         </div>
@@ -249,9 +253,9 @@ def _finding(item: ReportFinding, index: int) -> str:
             uncertainty surcharge.
           </p>
           <p class="calculation-total">
-            <strong>{known_contribution:.1f}</strong> known-factor points +
-            <strong>{surcharge.contribution:.1f}</strong> uncertainty points =
-            <strong>{priority.score:.1f}</strong> total points.
+            <strong>{known_points_text}</strong> known-factor points +
+            <strong>{surcharge_points_text}</strong> uncertainty points =
+            <strong>{total_points_text}</strong> total points.
           </p>
           <div class="table-wrap">
             <table>
@@ -269,7 +273,7 @@ def _finding(item: ReportFinding, index: int) -> str:
             <p class="derivation-intro">
               Engine {_e(priority.derivation.engine_version)}, model
               {priority.derivation.model_version}. The steps below replay to
-              {priority.score:.1f}/100.
+              {total_points_text}/100.
             </p>
             <ol>{derivation_steps}</ol>
           </details>
@@ -323,7 +327,7 @@ def _uncertainty_surcharge_row(
     *,
     rate: float,
     unknown_weight: float,
-    contribution: float,
+    contribution_text: str,
 ) -> str:
     status = "Applied" if unknown_weight > 0.0 else "Not applied"
     return f"""
@@ -335,13 +339,24 @@ def _uncertainty_surcharge_row(
       <td data-label="Status"><span class="status">{status}</span></td>
       <td data-label="Signal">u = {rate:.2f}</td>
       <td data-label="Weight">{unknown_weight * 100.0:.1f}% unknown</td>
-      <td data-label="Contribution">{contribution:.1f} points</td>
+      <td data-label="Contribution">{contribution_text} points</td>
       <td data-label="Reason">
         Unknown factors remain excluded individually; their retained raw weight contributes
         only through this separate surcharge.
       </td>
     </tr>
     """
+
+
+def _display_score_arithmetic(
+    *,
+    total_points: float,
+    uncertainty_points: float,
+) -> tuple[str, str, str]:
+    total = Decimal(f"{total_points:.1f}")
+    uncertainty = Decimal(f"{uncertainty_points:.1f}")
+    known = total - uncertainty
+    return (f"{known:.1f}", f"{uncertainty:.1f}", f"{total:.1f}")
 
 
 def _rejected_matches(analysis: CollectionAnalysis) -> str:
