@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol
+from typing import Any, Final, Literal, Protocol, cast
+
+from pydantic import ValidationError
 
 from aqelyn.conventions import ActorRef, new_id, require_typed_id, utc_now
 from aqelyn.conventions.errors import (
@@ -16,7 +18,17 @@ from aqelyn.conventions.errors import (
     VulnNotFound,
     VulnNotReplayable,
 )
-from aqelyn.decision import ClaimRef, Derivation, DerivationStep, build_derivation, replay
+from aqelyn.decision import (
+    ClaimRef,
+    Derivation,
+    DerivationStep,
+    JsonMap,
+    JsonMapping,
+    OperationRegistry,
+    build_derivation,
+    default_operation_registry,
+    replay,
+)
 from aqelyn.findings import Automation, Finding, FindingStore, Remediation
 from aqelyn.forecast import TrendRecord
 from aqelyn.mission import MissionImpactResult
@@ -30,12 +42,15 @@ from aqelyn.vuln.models import (
     VulnConfig,
     VulnerabilityAssessment,
     VulnerabilityRecord,
+    VulnerabilityUncertaintySurcharge,
     VulnPriority,
 )
 from aqelyn.vuln.store import VulnerabilityStore
 
 _FACTOR_ORDER = ("cvss", "epss", "threat", "exposure", "mission", "baseline", "trust")
 _SCORE_TOLERANCE = 0.000001
+_VULNERABILITY_SCORE_OP = "vulnerability_priority_score"
+VULNERABILITY_UNKNOWN_SURCHARGE_RATE: Final[float] = 0.25
 
 
 @dataclass(frozen=True)
@@ -180,12 +195,13 @@ class VulnerabilityIntelligenceEngine:
         if current is None:
             raise VulnNotFound(vulnerability_id)
         factors = await self._factors_for(current, exposure_override=exposure_override)
-        score, factor_payload = _compose_score(current, factors=factors, config=self.config)
-        priority = _priority_for_score(score)
+        score_result = _compose_score_result(current, factors=factors, config=self.config)
+        score = _score_result_number(score_result, field="priority score")
+        priority = _priority_result(score_result)
+        factor_payload = _score_result_factors(score_result)
+        uncertainty_surcharge = _score_result_surcharge(score_result)
         derivation = _priority_derivation(
             current,
-            score=score,
-            priority=priority,
             factors=factor_payload,
         )
         return validate_replayable_priority(
@@ -195,6 +211,7 @@ class VulnerabilityIntelligenceEngine:
                 score=score,
                 priority=priority,
                 factors=factor_payload,
+                uncertainty_surcharge=uncertainty_surcharge,
                 confidence=float(factor_payload["trust"]["value"]),
                 derivation=derivation,
                 rationale=_priority_reason(current, score=score, priority=priority),
@@ -427,15 +444,24 @@ class _StoredScannerTrustProvider:
 def validate_replayable_priority(priority: VulnPriority) -> VulnPriority:
     try:
         stored = VulnPriority.model_validate(priority.model_dump(mode="json"))
-        result = replay(stored.derivation)
-    except DerivationNotReplayable as exc:
+    except (ValidationError, VulnConfigInvalid) as exc:
+        raise VulnNotReplayable("stored vulnerability priority is internally inconsistent") from exc
+    try:
+        result = replay(stored.derivation, registry=vulnerability_operation_registry())
+    except (DerivationNotReplayable, VulnConfigInvalid) as exc:
         raise VulnNotReplayable("vulnerability priority derivation does not replay") from exc
-    replayed_score = _score_from_replay(result)
+    replayed_score = _score_result_number(result, field="replayed priority score")
     if abs(replayed_score - stored.score) > _SCORE_TOLERANCE:
         raise VulnNotReplayable("vulnerability priority score does not replay")
-    factor_sources = _factor_sources_from_derivation(stored)
-    if factor_sources != stored.factors:
+    replayed_priority = _priority_result(result)
+    if replayed_priority != stored.priority:
+        raise VulnNotReplayable("vulnerability priority level does not match replayed score")
+    replayed_factors = _score_result_factors(result)
+    if replayed_factors != stored.factors:
         raise VulnNotReplayable("vulnerability priority factors do not match derivation")
+    replayed_surcharge = _score_result_surcharge(result)
+    if replayed_surcharge != stored.uncertainty_surcharge:
+        raise VulnNotReplayable("vulnerability uncertainty surcharge does not match derivation")
     return stored
 
 
@@ -512,6 +538,7 @@ def _finding_for_priority(
             "score": priority.score,
             "priority": priority.priority,
             "factors": priority.factors,
+            "uncertainty_surcharge": priority.uncertainty_surcharge.model_dump(mode="json"),
             "derivation": priority.derivation.model_dump(mode="json"),
             "raised_by": by.model_dump(mode="json"),
         },
@@ -611,27 +638,29 @@ def _compose_score(
     factors: dict[str, PriorityFactor],
     config: VulnConfig,
 ) -> tuple[float, dict[str, Any]]:
-    total_weight = sum(
-        config.score_weights.get(name, 0.0)
-        for name in _FACTOR_ORDER
-        if factors[name].status == "known"
+    result = _compose_score_result(vulnerability, factors=factors, config=config)
+    return (
+        _score_result_number(result, field="priority score"),
+        _score_result_factors(result),
     )
-    if total_weight <= 0.0:
-        raise VulnConfigInvalid("score_weights must contain at least one positive V3 factor")
-    score_unit = 0.0
-    payload: dict[str, Any] = {}
+
+
+def _compose_score_result(
+    vulnerability: VulnerabilityRecord,
+    *,
+    factors: dict[str, PriorityFactor],
+    config: VulnConfig,
+) -> JsonMap:
+    payload: dict[str, dict[str, Any]] = {}
     for name in _FACTOR_ORDER:
         factor = factors[name]
         weight = config.score_weights.get(name, 0.0)
-        normalized_weight = weight / total_weight if factor.status == "known" else 0.0
-        contribution = factor.value * normalized_weight
-        score_unit += contribution
         payload[name] = {
-            "value": round(factor.value, 6),
+            "value": factor.value,
             "source": factor.source,
-            "weight": round(normalized_weight, 6),
-            "raw_weight": round(weight, 6),
-            "contribution": round(contribution, 6),
+            "weight": 0.0,
+            "raw_weight": weight,
+            "contribution": 0.0,
             "reason": factor.reason,
             "status": factor.status,
             "unknown_cause": factor.unknown_cause,
@@ -641,14 +670,132 @@ def _compose_score(
         payload["cvss"]["carried_vector"] = vulnerability.cvss.vector
     if vulnerability.epss is not None:
         payload["epss"]["carried_value"] = vulnerability.epss.value
-    return (round(_clamp_unit(score_unit) * 100.0, 6), payload)
+    return vulnerability_score_result(
+        [],
+        {
+            "factor_sources": payload,
+            "unknown_surcharge_rate": VULNERABILITY_UNKNOWN_SURCHARGE_RATE,
+        },
+    )
+
+
+def vulnerability_score_result(
+    inputs: Sequence[JsonMapping],
+    params: JsonMapping,
+) -> JsonMap:
+    _ = inputs
+    raw_factors = params.get("factor_sources")
+    if not isinstance(raw_factors, Mapping) or set(raw_factors) != set(_FACTOR_ORDER):
+        raise VulnConfigInvalid("vulnerability derivation has an invalid factor set")
+    rate = _unit_factor(
+        params.get("unknown_surcharge_rate"),
+        field="unknown_surcharge_rate",
+    )
+    if not math.isclose(
+        rate,
+        VULNERABILITY_UNKNOWN_SURCHARGE_RATE,
+        rel_tol=0.0,
+        abs_tol=_SCORE_TOLERANCE,
+    ):
+        raise VulnConfigInvalid("vulnerability derivation uses an unregistered surcharge rate")
+
+    selected: dict[str, tuple[PriorityFactor, float, dict[str, Any]]] = {}
+    total_weight = 0.0
+    known_weight = 0.0
+    for name in _FACTOR_ORDER:
+        raw = raw_factors.get(name)
+        if not isinstance(raw, Mapping):
+            raise VulnConfigInvalid(f"vulnerability factor {name!r} must be an object")
+        for field in ("value", "source", "reason", "status", "unknown_cause", "raw_weight"):
+            if field not in raw:
+                raise VulnConfigInvalid(f"vulnerability factor {name!r} is missing {field!r}")
+        source = raw["source"]
+        reason = raw["reason"]
+        status = raw["status"]
+        unknown_cause = raw["unknown_cause"]
+        if (
+            not isinstance(source, str)
+            or not isinstance(reason, str)
+            or not isinstance(status, str)
+        ):
+            raise VulnConfigInvalid(f"vulnerability factor {name!r} has invalid text fields")
+        if unknown_cause is not None and not isinstance(unknown_cause, str):
+            raise VulnConfigInvalid(f"vulnerability factor {name!r} has an invalid unknown_cause")
+        factor = PriorityFactor(
+            _unit_factor(raw["value"], field=f"{name}.value"),
+            source,
+            reason,
+            status=cast(Literal["known", "unknown"], status),
+            unknown_cause=cast(FactorUnknownCause | None, unknown_cause),
+        )
+        weight = _nonnegative_number(raw["raw_weight"], field=f"{name}.raw_weight")
+        total_weight += weight
+        if factor.status == "known":
+            known_weight += weight
+        selected[name] = (factor, weight, dict(raw))
+
+    if total_weight <= 0.0:
+        raise VulnConfigInvalid("score_weights must contain at least one positive V3 factor")
+    if known_weight <= 0.0:
+        raise VulnConfigInvalid("vulnerability priority requires at least one known factor")
+
+    known_score_unit = 0.0
+    unknown_raw_weight = 0.0
+    factor_payload: dict[str, Any] = {}
+    for name in _FACTOR_ORDER:
+        factor, raw_weight, raw = selected[name]
+        if factor.status == "known":
+            normalized_weight = raw_weight / total_weight
+            contribution = factor.value * normalized_weight
+            known_score_unit += contribution
+        else:
+            normalized_weight = 0.0
+            contribution = 0.0
+            unknown_raw_weight += raw_weight
+        raw.update(
+            {
+                "value": factor.value,
+                "source": factor.source,
+                "weight": normalized_weight,
+                "raw_weight": raw_weight,
+                "contribution": contribution,
+                "reason": factor.reason,
+                "status": factor.status,
+                "unknown_cause": factor.unknown_cause,
+            }
+        )
+        factor_payload[name] = raw
+
+    unknown_weight = unknown_raw_weight / total_weight
+    surcharge = VulnerabilityUncertaintySurcharge(
+        rate=rate,
+        unknown_weight=unknown_weight,
+        contribution=round(rate * unknown_weight * 100.0, 6),
+    )
+    score = round(
+        _clamp_unit(known_score_unit + surcharge.contribution / 100.0) * 100.0,
+        6,
+    )
+    return {
+        "score": score,
+        "priority": _priority_for_score(score),
+        "known_contribution": round(known_score_unit * 100.0, 6),
+        "known_weight": round(known_weight / total_weight, 6),
+        "unknown_weight": round(unknown_weight, 6),
+        "uncertainty_surcharge": surcharge.model_dump(mode="json"),
+        "factors": factor_payload,
+    }
+
+
+def vulnerability_operation_registry() -> OperationRegistry:
+    registry = default_operation_registry()
+    registry.register(_VULNERABILITY_SCORE_OP, vulnerability_score_result)
+    return registry
 
 
 def _priority_derivation(
     vulnerability: VulnerabilityRecord,
     *,
-    score: float,
-    priority: str,
     factors: dict[str, Any],
 ) -> Derivation:
     evidence_id = _first_evidence_id(vulnerability)
@@ -672,18 +819,11 @@ def _priority_derivation(
         ],
         "count": 3,
     }
-    # ECR-0065: no intermediate rounding. `_compose_score` rounds ONCE, at the end
-    # (`round(unit * 100, 6)`); rounding here too made replay round-then-scale where
-    # composition scales-then-rounds -- different functions, not merely different
-    # precision. A six-decimal percentage needs eight at unit scale, so `round(_, 6)`
-    # here silently discarded two digits and the replayed score missed by 2.5e-5
-    # against a 1e-6 tolerance. Replay now mirrors composition operation for
-    # operation: divide, multiply back, round once in `_score_from_replay`.
-    score_unit = score / 100.0
-    weighed_items = [{**claim, "weight": score_unit} for claim in selected_output["claims"]]
-    weighed_output: dict[str, Any] = {"items": weighed_items}
-    scored_items = [{**item, "score": score_unit} for item in weighed_items]
-    scored_output: dict[str, Any] = {"items": scored_items, "factor": 1.0}
+    params: dict[str, Any] = {
+        "factor_sources": factors,
+        "unknown_surcharge_rate": VULNERABILITY_UNKNOWN_SURCHARGE_RATE,
+    }
+    score_output = vulnerability_score_result([], params)
     steps = [
         DerivationStep(
             seq=1,
@@ -695,55 +835,65 @@ def _priority_derivation(
         ),
         DerivationStep(
             seq=2,
-            op="weigh",
+            op=_VULNERABILITY_SCORE_OP,
             input_refs=["step:1"],
-            params={"default": score_unit, "factor_sources": factors, "priority": priority},
-            output=weighed_output,
+            params=params,
+            output=score_output,
             note=(
                 "Compose carried CVSS/EPSS with EA-0014 threat, EA-0023 exposure, "
-                "EA-0007 mission, EA-0012 baseline, and EA-0006 trust factors."
+                "EA-0007 mission, EA-0012 baseline, and EA-0006 trust factors, then "
+                "apply the separately pinned uncertainty surcharge."
             ),
-        ),
-        DerivationStep(
-            seq=3,
-            op="mission_weight",
-            input_refs=["step:2"],
-            params={"factor": 1.0, "source_field": "weight", "target_field": "score"},
-            output=scored_output,
-            note="Emit the replayable [0,1] priority score without recomputing owner engines.",
         ),
     ]
     return build_derivation(
         inputs=[trust_claim, mission_claim, risk_claim],
         steps=steps,
-        model_version=1,
-        engine_version="vulnerability-priority/v1",
+        model_version=2,
+        engine_version="vulnerability-priority/v2",
+        registry=vulnerability_operation_registry(),
     )
 
 
-def _factor_sources_from_derivation(priority: VulnPriority) -> dict[str, Any]:
-    for step in priority.derivation.steps:
-        if step.seq == 2:
-            selected = step.params.get("factor_sources")
-            if not isinstance(selected, dict):
-                raise VulnNotReplayable("vulnerability derivation is missing factor sources")
-            return selected
-    raise VulnNotReplayable("vulnerability derivation is missing factor source step")
+def _score_result_number(result: Mapping[str, Any], *, field: str) -> float:
+    selected = result.get("score")
+    if (
+        isinstance(selected, bool)
+        or not isinstance(selected, int | float)
+        or not math.isfinite(float(selected))
+    ):
+        raise VulnNotReplayable(f"{field} is invalid")
+    return float(selected)
 
 
-def _score_from_replay(result: dict[str, Any]) -> float:
-    items = result.get("items")
-    if not isinstance(items, list) or not items:
-        raise VulnNotReplayable("vulnerability priority derivation emitted no score items")
-    scores: list[float] = []
-    for item in items:
-        if not isinstance(item, dict):
-            raise VulnNotReplayable("vulnerability priority derivation emitted invalid score item")
-        selected = item.get("score")
-        if not isinstance(selected, int | float) or isinstance(selected, bool):
-            raise VulnNotReplayable("vulnerability priority derivation emitted invalid score")
-        scores.append(float(selected))
-    return round(max(scores) * 100.0, 6)
+def _priority_result(result: Mapping[str, Any]) -> str:
+    selected = result.get("priority")
+    if not isinstance(selected, str) or selected not in {
+        "immediate",
+        "high",
+        "medium",
+        "low",
+        "deferred",
+    }:
+        raise VulnNotReplayable("replayed vulnerability priority is invalid")
+    return selected
+
+
+def _score_result_factors(result: Mapping[str, Any]) -> dict[str, Any]:
+    selected = result.get("factors")
+    if not isinstance(selected, dict):
+        raise VulnNotReplayable("vulnerability derivation is missing scored factors")
+    return dict(selected)
+
+
+def _score_result_surcharge(result: Mapping[str, Any]) -> VulnerabilityUncertaintySurcharge:
+    selected = result.get("uncertainty_surcharge")
+    if not isinstance(selected, Mapping):
+        raise VulnNotReplayable("vulnerability derivation is missing uncertainty surcharge")
+    try:
+        return VulnerabilityUncertaintySurcharge.model_validate(selected)
+    except (ValidationError, VulnConfigInvalid) as exc:
+        raise VulnNotReplayable("vulnerability uncertainty surcharge is invalid") from exc
 
 
 def _priority_for_score(score: float) -> str:
@@ -767,7 +917,7 @@ def _priority_reason(
     return (
         f"{priority.title()} priority {score:.1f} for {vulnerability.cve_id} is composed from "
         "carried severity, threat exploitation, exposure, mission impact, baseline blocking, "
-        "and scanner trust."
+        "scanner trust, and the separately pinned uncertainty surcharge."
     )
 
 
@@ -804,9 +954,26 @@ def _normalize_cvss(value: float) -> float:
     return _clamp_unit(value / 10.0)
 
 
-def _unit_factor(value: float, *, field: str) -> float:
-    if isinstance(value, bool) or not math.isfinite(value) or value < 0.0 or value > 1.0:
+def _unit_factor(value: object, *, field: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(float(value))
+        or value < 0.0
+        or value > 1.0
+    ):
         raise VulnConfigInvalid(f"{field} must be in [0,1]")
+    return float(value)
+
+
+def _nonnegative_number(value: object, *, field: str) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(float(value))
+        or value < 0.0
+    ):
+        raise VulnConfigInvalid(f"{field} must be a non-negative finite number")
     return float(value)
 
 

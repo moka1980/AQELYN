@@ -116,6 +116,15 @@ async def test_report_drives_real_owners_and_keeps_unknowns_beside_findings(
     assert (
         analysis.findings[1].priority.factors["threat"]["unknown_cause"] == "source_cannot_assert"
     )
+    second_priority = analysis.findings[1].priority
+    known_points = sum(
+        float(factor["contribution"]) * 100.0
+        for factor in second_priority.factors.values()
+        if factor["status"] == "known"
+    )
+    assert known_points + second_priority.uncertainty_surcharge.contribution == pytest.approx(
+        second_priority.score
+    )
 
     first_article, second_article = rendered.split('<article class="finding"', maxsplit=2)[1:]
     assert "CVE-2026-1000" in first_article
@@ -124,7 +133,12 @@ async def test_report_drives_real_owners_and_keeps_unknowns_beside_findings(
     assert "CISA KEV does not list this CVE" in second_article
     assert "Cause: source cannot assert" in second_article
     assert "View derivation" in second_article
-    assert "Compose available factors" in second_article
+    assert "Compose factors and uncertainty" in second_article
+    assert "Unknown factors receive no factor weight" in second_article
+    assert "Uncertainty surcharge" in second_article
+    assert "u = 0.25" in second_article
+    assert "known-factor points" in second_article
+    assert "uncertainty points" in second_article
     assert "No action was taken." in second_article
     assert "Human approval is required" in second_article
 

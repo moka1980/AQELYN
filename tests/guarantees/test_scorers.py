@@ -76,6 +76,11 @@ SCORER_CASES: dict[str, Callable[[], ScorerObservation]] = {
     "secrets": lambda: _real_scorer_observations()[1],
     "vuln": lambda: _real_scorer_observations()[2],
 }
+SCORER_ORIENTATIONS = {
+    "ispm": "higher_is_favourable",
+    "secrets": "higher_is_favourable",
+    "vuln": "lower_is_favourable",
+}
 SCORER_EXCLUSIONS = {
     "aqelyn.risk.scoring.score_risk": (
         "EA-0013 score_risk consumes a typed RiskMissionContext rather than a local "
@@ -94,6 +99,7 @@ class _FactorProviderCase:
 
 def test_gc_scorer_discovery_complete() -> None:
     assert discover_composition_scorer_packages() == frozenset(SCORER_CASES)
+    assert set(SCORER_CASES) == set(SCORER_ORIENTATIONS)
     assert_scorer_registry_complete(SCORER_CASES)
 
 
@@ -128,7 +134,101 @@ def test_gc_scorer_unknown_not_favourable() -> None:
     assert_unknown_less_favourable(observations)
     assert observations[0].unknown == 80.0
     assert observations[1].unknown < _credential_score("bad")
+    assert observations[2].known_good == 64.0
+    assert observations[2].unknown == 69.0
+    assert _vulnerability_score("bad") == 84.0
     assert observations[2].known_good < observations[2].unknown < _vulnerability_score("bad")
+
+
+def test_gc_scorer_orientation_registry_rejects_wrong_orientation() -> None:
+    observations = {package: case() for package, case in SCORER_CASES.items()}
+    assert {
+        package: observation.orientation for package, observation in observations.items()
+    } == SCORER_ORIENTATIONS
+
+    vulnerability = observations["vuln"]
+    wrong = ScorerObservation(
+        name=vulnerability.name,
+        known_good=vulnerability.known_good,
+        unknown=vulnerability.unknown,
+        orientation="higher_is_favourable",
+    )
+    with pytest.raises(GuaranteeViolation, match="favourable known result"):
+        assert_unknown_less_favourable((wrong,))
+
+
+def test_gc_vulnerability_unknown_keeps_sibling_contributions_stable() -> None:
+    record = _vulnerability()
+    safe_factors = _known_factors()
+    safe_factors["exposure"] = PriorityFactor(
+        0.0,
+        "gc:exposure",
+        "Exposure is proved safe.",
+    )
+    unknown_factors = dict(safe_factors)
+    unknown_factors["exposure"] = PriorityFactor(
+        0.0,
+        "gc:exposure",
+        "Exposure was not assessed.",
+        status="unknown",
+        unknown_cause="input_missing",
+    )
+
+    _, safe_payload = vuln_engine._compose_score(
+        record,
+        factors=safe_factors,
+        config=VulnConfig(),
+    )
+    _, unknown_payload = vuln_engine._compose_score(
+        record,
+        factors=unknown_factors,
+        config=VulnConfig(),
+    )
+
+    assert unknown_payload["exposure"]["weight"] == 0.0
+    assert unknown_payload["exposure"]["contribution"] == 0.0
+    for name in set(safe_payload) - {"exposure"}:
+        assert unknown_payload[name]["weight"] == safe_payload[name]["weight"]
+        assert unknown_payload[name]["contribution"] == safe_payload[name]["contribution"]
+
+
+def test_gc_vulnerability_all_unknown_refused_but_known_zero_is_scoreable() -> None:
+    unknown_factors = {
+        name: PriorityFactor(
+            0.0,
+            f"gc:{name}:unknown",
+            f"{name} is unavailable.",
+            status="unknown",
+            unknown_cause="input_missing",
+        )
+        for name in ("cvss", "epss", "threat", "exposure", "mission", "baseline", "trust")
+    }
+    with pytest.raises(VulnConfigInvalid, match="at least one known factor"):
+        vuln_engine._compose_score(
+            _vulnerability(),
+            factors=unknown_factors,
+            config=VulnConfig(),
+        )
+
+    known_zero = dict(unknown_factors)
+    known_zero["cvss"] = PriorityFactor(0.0, "gc:cvss:safe", "CVSS is known-safe.")
+    score, payload = vuln_engine._compose_score(
+        _vulnerability(),
+        factors=known_zero,
+        config=VulnConfig(
+            score_weights={
+                "cvss": 1.0,
+                "epss": 0.0,
+                "threat": 0.0,
+                "exposure": 0.0,
+                "mission": 0.0,
+                "baseline": 0.0,
+                "trust": 0.0,
+            }
+        ),
+    )
+    assert score == 0.0
+    assert payload["cvss"]["status"] == "known"
 
 
 def test_gc_scorer_exclusion_documented() -> None:
