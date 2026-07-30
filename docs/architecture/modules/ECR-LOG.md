@@ -88,7 +88,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
 | ECR-0082 | EA-0024 (+ GC) | Accepted | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
 | ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
-| ECR-0084 | EA-0013 / `findings` | Proposed | **`current_severity_score` is maintained and never read.** Decides whether ECR-0082's repair reaches existing findings. |
+| ECR-0084 | EA-0013 / `findings` | Accepted (shape 1; owner, 2026-07-30) | **`current_severity_score` is maintained and never read.** Shape 1 selected: P-001 annotates current severity beside the existing first-seen priority headline without changing ordering; dormant until persistence. |
 
 ---
 
@@ -5986,7 +5986,13 @@ different policy must not silently produce a remediation plan — but it makes r
 
 **Raised by:** the reviewer, 2026-07-30, immediately after the EA-0024 scoring repair
 (ECR-0082 + ECR-0083) shipped.
-**Status:** Proposed - **the decision is the owner's**, not the implementer's.
+**Status:** **Accepted (shape 1)** - selected by **the owner, 2026-07-30**: P-001 annotates
+current severity beside the existing first-seen priority headline without changing ordering,
+cursor, index, or query semantics.
+**Dormancy:** accepted and explicit. P-001's fresh per-run store cannot reach re-emission, so
+the consumer is test-reachable but unreachable through `aqelyn-report` until findings persist
+across runs. The proposed mechanical rule is therefore refined, not repealed: a code reader
+that no shipped path can reach is a consumer for the checker and not for the user.
 **Severity:** **latent** today; **it decides whether ECR-0082's repair applies to the
 platform or only to its future** (§4).
 **Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
