@@ -87,6 +87,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0080 | S-track tooling | Accepted | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
 | ECR-0082 | EA-0024 (+ GC) | Proposed | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
+| ECR-0083 | EA-0024 + GC-001 AC-3 | Proposed | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; the uncertainty contribution requires an explicit owner policy. |
 
 ---
 
@@ -5710,3 +5711,126 @@ by side, ordered.
 - **Coverage monotonicity** raised as a GC milestone rather than folded here.
 - **Re-run P-001's report** afterwards: the top band is the acceptance evidence, and the
   KEV-confirmed vulnerability should be in it.
+
+## ECR-0083 - stable weights do not define an unknown factor's contribution
+
+**Raised by:** Codex, while implementing ECR-0082 against the shipped GC-001 AC-3
+guarantee.
+**Status:** Proposed.
+**Severity:** **blocking before the EA-0024 arithmetic changes.** The prescribed formula
+repairs the demonstrated amplification but violates an Accepted central guarantee on the same
+real scorer.
+**Number:** next free after ECR-0082; **re-check `ECR-LOG.md` before merging** (rule 1).
+
+### 1. The contradiction, measured before implementation
+
+GC-001 drives the real `vuln` scorer with the same finding while only the exposure factor
+changes:
+
+| exposure state | shipped score | ECR-0082 all-weight formula |
+|---|---:|---:|
+| proved safe (`known`, value `0.0`) | 64.0 | 64.0 |
+| unknown | 80.0 | **64.0** |
+| proved bad (`known`, value `1.0`) | 84.0 | 84.0 |
+
+The shipped `80.0` is wrong for the reason ECR-0082 records: removing exposure's configured
+weight from the denominator amplifies every surviving factor. But `64.0` is also wrong under
+GC-001 FR-7, which requires every lower-is-favourable scorer to make unknown **strictly less
+favourable than known-safe**. ECR-0082's formula makes the two byte-identical numerically.
+
+This is structural, not a fixture choice. For a factor with configured weight `w`:
+
+- known-safe contribution under an all-weight denominator: `w x 0.0 = 0.0`;
+- unknown contribution when it is excluded from the numerator: `0.0`.
+
+No test data can make those values different. Weakening
+`test_gc_scorer_unknown_not_favourable` to accept equality would silently repeal
+`GC-001-guarantee-conformance-suite.spec.md:253`, not implement ECR-0082.
+
+### 2. The two requirements cannot both govern the total score as written
+
+ECR-0082 states:
+
+> For any finding, removing a known factor must not increase its score.
+
+GC-001 AC-3 states, for a lower-is-favourable scorer:
+
+> Replacing a known-safe factor with unknown must increase the score.
+
+Take a known-safe factor whose value is `0.0`. The first statement requires
+`unknown_score <= safe_score`; the second requires `unknown_score > safe_score`. Both cannot be
+true.
+
+The valid invariant inside ECR-0082 is narrower and is exactly what its finding demonstrated:
+
+> **Sibling-contribution invariance:** changing factor A from known to unknown must not change
+> the normalized weight or contribution of any factor B.
+
+That property catches known-only renormalization directly, is orientation-independent, and does
+not prescribe what factor A's own uncertainty contributes.
+
+### 3. What remains correct in ECR-0082
+
+The real-data finding, severity, and P-001 evidence remain unchanged:
+
+- known-only normalization redistributes excluded weight and produces the trust-only `90.0`;
+- configured all-factor weight must remain in the denominator;
+- a separate `known_weight <= 0` refusal must keep all-unknown distinct from a genuine known
+  `0.0`;
+- the rule-29 enumeration must cover every discovered composition scorer;
+- the report must be rerun, and thin evidence must no longer populate the top band by
+  amplification.
+
+This ECR amends only ECR-0082's total-score monotonicity property and the incomplete numeric
+remedy.
+
+### 4. The missing owner decision
+
+Once sibling weights are stable, a lower-is-favourable scalar scorer still needs an explicit
+answer to:
+
+> **What does an unknown factor contribute to vulnerability priority?**
+
+Three honest choices exist:
+
+1. **Typed uncertainty surcharge (recommended if EA-0024 keeps one scalar).** Keep
+   `sum(known weight x value) / sum(all configured weights)`, then add an explicit,
+   replay-pinned surcharge derived from unknown weight. This is the orientation-reversed
+   analogue of `secrets/scoring.py:188-200`, where a typed uncertainty penalty prevents an
+   unassessable credential from appearing well governed. The surcharge magnitude is owner
+   policy and SHALL NOT be inferred from the current finding or copied from credentials without
+   a decision.
+2. **A score interval or typed partial-priority result.** Preserve the demonstrated lower bound
+   and an uncertainty bound, then define an ordering contract. This is more expressive and a
+   larger EA-0024/P-001 API change.
+3. **Refuse every partial priority.** This preserves epistemic purity but would suppress most of
+   the first real report; it is a product decision, not a safe implementation default.
+
+The following are not resolutions:
+
+- silently treating unknown as `0.0`;
+- retaining known-only renormalization because it happened to put unknown between the two
+  controls;
+- weakening GC-001's strict unknown-not-favourable assertion;
+- inventing a surcharge value inside the implementation ticket.
+
+### 5. Required proof after the owner decision
+
+1. The rule-29 discovery registry covers `ispm`, `secrets`, and `vuln`, and fails when a fourth
+   composition scorer is added without a case.
+2. Changing one factor to unknown leaves every sibling's normalized weight and contribution
+   byte-identical.
+3. On the real `vuln` scorer, proved-safe, unknown, and proved-bad retain the owner-approved
+   ordering; unknown is strictly less favourable than proved-safe.
+4. All-unknown raises `VulnConfigInvalid`; a known factor with value `0.0` remains scoreable.
+5. Each guard is mutation-proven, including a reversion to known-only normalization and removal
+   of the all-unknown refusal.
+6. The unedited P-001 corpus is rerun. The trust-only `90.0` top-band cohort disappears, and the
+   KEV-confirmed vulnerability's resulting order is recorded rather than predicted.
+
+### 6. Impact
+
+No production arithmetic changes under this ECR alone. ECR-0082 remains Proposed and its
+implementation is blocked at the scoring-policy boundary, while its demonstrated defect remains
+open and visible. Once the owner selects the uncertainty representation, the repair may land in
+EA-0024 together with the central sibling-invariance guard and the P-001 rerun.
