@@ -44,7 +44,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0037 | EA-0030 | Accepted | Make Q2's Trust reconciliation durable and its store pagination honest: components pin the winning source/time and retain every conflict candidate, malformed documents persist as flagged quarantine records, and `SBOMStore.query` adopts EA-0002 D8 cursor semantics. |
 | ECR-0038 | EA-0030 | Accepted | Make Q3's truncation and path proof representable: `dependency_paths` returns paths plus `truncated`, and transitive reach embeds the exact EA-0005 path with a deterministic content-addressed `path_ref`. |
 | ECR-0039 | EA-0030 (+ EA-0004 boundary) | Accepted | Evidence hash-chain integrity is not attestation authenticity: Q4 verifies EA-0004 integrity first, delegates cryptographic/bundle authenticity to a typed verifier, and keeps missing/unavailable verification flagged `unverified` while completed mismatches are `failed`. |
-| ECR-0040 | EA-0030 + EA-0024 | Accepted | Preserve unknown component reachability through vulnerability prioritization: factors carry `known|unknown`, unknown factors remain in the derivation but are excluded from the score denominator; add an asset-scoped vulnerability query and explicit Q5 owner methods. |
+| ECR-0040 | EA-0030 + EA-0024 | Accepted (normalization clause **amended by ECR-0082/ECR-0083**) | Preserve unknown component reachability through vulnerability prioritization: factors carry `known|unknown`, unknown factors remain in the derivation but are excluded from the score denominator; add an asset-scoped vulnerability query and explicit Q5 owner methods. ⚠️**"known weights are renormalized" is superseded** — see ECR-0082 (all-weight denominator) and ECR-0083 (separate uncertainty surcharge). |
 | ECR-0041 | EA-0031 + EA-0023 | Accepted | Connect DSPM to EA-0023's shipped `KnownSurfaceSource` seam, add an optional evidence-backed exposure-impact context for sensitivity-aware owner scoring, and make unknown/minimal-retention/pagination guarantees structural before C-028. |
 | ECR-0042 | EA-0031 | Accepted | Make P4's assessment-to-finding handoff durable: add tenant-scoped assessment/exposure reads to DSPMStore, refuse incomplete assessments, and re-run a complete assessment's frozen scope through the owner exposure path when it carries no material ids. |
 | ECR-0043 | EA-0032 / IS-032 | Accepted | Realize secrets/crypto as a value-free, handed-in lifecycle engine over existing inventory/exposure/compliance/risk owners; unknown is never safe, integrity is not authenticity, and remediation is finding-bound proposal only. |
@@ -86,8 +86,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0079 | S-track density reporter | Accepted | **Typed supplemental status must survive reporting.** Known factor readings were counted as unknown, preserving roadmap work after the owner resolved it. |
 | ECR-0080 | S-track tooling | Accepted | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
-| ECR-0082 | EA-0024 (+ GC) | Proposed | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
-| ECR-0083 | EA-0024 + GC-001 AC-3 | Proposed | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
+| ECR-0082 | EA-0024 (+ GC) | Accepted | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
+| ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
 
 ---
 
@@ -2050,7 +2050,17 @@ defaulting to `known` for backward compatibility. Unknown factors remain in the
 factor payload and EA-0020 derivation with their source, reason, configured raw
 weight, and `status="unknown"`, but receive zero normalized weight; known
 weights are renormalized. This makes missing reachability visible without
-rewarding it as low exposure. Add an optional, owner-typed
+rewarding it as low exposure.
+
+> ⚠️ **AMENDED — do not implement the renormalization clause as written.** "Known weights
+> are renormalized" was the accepted decision, and `vuln` implemented it literally; it hands
+> an excluded factor's weight to the survivors, so a finding with one known factor scored
+> `90.0` and outranked the only KEV-confirmed exploited vulnerability. **ECR-0082** replaces
+> the denominator with every configured weight. **ECR-0083** adds the separate typed
+> uncertainty surcharge, because a zero-contribution unknown is conservative only on a
+> higher-is-favourable scale and `vuln` runs the other way. The rest of this Resolution — the
+> typed `known|unknown` factor, the retained source/reason/raw weight, `exposure_override`,
+> `asset_ref_id`, and the EA-0030 interface changes — stands unchanged. Add an optional, owner-typed
 `exposure_override` to EA-0024 `prioritize` so EA-0030 supplies the exact Q3
 result without a second scorer. Add `asset_ref_id` to the vulnerability-store
 query and apply it before `limit` in both backends. Add explicit `tenant_id` to
@@ -5558,7 +5568,11 @@ something a person can use, and it needs none of them.
 **Raised by:** **P-001**, on its first run against the real corpus - **the defect was visible
 because the report made the exclusions legible**, after forty-one milestones in which it was
 not.
-**Status:** Proposed.
+**Status:** Accepted — implemented and reviewed in PR #269 (`main` @1fffaa8).
+**Amended by ECR-0083** on the total-score monotonicity property: that property was
+replaced by **sibling-contribution invariance**, because monotonicity and GC-001's strict
+unknown-not-favourable rule cannot both govern the total score. The all-weight denominator,
+the `known_weight <= 0` refusal and the scorer enumeration in this ECR stand as written.
 **Severity:** **high - demonstrated wrong answer on real data.** 114 findings occupy the top
 band on almost no evidence, and they **outrank the single KEV-confirmed exploited
 vulnerability.**
@@ -5716,7 +5730,9 @@ by side, ordered.
 
 **Raised by:** Codex, while implementing ECR-0082 against the shipped GC-001 AC-3
 guarantee.
-**Status:** Proposed.
+**Status:** Accepted — implemented and reviewed in PR #269 (`main` @1fffaa8), with `u = 0.25`
+pinned on the full 10,173-finding corpus rerun (§5) and all eight proof items in §6 verified
+behaviourally, including the four required mutations.
 **Severity:** **blocking before the EA-0024 arithmetic changes.** The prescribed formula
 repairs the demonstrated amplification but violates an Accepted central guarantee on the same
 real scorer.
@@ -5944,6 +5960,17 @@ No production arithmetic changes under this ECR alone. The separate representati
 policy are now both selected; ECR-0082 and this ECR remain Proposed until the implementation,
 replay, reporting, guarantee, and real-corpus proofs are reviewed together.
 
-When the repair is accepted, the record needs both back-pointers that the status guard cannot
-infer: ECR-0040's normalization clause amended by ECR-0082, and ECR-0082's total-score
-monotonicity property amended by ECR-0083.
+Both back-pointers the status guard cannot infer are now written: ECR-0040's index row and
+Resolution clause are marked amended by ECR-0082/ECR-0083, and ECR-0082's total-score
+monotonicity property is marked amended by this ECR.
+
+**One consequence of the rate pin, recorded because it is not obvious from the arithmetic.**
+`vulnerability_score_result` rejects a stored derivation whose `unknown_surcharge_rate` differs
+from the shipped constant, and that rejection is what makes drift detectable at all. It also
+means **changing `u` invalidates every previously computed priority**: after a change from
+`0.25`, both `validate_replayable_priority` and `recommend()` raise `VulnNotReplayable` on a
+priority computed under the old rate, and `raise_vulnerability` inherits the same rejection.
+Priorities already persisted into findings by `_finding_for_priority` carry their derivation, so
+they are affected too. This is correct fail-closed behaviour — a priority computed under a
+different policy must not silently produce a remediation plan — but it makes revisiting `u` a
+**data-migration event, not a configuration change.**

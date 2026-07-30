@@ -110,10 +110,11 @@ def test_ecr0065_composer_replay_stores_inputs_not_rederived_outputs() -> None:
       the replay op recomputes the same single expression, rounding once. Mirroring
       operation-for-operation **by construction**, so no round-trip exists to lose
       digits in.
-    * `exposure` (`engine.py:425`) calls `replay(...)` but never compares the result
-      to the stored score, so no scale crossing occurs in the comparison at all.
-      **Noted separately:** that is a weaker guarantee than the other three hold, and
-      is not this ECR's business.
+    * `exposure` (`engine.py:457-459`) recomputes and **does** compare against the
+      stored score, raising `ExposureNotReplayable` on a mismatch. An earlier revision
+      discarded the replay result -- the comment above that comparison records the gap in
+      the past tense -- so all four composers now compare, and none crosses scales in
+      the comparison.
 
     Recorded as an executable statement of the invariant that keeps them safe: a
     derivation that stores inputs cannot drift from its composition, because there is
