@@ -292,7 +292,7 @@ async def test_report_drives_real_owners_and_keeps_unknowns_beside_findings(
         assert total_points == heading
         assert sum(contributions[:-1], start=Decimal()) == rendered_known_points
         assert contributions[-1] == uncertainty_points
-    assert sum(contributions, start=Decimal()) == total_points
+        assert sum(contributions, start=Decimal()) == total_points
 
 
 @pytest.mark.asyncio
