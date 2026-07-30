@@ -5767,6 +5767,15 @@ not change; the meaning of zero did.
 shape is the transferable diagnosis: a future scorer can reproduce the defect by copying correct
 arithmetic from a scorer with the opposite orientation.
 
+The same sibling comparison exposes another asymmetry at the implementation boundary.
+`validate_replayable_priority` exists, but `_priority_derivation` embeds the already-computed
+score as `score_unit`; replay proves that embedded number is internally replayable and that the
+stored factor payload matches `factor_sources`. It does **not** recompute the score from those
+factors. `ispm` and `secrets` register their score operations and recompute the result, including
+the credential uncertainty penalty. Without the same recomputation, a vulnerability surcharge
+could drift from the factor payload while both the stored score and its self-referential
+derivation still agree.
+
 ECR-0082 states:
 
 > For any finding, removing a known factor must not increase its score.
@@ -5810,15 +5819,28 @@ answer to:
 > **What does an unknown factor contribute to vulnerability priority?**
 
 **The owner selected a typed uncertainty surcharge on 2026-07-30.** EA-0024 keeps one scalar,
-with known factors in the numerator, every configured factor in the denominator, and an
-explicit, replay-pinned contribution for unknown weight:
+but the factor and uncertainty terms remain structurally separate:
 
-> `score = 100 x clamp((sum_known(w x v) + u x sum_unknown(w)) / sum_all(w))`
+> `known_score_unit = sum_known(w x v) / sum_all(w)`
+>
+> `unknown_weight = sum_unknown(w) / sum_all(w)`
+>
+> `uncertainty_surcharge = u x unknown_weight`
+>
+> `score = 100 x clamp(known_score_unit + uncertainty_surcharge)`
 
-This is the orientation-reversed analogue of `secrets/scoring.py:188-200`, where a typed
-uncertainty penalty prevents an unassessable credential from appearing well governed. `u = 0`
-is the contradiction in §1; any `u > 0` satisfies FR-7 and FR-9 strictly. The guarantees do not
-determine the magnitude.
+Every unknown factor retains its configured `raw_weight`, `status="unknown"`, and typed cause,
+while its normalized `weight` and `contribution` remain `0.0`. The surcharge is a separate,
+replay-pinned score term outside the factor records. It SHALL NOT be represented by assigning an
+unknown factor normalized weight or value `u`: that algebraically equivalent encoding silently
+repeals ECR-0040's zero-normalized-weight guarantee and six discovered-provider assertions.
+
+This is the orientation-reversed analogue of `secrets/scoring.py:188-200`, where
+`uncertainty_penalty` is a separate result term rather than a factor weight. The shipped
+`GOVERNANCE_UNKNOWN_PENALTY_POINTS = 10.0` is equivalent to `u = 0.10`, a useful precedent but
+not a vulnerability-policy decision. `u = 0` is the contradiction in §1; any `u > 0` satisfies
+FR-7 and FR-9 strictly for a positive unknown weight. The guarantees do not determine the
+magnitude.
 
 The other two shapes are not selected and are not neutral alternatives:
 
@@ -5869,9 +5891,13 @@ The measurement excludes two unsafe regions:
   six-excluded cohort overtakes the four-excluded cohort; at `u = 0.75`, thin evidence occupies
   all of the top 20.
 
-The measured useful range is approximately `0.15-0.35`. **`u = 0.25` is the candidate, not the
-policy value.** Cross-finding ordering by unknown count is product evidence, not a guarantee:
-FR-7/FR-9 remain per-finding and sibling-contribution invariance remains the central property.
+The hard constraints established here are `u > 0` (FR-7/FR-9) and approximately `u < 0.5`
+(avoid the measured re-inversion). The `0.15-0.35` range describes the useful cohort placement
+observed in this slice; it is not a validity floor. The credential precedent `u = 0.10` is valid
+and more conservative than the current vulnerability candidate. **`u = 0.25` is the candidate,
+not the policy value.** Cross-finding ordering by unknown count is product evidence, not a
+guarantee: FR-7/FR-9 remain per-finding and sibling-contribution invariance remains the central
+property.
 
 This slice carries **zero KEV-confirmed findings**. The July 29 4,117-finding corpus is no longer
 available, so the KEV-confirmed finding's rank cannot be measured here. Before production
@@ -5888,9 +5914,18 @@ The resulting rank is recorded, not predicted.
 3. On the real `vuln` scorer, proved-safe, unknown, and proved-bad retain the owner-approved
    ordering; unknown is strictly less favourable than proved-safe.
 4. All-unknown raises `VulnConfigInvalid`; a known factor with value `0.0` remains scoreable.
-5. Each guard is mutation-proven, including a reversion to known-only normalization and removal
-   of the all-unknown refusal.
-6. The unedited P-001 corpus is rerun. The trust-only `90.0` top-band cohort disappears, and the
+5. A registered vulnerability scoring operation recomputes the known component and separate
+   surcharge from the replay-pinned factors and policy. `validate_replayable_priority` rejects a
+   changed score, changed surcharge, changed `u`, or changed factor payload even when the
+   derivation is otherwise structurally replayable.
+6. P-001 renders the surcharge as its own calculation row, including `u`, unknown raw weight,
+   and contributed points. Unknown factor rows remain truthfully `Not scored / Excluded /
+   0 points`; the summary states that excluded factors do not receive factor weight but do inform
+   the separate surcharge. Factor contributions plus the surcharge visibly sum to the score.
+7. Each guard is mutation-proven, including a reversion to known-only normalization, folding the
+   surcharge into unknown factor weights, removal of the all-unknown refusal, and bypassing the
+   recomputation validator.
+8. The unedited P-001 corpus is rerun. The trust-only `90.0` top-band cohort disappears, and the
    KEV-confirmed vulnerability's resulting order is recorded rather than predicted.
 
 ### 7. Impact
