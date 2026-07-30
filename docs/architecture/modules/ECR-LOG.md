@@ -87,7 +87,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0080 | S-track tooling | Accepted | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
 | ECR-0082 | EA-0024 (+ GC) | Proposed | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
-| ECR-0083 | EA-0024 + GC-001 AC-3 | Proposed | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; the uncertainty contribution requires an explicit owner policy. |
+| ECR-0083 | EA-0024 + GC-001 AC-3 | Proposed | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a typed uncertainty surcharge, with `u = 0.25` only a measured candidate pending the full KEV-bearing corpus. |
 
 ---
 
@@ -5736,7 +5736,13 @@ changes:
 The shipped `80.0` is wrong for the reason ECR-0082 records: removing exposure's configured
 weight from the denominator amplifies every surviving factor. But `64.0` is also wrong under
 GC-001 FR-7, which requires every lower-is-favourable scorer to make unknown **strictly less
-favourable than known-safe**. ECR-0082's formula makes the two byte-identical numerically.
+favourable than known-safe**, and more directly under FR-9:
+
+> Out-of-set kinds and unknown factors SHALL resolve toward **rejection / non-favourable**,
+> never toward a permissive default (rule 5).
+
+ECR-0082's formula maps unknown to the most favourable contribution on this scale. Weakening the
+central case would therefore repeal a house rule, not tune a local assertion.
 
 This is structural, not a fixture choice. For a factor with configured weight `w`:
 
@@ -5747,7 +5753,19 @@ No test data can make those values different. Weakening
 `test_gc_scorer_unknown_not_favourable` to accept equality would silently repeal
 `GC-001-guarantee-conformance-suite.spec.md:253`, not implement ECR-0082.
 
-### 2. The two requirements cannot both govern the total score as written
+### 2. The orientation flip, and why total-score monotonicity cannot govern
+
+**ECR-0082 imported `ispm`/`secrets` arithmetic across an orientation flip.** On a
+**higher-is-favourable** scale, "unknown contributes `0.0`" pushes away from favourable, so the
+all-weight formula is conservative in `ispm` and `secrets`. On `vuln`'s
+**lower-is-favourable** scale, the identical arithmetic pushes toward favourable. The formula did
+not change; the meaning of zero did.
+
+`vuln` is the only lower-is-favourable composition scorer in the discovered set.
+`tests/guarantees/test_scorers.py:289,295,301` records the three orientations as
+`higher_is_favourable`, `higher_is_favourable`, and `lower_is_favourable`. That sole-outlier
+shape is the transferable diagnosis: a future scorer can reproduce the defect by copying correct
+arithmetic from a scorer with the opposite orientation.
 
 ECR-0082 states:
 
@@ -5784,27 +5802,32 @@ The real-data finding, severity, and P-001 evidence remain unchanged:
 This ECR amends only ECR-0082's total-score monotonicity property and the incomplete numeric
 remedy.
 
-### 4. The missing owner decision
+### 4. Owner decision: typed uncertainty surcharge
 
 Once sibling weights are stable, a lower-is-favourable scalar scorer still needs an explicit
 answer to:
 
 > **What does an unknown factor contribute to vulnerability priority?**
 
-Three honest choices exist:
+**The owner selected a typed uncertainty surcharge on 2026-07-30.** EA-0024 keeps one scalar,
+with known factors in the numerator, every configured factor in the denominator, and an
+explicit, replay-pinned contribution for unknown weight:
 
-1. **Typed uncertainty surcharge (recommended if EA-0024 keeps one scalar).** Keep
-   `sum(known weight x value) / sum(all configured weights)`, then add an explicit,
-   replay-pinned surcharge derived from unknown weight. This is the orientation-reversed
-   analogue of `secrets/scoring.py:188-200`, where a typed uncertainty penalty prevents an
-   unassessable credential from appearing well governed. The surcharge magnitude is owner
-   policy and SHALL NOT be inferred from the current finding or copied from credentials without
-   a decision.
-2. **A score interval or typed partial-priority result.** Preserve the demonstrated lower bound
-   and an uncertainty bound, then define an ordering contract. This is more expressive and a
-   larger EA-0024/P-001 API change.
-3. **Refuse every partial priority.** This preserves epistemic purity but would suppress most of
-   the first real report; it is a product decision, not a safe implementation default.
+> `score = 100 x clamp((sum_known(w x v) + u x sum_unknown(w)) / sum_all(w))`
+
+This is the orientation-reversed analogue of `secrets/scoring.py:188-200`, where a typed
+uncertainty penalty prevents an unassessable credential from appearing well governed. `u = 0`
+is the contradiction in §1; any `u > 0` satisfies FR-7 and FR-9 strictly. The guarantees do not
+determine the magnitude.
+
+The other two shapes are not selected and are not neutral alternatives:
+
+- **A score interval requires a second figure to interpret or a rule that collapses it to one
+  sortable value.** ECR-0082 §5 rejects the first; the second is this surcharge policy with more
+  surface.
+- **Refusing every partial priority reverses ECR-0040 Problem 1**, which rejected discarding the
+  known CVSS, EPSS, threat, mission, baseline, and Trust claims merely because one owner is
+  unknown.
 
 The following are not resolutions:
 
@@ -5814,10 +5837,52 @@ The following are not resolutions:
 - weakening GC-001's strict unknown-not-favourable assertion;
 - inventing a surcharge value inside the implementation ticket.
 
-### 5. Required proof after the owner decision
+### 5. Measured bounds for `u`; candidate, not pinned
 
-1. The rule-29 discovery registry covers `ispm`, `secrets`, and `vuln`, and fails when a fourth
-   composition scorer is added without a case.
+The surviving real-estate slice contains 302 findings and 1,383 unknown factors. It reproduces
+the full corpus's diagnostic shape before any surcharge:
+
+| factors excluded | slice count | slice mean | full-corpus mean |
+|---:|---:|---:|---:|
+| 4 | 163 | 50.09 | 53.4 |
+| 5 | 103 | 31.46 | 30.3 |
+| 6 | 36 | 90.00 | 90.0 |
+
+The top five slice findings are all `90.0` and all exclude six factors. Sweeping the selected
+formula gives:
+
+| `u` | six-excluded cohort | mean by excluded (4 / 5 / 6) | thin evidence in top 20 | bands |
+|---:|---:|---|---:|---|
+| 0.00 | 4.50 | 17.5 / 4.7 / 4.5 | 0/20 | 302 Low |
+| 0.15 | 18.75 | 27.3 / 17.5 / 18.8 | 0/20 | 302 Low |
+| 0.25 | 28.25 | 33.8 / 26.0 / 28.2 | 0/20 | 289 Low, 13 Medium |
+| 0.35 | 37.75 | 40.3 / 34.5 / 37.8 | 0/20 | 211 Low, 91 Medium |
+| 0.50 | 52.00 | 50.0 / 47.2 / 52.0 | 0/20 | 302 Medium |
+| 0.75 | 75.75 | 66.3 / 68.5 / 75.8 | 20/20 | 234 Medium, 68 High |
+| 1.00 | 99.50 | 82.5 / 89.7 / 99.5 | 20/20 | 117 High, 185 Immediate |
+
+The measurement excludes two unsafe regions:
+
+- `u = 1.0` is worse than the defect it repairs: the six-excluded cohort reaches `99.5`, and
+  185 of 302 findings become Immediate.
+- `u >= 0.5` re-inverts the cohort ordering by a new mechanism. At `u = 0.5`, the
+  six-excluded cohort overtakes the four-excluded cohort; at `u = 0.75`, thin evidence occupies
+  all of the top 20.
+
+The measured useful range is approximately `0.15-0.35`. **`u = 0.25` is the candidate, not the
+policy value.** Cross-finding ordering by unknown count is product evidence, not a guarantee:
+FR-7/FR-9 remain per-finding and sibling-contribution invariance remains the central property.
+
+This slice carries **zero KEV-confirmed findings**. The July 29 4,117-finding corpus is no longer
+available, so the KEV-confirmed finding's rank cannot be measured here. Before production
+arithmetic lands, the full corpus must be regenerated with the KEV feed and this sweep rerun.
+The resulting rank is recorded, not predicted.
+
+### 6. Required proof after `u` is pinned
+
+1. The rule-29 discovery registry covers `ispm`, `secrets`, and `vuln`, records each scorer's
+   orientation as a first-class fact, and fails when a fourth composition scorer is added without
+   a case or is assigned the wrong orientation.
 2. Changing one factor to unknown leaves every sibling's normalized weight and contribution
    byte-identical.
 3. On the real `vuln` scorer, proved-safe, unknown, and proved-bad retain the owner-approved
@@ -5828,9 +5893,13 @@ The following are not resolutions:
 6. The unedited P-001 corpus is rerun. The trust-only `90.0` top-band cohort disappears, and the
    KEV-confirmed vulnerability's resulting order is recorded rather than predicted.
 
-### 6. Impact
+### 7. Impact
 
 No production arithmetic changes under this ECR alone. ECR-0082 remains Proposed and its
 implementation is blocked at the scoring-policy boundary, while its demonstrated defect remains
-open and visible. Once the owner selects the uncertainty representation, the repair may land in
-EA-0024 together with the central sibling-invariance guard and the P-001 rerun.
+open and visible. The representation is selected; the numeric policy remains unpinned until the
+full KEV-bearing corpus is regenerated and measured.
+
+When the repair is accepted, the record needs both back-pointers that the status guard cannot
+infer: ECR-0040's normalization clause amended by ECR-0082, and ECR-0082's total-score
+monotonicity property amended by ECR-0083.
