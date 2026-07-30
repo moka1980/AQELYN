@@ -697,6 +697,52 @@ answers ECR-0063's stated goal — visibility — which is what is actually unme
 decision about whether escalation should re-rank, and should not be smuggled in as an implementation
 detail of (1).
 
+### Three additions from claude.ai, two of which I verified against shipped code
+
+**1. The generalisation under the mirror — proposed as a standing rule.** ECR-0062 was a field
+*accepted and ignored*; this one is *maintained and unread*, and the second is worse in a specific
+way: **it has a passing test.**
+
+> **A test that a field holds the right value proves maintenance, not use.** *Is it read?* is the
+> question that decides whether the feature exists, and no assertion about the field can answer it.
+
+Every earlier rule in this collection is about a check that failed to catch something. This is the
+first about a check that **passes while the feature it validates has no user**. It belongs in Part 1.
+
+**2. The ECR-0082 coupling is stronger than "why it matters right now" — and I verified it.**
+
+> **ECR-0082's repair reaches only findings first raised after it. The KEV-confirmed vulnerability at
+> rank 1 of 10,173 is a property of a fresh corpus, not of the fix.**
+
+Confirmed against shipped code, both halves:
+
+- **No backfill exists.** `severity_score` is written at insert (`findings/postgres.py:182`) and is
+  **absent from the UPDATE statement by design** (`:206-215`, whose own comment says so). There is no
+  recompute, migration or re-score path anywhere in `src/`.
+- **The corpus run was all first raises.** `reporting/analyze.py:193` constructs a fresh
+  `InMemoryFindingStore` per run, so no dedup or re-emission occurred in the 10,173-finding
+  measurement at all.
+
+So ECR-0084 is not adjacent to ECR-0082 — **it is the difference between the repair applying to the
+platform and applying only to its future.** That changes the priority, and it should be stated in the
+ECR rather than left as context.
+
+**3. Option (1) hides a sub-decision, and the summary above collapses it.** *Showing* escalation and
+*ordering by* it are different things. ECR-0063 said "escalation becomes visible," which annotation
+satisfies literally — but a reader scanning a priority-ordered list **will not see a finding ranked
+400th**, whatever badge it carries.
+
+| sub-shape | effective? | cost |
+|---|---|---|
+| **annotate** — show both scores where they differ | honest, possibly useless | none |
+| **re-order in the surface** | effective | the report's order then **disagrees with the store's** |
+
+The second is defensible **if the report says so**. A report that orders by current severity and
+states that the store orders on first-seen severity is honest and useful; one that silently orders
+differently is a trap for anyone comparing the report against a query. **That disclosure is the
+condition, not a nicety** — and it is the same discipline ECR-0081 invariant 1 already imposes on
+unknowns: the caveat travels with the claim.
+
 ### Carry-forward this must not weaken
 
 - **`severity_score` stays write-once** (ECR-0062 cursor safety, C-037's cleared hazard).
