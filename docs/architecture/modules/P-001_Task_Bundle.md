@@ -134,6 +134,38 @@ factors disclosed in the headline. Not a sample, not a constructed example.
 **What it does establish:** the milestone's own acceptance mechanism was run on a named person
 rather than declared satisfied by a test suite, which is the only thing item 8 ever asked for.
 
+### Second acceptance read — the corrected report, 2026-07-30
+
+**Verdict: accepted.** Same reader (the project owner), on the report regenerated after the
+EA-0024 scoring repair (ECR-0082 + ECR-0083). **Recorded verbatim:** *"I read the corrected
+report -> accepted."*
+
+**This was a materially different artifact from the first read, and that is the point of
+recording it separately.** The first read was of an estate where 114 findings rendered
+`Immediate 90.0`. After the repair the same estate reads **10,168 Low / 5 Medium / 0 High /
+0 Immediate**, and the one KEV-confirmed exploited vulnerability is **first by score of 10,173**.
+The report a reader opens changed more between these two reads than between any two milestones.
+
+**Which artifact this record refers to.** The read is anchored to a hash rather than a
+description, because three renders exist and only one survives:
+
+| render | hash | status |
+|---|---|---|
+| 13:28 | — | reviewer-generated; **93.2% of findings failed their own visible addition**; overwritten |
+| 13:48 | `0f830239…` | summary line reconciled; the **Contribution column still did not** |
+| **14:44** | **`03d27643…`** | **current** — column, subtotal, surcharge, total and heading all reconcile |
+
+**The substance across those renders is identical** — same corpus, same engine, same 10,173
+findings, same scores, same unknown disclosures. What changed is which tenth is printed in the
+Contribution column. So the acceptance is not invalidated by the supersession, but the record
+names the artifact that still exists rather than one nobody can reproduce.
+
+**What this second record still does not claim.** The four questions were again not transcribed
+individually, and **the stranger read remains unrun** — the owner remains the weaker reader this
+section predicted, and the estate's new shape makes the stronger test more valuable, not less:
+"nothing is urgent" and "the tool found nothing" look identical to someone seeing it for the
+first time, and only the rendering distinguishes them.
+
 ## What is explicitly out of scope
 
 No server · no HTTP API · no authentication · no accounts · no multi-user operation ·

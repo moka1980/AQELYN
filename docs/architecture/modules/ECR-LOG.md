@@ -5945,7 +5945,13 @@ sibling-contribution invariance remains the central property.
    changed score, changed surcharge, changed `u`, or changed factor payload even when the
    derivation is otherwise structurally replayable.
 6. P-001 renders the surcharge as its own calculation row, including `u`, unknown raw weight,
-   and contributed points. Unknown factor rows remain truthfully `Not scored / Excluded /
+   and contributed points. **Measured residual (2026-07-30): a reader can also multiply a row's
+   own Signal x Weight and compare it to that row's Contribution; across 20,817 known factor rows
+   the worst discrepancy is 0.100 points — exactly one display unit, never more.** That is the
+   floor at one-decimal display, not a defect: Signal and Weight are each rounded before the
+   reader multiplies them, so "the column sums to the subtotal" and "every row's product is
+   exact" cannot both hold. §6.6 requires the column to sum, so the column wins. Recorded so it
+   is measured rather than rediscovered. Unknown factor rows remain truthfully `Not scored / Excluded /
    0 points`; the summary states that excluded factors do not receive factor weight but do inform
    the separate surcharge. Factor contributions plus the surcharge visibly sum to the score.
 7. Each guard is mutation-proven, including a reversion to known-only normalization, folding the
