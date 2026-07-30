@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from decimal import Decimal
 from html.parser import HTMLParser
 from pathlib import Path
@@ -10,7 +11,8 @@ from typing import Any
 
 import pytest
 
-from aqelyn.reporting.analyze import ReportInputError, analyze_collection
+from aqelyn.findings.memory import InMemoryFindingStore
+from aqelyn.reporting.analyze import ReportFinding, ReportInputError, analyze_collection
 from aqelyn.reporting.cli import main
 from aqelyn.reporting.html import render_findings_report
 
@@ -80,6 +82,68 @@ class _RenderedArithmeticParser(HTMLParser):
         elif tag == "article" and self._current_contributions is not None:
             self.contribution_columns.append(self._current_contributions)
             self._current_contributions = None
+
+
+class _EscalationAnnotationParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.annotations: list[tuple[str, tuple[str, ...]]] = []
+        self._depth = 0
+        self._text: list[str] = []
+        self._current_values: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        attributes = dict(attrs)
+        classes = set((attributes.get("class") or "").split())
+        if self._depth == 0:
+            if tag == "aside" and "severity-escalation" in classes:
+                self._depth = 1
+                self._text = []
+                self._current_values = []
+            return
+        self._depth += 1
+        current = attributes.get("data-current-severity")
+        if current is not None:
+            self._current_values.append(current)
+
+    def handle_data(self, data: str) -> None:
+        if self._depth:
+            self._text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if not self._depth:
+            return
+        self._depth -= 1
+        if self._depth == 0:
+            text = " ".join("".join(self._text).split())
+            self.annotations.append((text, tuple(self._current_values)))
+
+
+async def _reemitted_at(
+    item: ReportFinding,
+    *,
+    current_severity_score: float,
+) -> ReportFinding:
+    store = InMemoryFindingStore(mode="local")
+    first_emission = item.finding.model_copy(
+        update={"id": "", "current_severity_score": None},
+        deep=True,
+    )
+    created = await store.raise_finding(first_emission)
+    updated = await store.raise_finding(
+        first_emission.model_copy(
+            update={"severity_score": current_severity_score},
+            deep=True,
+        )
+    )
+    assert updated.id == created.id
+    assert updated.severity_score == created.severity_score
+    assert updated.current_severity_score == current_severity_score
+    return replace(item, finding=updated)
 
 
 def _match(
@@ -228,7 +292,47 @@ async def test_report_drives_real_owners_and_keeps_unknowns_beside_findings(
         assert total_points == heading
         assert sum(contributions[:-1], start=Decimal()) == rendered_known_points
         assert contributions[-1] == uncertainty_points
-        assert sum(contributions, start=Decimal()) == total_points
+    assert sum(contributions, start=Decimal()) == total_points
+
+
+@pytest.mark.asyncio
+async def test_p002_divergent_renders_current_and_disclosure(tmp_path: Path) -> None:
+    """The branch is test-reachable via re-emission but dormant in fresh aqelyn-report runs."""
+
+    _write_collection(tmp_path, include_rejected=False)
+    analysis = await analyze_collection(tmp_path)
+    item = await _reemitted_at(
+        analysis.findings[0],
+        current_severity_score=0.876,
+    )
+
+    rendered = render_findings_report(replace(analysis, findings=(item,)))
+    parser = _EscalationAnnotationParser()
+    parser.feed(rendered)
+
+    assert len(parser.annotations) == 1
+    annotation_text, current_values = parser.annotations[0]
+    assert current_values == ("87.6",)
+    assert annotation_text.count("87.6") == 1
+    assert "This priority is the severity recorded when the finding was first raised." in (
+        annotation_text
+    )
+    assert "does not change the priority or its position in this list." in annotation_text
+
+
+@pytest.mark.asyncio
+async def test_p002_equal_renders_neither(tmp_path: Path) -> None:
+    _write_collection(tmp_path, include_rejected=False)
+    analysis = await analyze_collection(tmp_path)
+    assert all(
+        item.finding.current_severity_score == item.finding.severity_score
+        for item in analysis.findings
+    )
+
+    parser = _EscalationAnnotationParser()
+    parser.feed(render_findings_report(analysis))
+
+    assert parser.annotations == []
 
 
 @pytest.mark.asyncio
