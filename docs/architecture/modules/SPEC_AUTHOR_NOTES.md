@@ -596,3 +596,112 @@ Recommended C-034 shape:
 - EA-0013 equal-timestamp ordering tie-breaker.
 
 They remain real, but they are not evidence for a CAEM module and do not belong in C-034.
+
+---
+
+## ECR-0084 candidate — `current_severity_score` is maintained and never read
+
+**Raised by:** Claude Code (reviewer), 2026-07-30, on `main` @3d34c56, immediately after the
+EA-0024 scoring repair (ECR-0082 + ECR-0083) shipped.
+
+**Self-contained by design:** claude.ai cannot grep this repo, so every count, path and signature
+below was run against shipped `src/` and is quoted inline. Nothing here says "see the repo."
+
+### The finding
+
+**ECR-0063 shipped `current_severity_score` so that "escalation becomes visible."** It is written
+faithfully on every re-emission and seeded on first raise. **Nothing reads it.**
+
+Every reference in the repository, by file:
+
+```
+src/aqelyn/findings/postgres.py   7   persistence
+src/aqelyn/findings/ddl.py        5   schema
+src/aqelyn/findings/memory.py     4   persistence
+src/aqelyn/findings/models.py     2   the field itself
+tests/conformance/
+  test_finding_cursor_contract.py 4   asserts the column holds the right number
+docs/.../ECR-LOG.md               2   ECR-0063 itself
+```
+
+**Zero consumers outside the `findings` package.** No engine, no service, no query filter, no
+ordering, no report. `grep -rn current_severity_score src/ | grep -v findings/` returns nothing,
+and `reporting/` — the one surface a person actually reads — never mentions it.
+
+### What that costs, demonstrated on the real stores
+
+Two findings; A is raised at 30.0 and re-emitted at 88.0, B is raised once at 60.0:
+
+```
+finding A: severity_score=30.0   current_severity_score=88.0
+
+ranking order returned by FindingStore.query:
+   B   ranks on 60.0   (current = 60.0)
+   A   ranks on 30.0   (current = 88.0)
+
+A is the most severe finding in the store and ranks last.
+```
+
+Both backends order on the **frozen** key — `findings/postgres.py:353`
+(`ORDER BY severity_score DESC, id LIMIT $n`) and `findings/memory.py:152`
+(`rows.sort(key=lambda x: (-x.severity_score, x.id))`) — and the ECR-0062 cursor encodes it, and
+`ix_finding_status_sev` indexes it. **The escalated number exists in the row and cannot influence
+any ordering or reach any surface.**
+
+### Why this is the ECR-0013 / ECR-0062 family, one more time
+
+ECR-0062 found `FindingQuery.cursor` **accepted and ignored**. This is the mirror image: a field
+**maintained and unread**. Same defect class — a contract that looks honoured because the value is
+correct, while nothing consumes it — and this project has now shipped it three times.
+
+**ECR-0063's own words are the test:** *"escalation becomes visible."* Visible to whom? Today, only
+to a conformance test asserting the column holds the right number. That is a test verifying the
+implementation of a feature that has no user.
+
+### Why it matters now specifically, and why it is still LATENT not live
+
+`current_severity_score` is exactly where a corrected score lands for a finding raised **before**
+the EA-0024 repair. So the four-ECR repair that just made the KEV-confirmed vulnerability rank 1 of
+10,173 **does not reach findings already raised** — they keep ranking on the pre-repair, inverted
+score forever, while the corrected value sits unread in the adjacent column.
+
+**Do not dramatise it.** There is no deployment with persisted findings yet: P-001 builds findings
+in-memory per run, so every finding today is a first raise and `current == severity` always. It
+becomes live the moment a store persists across runs **and** any finding re-emits with a changed
+score — which includes every finding that survives a scoring change. Per the C-041 precedent this
+is *a record for the first deployment, not a communication, since there are none.*
+
+### The decision this needs, which is the owner's, not the implementer's
+
+ECR-0063 chose option 3 deliberately, and **its reasoning still holds**: `severity_score` must stay
+write-once because the ECR-0062 cursor keys on it, and a mutable sort key reopens skip/duplicate
+hazards that C-037 closed. So *"just order by the current score"* is not available without
+reopening closed work. The real question is narrower:
+
+> **What is `current_severity_score` for, and which surface is supposed to show it?**
+
+Three shapes, none of them free:
+
+1. **A surface reads it** — P-001 renders escalation beside the rank ("ranked on 30.0, now assessed
+   at 88.0"), and no ordering changes. Cheapest, honest, and fits the P-track's whole thesis of
+   showing what the number does not say. Does not fix ordering.
+2. **A second ordering** — an escalation-ordered query alongside the severity-ordered one, with its
+   own cursor keyed on a stable tuple. Fixes ranking; costs a second index and a second cursor
+   contract, and `current_severity_score` is mutable so the ECR-0062 analysis has to be redone
+   against it, not assumed.
+3. **Re-emission raises a new finding** rather than mutating one — ordering follows for free, at the
+   cost of dedup semantics EA-0003 chose on purpose.
+
+**Recommendation: (1) first**, because it is the only one that adds no new ordering contract and it
+answers ECR-0063's stated goal — visibility — which is what is actually unmet. (2) is a separate
+decision about whether escalation should re-rank, and should not be smuggled in as an implementation
+detail of (1).
+
+### Carry-forward this must not weaken
+
+- **`severity_score` stays write-once** (ECR-0062 cursor safety, C-037's cleared hazard).
+- **Do not add a second mutable sort key** without redoing the ECR-0062 skip/duplicate analysis
+  against it; `status` is already a mutable *predicate* on the leading index column, and that
+  residual is recorded, not fixed.
+- **Anything P-001 renders must sum and reconcile** — three passes were needed on ECR-0083 §6.6, and
+  the measured floor is one display unit at one-decimal display.
