@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 from collections.abc import Mapping
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
 from aqelyn.reporting.analyze import CollectionAnalysis, ReportFinding
@@ -174,15 +174,25 @@ def _finding(item: ReportFinding, index: int) -> str:
         if unknowns
         else '<li class="known-complete">No scoring factor is unknown for this finding.</li>'
     )
-    factor_rows = "\n".join(
-        _factor_row(name, factor)
-        for name, factor in priority.factors.items()
-        if isinstance(factor, Mapping)
-    )
     surcharge = priority.uncertainty_surcharge
-    known_points_text, surcharge_points_text, total_points_text = _display_score_arithmetic(
+    (
+        factor_contribution_text,
+        known_points_text,
+        surcharge_points_text,
+        total_points_text,
+    ) = _display_score_arithmetic(
+        factors=priority.factors,
         total_points=priority.score,
         uncertainty_points=surcharge.contribution,
+    )
+    factor_rows = "\n".join(
+        _factor_row(
+            name,
+            factor,
+            contribution_text=factor_contribution_text.get(name),
+        )
+        for name, factor in priority.factors.items()
+        if isinstance(factor, Mapping)
     )
     surcharge_row = _uncertainty_surcharge_row(
         rate=surcharge.rate,
@@ -294,7 +304,12 @@ def _finding(item: ReportFinding, index: int) -> str:
     """
 
 
-def _factor_row(name: str, factor: Mapping[str, Any]) -> str:
+def _factor_row(
+    name: str,
+    factor: Mapping[str, Any],
+    *,
+    contribution_text: str | None,
+) -> str:
     status = str(factor.get("status", "unknown"))
     reason = str(factor.get("reason", "No reason recorded."))
     source = str(factor.get("source", "No source recorded."))
@@ -304,9 +319,11 @@ def _factor_row(name: str, factor: Mapping[str, Any]) -> str:
         contribution = "0 points"
         row_class = "factor-unknown"
     else:
+        if contribution_text is None:
+            raise ValueError(f"known factor {name!r} has no displayed contribution")
         signal = f"{_number(factor.get('value')) * 100:.1f}/100"
         weight = f"{_number(factor.get('weight')) * 100:.1f}%"
-        contribution = f"{_number(factor.get('contribution')) * 100:.1f} points"
+        contribution = f"{contribution_text} points"
         row_class = "factor-known"
     return f"""
     <tr class="{row_class}">
@@ -350,13 +367,60 @@ def _uncertainty_surcharge_row(
 
 def _display_score_arithmetic(
     *,
+    factors: Mapping[str, Any],
     total_points: float,
     uncertainty_points: float,
-) -> tuple[str, str, str]:
+) -> tuple[dict[str, str], str, str, str]:
+    """Round displayed terms as one reconciled largest-remainder allocation."""
+
     total = Decimal(f"{total_points:.1f}")
     uncertainty = Decimal(f"{uncertainty_points:.1f}")
     known = total - uncertainty
-    return (f"{known:.1f}", f"{uncertainty:.1f}", f"{total:.1f}")
+    if known < 0:
+        raise ValueError("displayed uncertainty exceeds the displayed score")
+
+    raw_contributions = [
+        (
+            name,
+            Decimal(str(_number(factor.get("contribution")))) * Decimal(100),
+        )
+        for name, factor in factors.items()
+        if isinstance(factor, Mapping) and factor.get("status") == "known"
+    ]
+    target_tenths = int(known * 10)
+    raw_total = sum((value for _, value in raw_contributions), start=Decimal())
+    if raw_total == 0:
+        if target_tenths != 0:
+            raise ValueError("nonzero displayed known subtotal has no factor contributions")
+        allocations = [0 for _ in raw_contributions]
+    else:
+        exact_tenths = [
+            value * Decimal(target_tenths) / raw_total for _, value in raw_contributions
+        ]
+        allocations = [int(value.to_integral_value(rounding=ROUND_FLOOR)) for value in exact_tenths]
+        remaining = target_tenths - sum(allocations)
+        if not 0 <= remaining < len(allocations):
+            raise ValueError("displayed factor contributions cannot be reconciled")
+        by_largest_remainder = sorted(
+            range(len(exact_tenths)),
+            key=lambda index: (
+                -(exact_tenths[index] - Decimal(allocations[index])),
+                index,
+            ),
+        )
+        for index in by_largest_remainder[:remaining]:
+            allocations[index] += 1
+
+    displayed_factors = {
+        name: f"{Decimal(tenths) / Decimal(10):.1f}"
+        for (name, _), tenths in zip(raw_contributions, allocations, strict=True)
+    }
+    return (
+        displayed_factors,
+        f"{known:.1f}",
+        f"{uncertainty:.1f}",
+        f"{total:.1f}",
+    )
 
 
 def _rejected_matches(analysis: CollectionAnalysis) -> str:

@@ -20,7 +20,9 @@ class _RenderedArithmeticParser(HTMLParser):
         super().__init__()
         self.score_headings: list[Decimal] = []
         self.arithmetic: list[list[Decimal]] = []
+        self.contribution_columns: list[list[Decimal]] = []
         self._current_arithmetic: list[Decimal] | None = None
+        self._current_contributions: list[Decimal] | None = None
         self._capture: str | None = None
         self._capture_text: list[str] = []
         self._next_score_strong = False
@@ -33,8 +35,17 @@ class _RenderedArithmeticParser(HTMLParser):
         classes = set((dict(attrs).get("class") or "").split())
         if tag == "div" and "score-block" in classes:
             self._next_score_strong = True
+        elif tag == "article" and "finding" in classes:
+            self._current_contributions = []
         elif tag == "p" and "calculation-total" in classes:
             self._current_arithmetic = []
+        elif (
+            tag == "td"
+            and dict(attrs).get("data-label") == "Contribution"
+            and self._current_contributions is not None
+        ):
+            self._capture = "contribution"
+            self._capture_text = []
         elif tag == "strong":
             if self._next_score_strong:
                 self._capture = "score"
@@ -57,9 +68,18 @@ class _RenderedArithmeticParser(HTMLParser):
                 self._current_arithmetic.append(value)
             self._capture = None
             self._capture_text = []
+        elif tag == "td" and self._capture == "contribution":
+            value = Decimal("".join(self._capture_text).strip().removesuffix(" points"))
+            if self._current_contributions is not None:
+                self._current_contributions.append(value)
+            self._capture = None
+            self._capture_text = []
         elif tag == "p" and self._current_arithmetic is not None:
             self.arithmetic.append(self._current_arithmetic)
             self._current_arithmetic = None
+        elif tag == "article" and self._current_contributions is not None:
+            self.contribution_columns.append(self._current_contributions)
+            self._current_contributions = None
 
 
 def _match(
@@ -195,15 +215,20 @@ async def test_report_drives_real_owners_and_keeps_unknowns_beside_findings(
     arithmetic.feed(rendered)
     assert len(arithmetic.score_headings) == len(analysis.findings)
     assert len(arithmetic.arithmetic) == len(analysis.findings)
-    for heading, terms in zip(
+    assert len(arithmetic.contribution_columns) == len(analysis.findings)
+    for heading, terms, contributions in zip(
         arithmetic.score_headings,
         arithmetic.arithmetic,
+        arithmetic.contribution_columns,
         strict=True,
     ):
         assert len(terms) == 3
         rendered_known_points, uncertainty_points, total_points = terms
         assert rendered_known_points + uncertainty_points == total_points
         assert total_points == heading
+        assert sum(contributions[:-1], start=Decimal()) == rendered_known_points
+        assert contributions[-1] == uncertainty_points
+        assert sum(contributions, start=Decimal()) == total_points
 
 
 @pytest.mark.asyncio
