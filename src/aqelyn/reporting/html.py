@@ -217,6 +217,10 @@ def _finding(item: ReportFinding, index: int) -> str:
     remediation_steps = "\n".join(f"<li>{_e(step)}</li>" for step in finding.remediation.steps)
     priority_class = _priority_class(priority.priority)
     score_width = max(0.0, min(100.0, priority.score))
+    escalation_html = _escalation_annotation(
+        first_seen=finding.severity_score,
+        current=finding.current_severity_score,
+    )
     knowledge = "unknown" if unknowns else "complete"
     exploited = "yes" if item.has_known_exploitation else "no"
     return f"""
@@ -232,10 +236,13 @@ def _finding(item: ReportFinding, index: int) -> str:
           <h2>{_e(finding.title)}</h2>
           <p class="asset-ref">{_e(vulnerability.asset_ref.ref_id)}</p>
         </div>
-        <div class="score-block" aria-label="Priority score {total_points_text} out of 100">
-          <strong>{total_points_text}</strong>
-          <span>of 100</span>
-          <div class="score-track"><span style="width:{score_width:.3f}%"></span></div>
+        <div class="finding-score">
+          <div class="score-block" aria-label="Priority score {total_points_text} out of 100">
+            <strong>{total_points_text}</strong>
+            <span>of 100</span>
+            <div class="score-track"><span style="width:{score_width:.3f}%"></span></div>
+          </div>
+          {escalation_html}
         </div>
       </div>
 
@@ -301,6 +308,24 @@ def _finding(item: ReportFinding, index: int) -> str:
         </section>
       </div>
     </article>
+    """
+
+
+def _escalation_annotation(*, first_seen: float, current: float | None) -> str:
+    # P-002 dormancy: aqelyn-report uses a fresh store per run, so shipped reports cannot
+    # reach this branch until findings persist. Tests exercise the real re-emission path.
+    if current is None or current == first_seen:
+        return ""
+    current_text = f"{current * 100.0:.1f}"
+    return f"""
+    <aside class="severity-escalation" data-severity-escalation>
+      <p>
+        This priority is the severity recorded when the finding was first raised.
+        Its current severity is
+        <strong data-current-severity="{current_text}">{current_text}</strong>, which does
+        not change the priority or its position in this list.
+      </p>
+    </aside>
     """
 
 
@@ -647,6 +672,14 @@ main, footer {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.finding-score {
+  flex: 0 1 auto;
+  min-width: 118px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: start;
+  gap: 18px;
+}
 .score-block { flex: 0 0 118px; text-align: right; }
 .score-block strong { display: block; font-size: 29px; line-height: 1; }
 .score-block > span { color: var(--muted); font-size: 12px; }
@@ -658,6 +691,18 @@ main, footer {
   overflow: hidden;
 }
 .score-track span { display: block; height: 100%; background: var(--teal); }
+.severity-escalation {
+  width: min(280px, 30vw);
+  padding: 10px 12px;
+  color: #5b3900;
+  background: var(--soft-amber);
+  border-left: 3px solid var(--amber);
+  text-align: left;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.severity-escalation p { margin: 0; }
+.severity-escalation strong { color: var(--red); }
 .finding-body { padding: 0 24px 24px; }
 .finding-body > section { padding: 20px 0; border-bottom: 1px solid var(--line); }
 .finding-body > section:last-child { border-bottom: 0; padding-bottom: 0; }
@@ -812,8 +857,10 @@ footer p { margin: 4px 0; }
   .toolbar { grid-template-columns: 1fr; }
   .search-control { grid-column: auto; }
   .finding-lead { padding: 18px; flex-direction: column; }
+  .finding-score { width: 100%; flex-direction: column; align-items: stretch; }
   .score-block { width: 100%; flex-basis: auto; text-align: left; }
   .score-track { width: 100%; }
+  .severity-escalation { width: 100%; }
   .finding-body { padding: 0 18px 18px; }
   .unknown-section { margin: 0 -18px; padding: 18px !important; }
   .unknown-section li { grid-template-columns: 1fr; }
