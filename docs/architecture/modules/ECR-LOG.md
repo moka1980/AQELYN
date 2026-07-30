@@ -6041,8 +6041,10 @@ confirms the use.
 > not use.* ***Is it read?*** *is the question that decides whether the feature exists, and
 > no assertion about the field can answer it.*
 
-**Every earlier rule in this collection concerns a check that failed to catch something.
-This is the first about a check that passes while the feature it validates has no user.**
+**Rule 24 is adjacent but different:** it asks whether a control can ever falsify its
+assertion. Here the check is sound and its assertion is true - the field is maintained - but
+it proves maintenance, not consumption. **The missing property is a consumer, not a failing
+control.**
 
 **It has a mechanical form**, which matters because reading-based checks have failed
 repeatedly here: `grep -rn <field> src/ | grep -v <owning package>` returning nothing **is**
