@@ -88,6 +88,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
 | ECR-0082 | EA-0024 (+ GC) | Accepted | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
 | ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
+| ECR-0084 | EA-0013 / `findings` | Proposed | **`current_severity_score` is maintained and never read.** Decides whether ECR-0082's repair reaches existing findings. |
 
 ---
 
@@ -5980,3 +5981,168 @@ Priorities already persisted into findings by `_finding_for_priority` carry thei
 they are affected too. This is correct fail-closed behaviour — a priority computed under a
 different policy must not silently produce a remediation plan — but it makes revisiting `u` a
 **data-migration event, not a configuration change.**
+
+## ECR-0084 - `current_severity_score` is maintained and never read
+
+**Raised by:** the reviewer, 2026-07-30, immediately after the EA-0024 scoring repair
+(ECR-0082 + ECR-0083) shipped.
+**Status:** Proposed - **the decision is the owner's**, not the implementer's.
+**Severity:** **latent** today; **it decides whether ECR-0082's repair applies to the
+platform or only to its future** (§4).
+**Number:** next free per the reviewer; **re-check `ECR-LOG.md` before merging** (rule 1).
+
+### 1. The finding
+
+**ECR-0063 shipped `current_severity_score` so that "escalation becomes visible."** It is
+seeded on first raise and written faithfully on every re-emission. **Nothing reads it.**
+
+Every reference in `src/` and `tests/`:
+
+| file | refs | kind |
+|---|---|---|
+| `findings/postgres.py` | 7 | persistence |
+| `findings/ddl.py` | 5 | schema |
+| `findings/memory.py` | 4 | persistence |
+| `findings/models.py` | 2 | the field itself |
+| `tests/conformance/test_finding_cursor_contract.py` | 4 | **asserts the column holds the right number** |
+
+**Zero consumers outside the `findings` package** - no engine, no service, no query filter,
+no ordering, no report. **`reporting/` - the one surface a person actually reads - never
+mentions it.**
+
+### 2. What that costs, on the real stores
+
+```
+finding A: severity_score = 30.0   current_severity_score = 88.0
+finding B: severity_score = 60.0   current_severity_score = 60.0
+
+FindingStore.query returns:   B (ranks on 60.0)
+                              A (ranks on 30.0)   <- most severe, ranked last
+```
+
+Both backends order on the **frozen** key - `findings/postgres.py:353`
+(`ORDER BY severity_score DESC, id`) and `findings/memory.py:152` - the ECR-0062 cursor
+encodes it, and `ix_finding_status_sev_id` indexes it.
+
+> **The escalated number exists in the row and cannot influence any ordering or reach any
+> surface.**
+
+### 3. The family, third time - and a rule of a kind this collection does not have
+
+**ECR-0062** found `FindingQuery.cursor` **accepted and ignored**. This is the **mirror
+image**: a field **maintained and unread**. Same class - a contract that looks honoured
+because the value is correct, while nothing consumes it.
+
+**And the mirror is worse in one specific way: it has a passing test.** A conformance test
+asserts the column holds the right number, so CI confirms the maintenance while nothing
+confirms the use.
+
+> **Proposed standing rule.** *A test that a field holds the right value proves maintenance,
+> not use.* ***Is it read?*** *is the question that decides whether the feature exists, and
+> no assertion about the field can answer it.*
+
+**Rule 24 is adjacent but different:** it asks whether a control can ever falsify its
+assertion. Here the check is sound and its assertion is true - the field is maintained - but
+it proves maintenance, not consumption. **The missing property is a consumer, not a failing
+control.**
+
+**It has a mechanical form**, which matters because reading-based checks have failed
+repeatedly here: `grep -rn <field> src/ | grep -v <owning package>` returning nothing **is**
+the finding. **GC candidate**, in the discovery-not-declaration form - enumerate persisted
+fields, assert each has a consumer outside its owning package, with an **allow-list carrying
+a reason per entry** for the fields that legitimately have none (internal bookkeeping).
+Raised, not folded in.
+
+### 4. The coupling to ECR-0082 - this changes the priority
+
+> **ECR-0082's repair reaches only findings first raised after it. The KEV-confirmed
+> vulnerability at rank 1 of 10,173 is a property of a fresh corpus, not of the fix.**
+
+**Verified against shipped code, both halves:**
+
+- **No backfill exists.** `severity_score` is written at insert
+  (`findings/postgres.py:182`) and is **absent from the UPDATE statement by design**
+  (`:206-215`, whose own comment says so). **No recompute, migration or re-score path exists
+  anywhere in `src/`.**
+- **The corpus run was all first raises.** `reporting/analyze.py:193` constructs a fresh
+  `InMemoryFindingStore` per run, so the 10,173-finding measurement contained **zero dedup or
+  re-emission.**
+
+So a finding raised before the repair keeps its pre-repair, inverted score **forever**, while
+the corrected value sits unread in the adjacent column.
+
+**ECR-0084 is therefore not adjacent to ECR-0082 - it is the difference between the repair
+applying to the platform and applying only to its future.**
+
+### 5. Latent - and precisely what kind of latent
+
+**Do not dramatise it.** P-001 builds findings in-memory per run, so every finding today is a
+first raise and `current == severity` always. It becomes live the moment a store **persists
+across runs** *and* any finding **re-emits with a changed score** - which includes every
+finding that survives a scoring change.
+
+**But it is not a `FIRST_DEPLOYMENT_ITEMS` entry, and the distinction matters.** Rule 25's
+corollary records the prior mis-filing (`SPEC_AUTHOR_NOTES.md:260-264`):
+
+| | |
+|---|---|
+| **registry items** | questions whose **answer** requires a deployment - budget tuning, index seek-vs-filter, migration sequencing |
+| **this** | a **defect** whose **manifestation** requires one |
+
+**The answer is knowable now.** Filing it as deployment-gated would defer a decision that
+nothing prevents making today. Per the C-041 precedent this is **a record for the first
+deployment, not a communication, since there are none.**
+
+### 6. The decision, which is the owner's
+
+**ECR-0063 chose option 3 deliberately and its reasoning still holds.** `severity_score` must
+stay **write-once** because the ECR-0062 cursor keys on it, and a mutable sort key reopens the
+skip/duplicate hazard C-037 closed. **So *"just order by the current score"* is not available
+without reopening closed work.**
+
+**The real question is narrower:**
+
+> **What is `current_severity_score` for, and which surface is supposed to show it?**
+
+| shape | fixes | costs |
+|---|---|---|
+| **(1) a surface reads it** | **visibility** - P-001 renders escalation beside the rank | none; **does not fix ordering** |
+| **(1b) + an escalation filter** | *"what has got worse?"* as a query predicate, **not** a sort key | an index; inherits the mutable-**predicate** phase-change already recorded for `status` |
+| **(2) a second ordering** | **ranking** | a second index **and** a second cursor contract on a mutable key; the shipped ECR-0062 OR keyset is already measured non-seeking (28,500 rows filtered / 29,366 buffers / 18.2 ms versus 0 / 6 / 0.156 ms for row comparison + all-DESC), so the cursor/index design must be **redone, not copied** |
+| **(3) re-emission raises a new finding** | ordering, free | dedup semantics EA-0003 chose on purpose |
+
+**Recommendation: (1) first**, optionally with **(1b)**. It adds no new ordering contract and
+it answers ECR-0063's stated goal - **visibility - which is what is actually unmet.**
+
+**And the cost of (2) is not the index.** It is that **ranking is a claim about priority, and
+two rankings is no ranking**: nothing would say which is authoritative, and a reader comparing
+them has no rule. **That is a worse state than one wrong ordering**, and it is why (2) is a
+separate decision rather than an implementation detail of (1).
+
+### 7. Option (1) hides a sub-decision, and disclosure is its condition
+
+***Showing*** escalation and ***ordering by*** it are different things. ECR-0063 said
+*"escalation becomes visible,"* which annotation satisfies **literally** - but **a reader
+scanning a priority-ordered list will not see a finding ranked 400th**, whatever badge it
+carries.
+
+| sub-shape | effective? | cost |
+|---|---|---|
+| **annotate** - show both scores where they differ | honest, **possibly useless** | none |
+| **re-order in the surface** | **effective** | the report's order then **disagrees with the store's** |
+
+**The second is defensible if the report says so.** A report that orders by current severity
+**and states that the store orders on first-seen severity** is honest and useful; one that
+silently orders differently is **a trap** for anyone comparing the report against a query.
+
+**That disclosure is the condition, not a nicety** - and it is the same discipline **ECR-0081
+invariant 1** already imposes on unknowns: **the caveat travels with the claim.**
+
+### 8. Carry-forward this must not weaken
+
+- **`severity_score` stays write-once** (ECR-0062 cursor safety; C-037's cleared hazard).
+- **No second mutable sort key** without redoing the ECR-0062 skip/duplicate analysis
+  **against it**. `status` is already a mutable *predicate* on the leading index column, and
+  that residual is **recorded, not fixed**.
+- **Anything P-001 renders must sum and reconcile** - three passes were needed on ECR-0083
+  §6.6, and the measured floor is **one display unit at one-decimal display**.
