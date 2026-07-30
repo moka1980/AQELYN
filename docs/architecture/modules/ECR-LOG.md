@@ -5996,7 +5996,7 @@ platform or only to its future** (§4).
 **ECR-0063 shipped `current_severity_score` so that "escalation becomes visible."** It is
 seeded on first raise and written faithfully on every re-emission. **Nothing reads it.**
 
-Every reference in the repository:
+Every reference in `src/` and `tests/`:
 
 | file | refs | kind |
 |---|---|---|
@@ -6005,7 +6005,6 @@ Every reference in the repository:
 | `findings/memory.py` | 4 | persistence |
 | `findings/models.py` | 2 | the field itself |
 | `tests/conformance/test_finding_cursor_contract.py` | 4 | **asserts the column holds the right number** |
-| `ECR-LOG.md` | 2 | ECR-0063 itself |
 
 **Zero consumers outside the `findings` package** - no engine, no service, no query filter,
 no ordering, no report. **`reporting/` - the one surface a person actually reads - never
@@ -6023,7 +6022,7 @@ FindingStore.query returns:   B (ranks on 60.0)
 
 Both backends order on the **frozen** key - `findings/postgres.py:353`
 (`ORDER BY severity_score DESC, id`) and `findings/memory.py:152` - the ECR-0062 cursor
-encodes it, and `ix_finding_status_sev` indexes it.
+encodes it, and `ix_finding_status_sev_id` indexes it.
 
 > **The escalated number exists in the row and cannot influence any ordering or reach any
 > surface.**
@@ -6080,8 +6079,8 @@ first raise and `current == severity` always. It becomes live the moment a store
 across runs** *and* any finding **re-emits with a changed score** - which includes every
 finding that survives a scoring change.
 
-**But it is not a `FIRST_DEPLOYMENT_ITEMS` entry, and the distinction matters** because that
-registry was mis-used once already:
+**But it is not a `FIRST_DEPLOYMENT_ITEMS` entry, and the distinction matters.** Rule 25's
+corollary records the prior mis-filing (`SPEC_AUTHOR_NOTES.md:260-264`):
 
 | | |
 |---|---|
@@ -6107,7 +6106,7 @@ without reopening closed work.**
 |---|---|---|
 | **(1) a surface reads it** | **visibility** - P-001 renders escalation beside the rank | none; **does not fix ordering** |
 | **(1b) + an escalation filter** | *"what has got worse?"* as a query predicate, **not** a sort key | an index; inherits the mutable-**predicate** phase-change already recorded for `status` |
-| **(2) a second ordering** | **ranking** | a second index **and** a second cursor contract - and `current_severity_score` is **mutable**, so the ECR-0062 analysis must be **redone against it, not assumed** |
+| **(2) a second ordering** | **ranking** | a second index **and** a second cursor contract on a mutable key; the shipped ECR-0062 OR keyset is already measured non-seeking (28,500 rows filtered / 29,366 buffers / 18.2 ms versus 0 / 6 / 0.156 ms for row comparison + all-DESC), so the cursor/index design must be **redone, not copied** |
 | **(3) re-emission raises a new finding** | ordering, free | dedup semantics EA-0003 chose on purpose |
 
 **Recommendation: (1) first**, optionally with **(1b)**. It adds no new ordering contract and
