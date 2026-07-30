@@ -66,11 +66,13 @@ def test_vuln_replay_survives_precision_adversarial_factors(seed: float) -> None
     }
 
     score, payload = vuln_engine._compose_score(record, factors=factors, config=VulnConfig())
-    derivation = vuln_engine._priority_derivation(
-        record, score=score, priority="high", factors=payload
-    )
+    derivation = vuln_engine._priority_derivation(record, factors=payload)
 
-    replayed = vuln_engine._score_from_replay(replay(derivation))
+    replayed_result = replay(
+        derivation,
+        registry=vuln_engine.vulnerability_operation_registry(),
+    )
+    replayed = float(replayed_result["score"])
 
     assert abs(replayed - score) <= vuln_engine._SCORE_TOLERANCE, (
         f"replay produced {replayed!r} for a composed {score!r} -- "
@@ -93,16 +95,16 @@ def test_vuln_replay_precision_boundary_is_the_documented_one() -> None:
     assert abs(faithful - percentage) <= vuln_engine._SCORE_TOLERANCE
 
 
-def test_ecr0065_sweep_the_other_three_composers_store_inputs_not_outputs() -> None:
+def test_ecr0065_composer_replay_stores_inputs_not_rederived_outputs() -> None:
     """The sweep across the four replay-validated composers, answered structurally.
 
     The distinguishing feature is **what the derivation stores**, not how many digits
     it keeps:
 
-    * `vuln` stored a **re-derived output** -- `round(score / 100.0, 6)`, obtained by
-      dividing the finished percentage back down. That is a second, different
-      computation, and it is what made replay round-then-scale where composition
-      scales-then-rounds. **This was the defect.**
+    * `vuln` formerly stored a **re-derived output** -- `round(score / 100.0, 6)`,
+      obtained by dividing the finished percentage back down. ECR-0083 replaced that
+      self-reference with the factor inputs and surcharge policy, so its registered
+      operation now recomputes the same score as composition.
     * `ispm` (`scoring.py:167-172`) and `secrets` (`scoring.py:189-195`) store their
       **inputs** -- `known_only_score`, `coverage_adjustment`, `known_weight` -- and
       the replay op recomputes the same single expression, rounding once. Mirroring
@@ -121,7 +123,7 @@ def test_ecr0065_sweep_the_other_three_composers_store_inputs_not_outputs() -> N
     percentage = 30.763625
     known_only, coverage = 0.61527250, 0.5
 
-    # The ispm/secrets shape: recompute from stored inputs, round once.
+    # The vuln/ispm/secrets shape: recompute from stored inputs, round once.
     from_inputs = round(known_only * coverage * 100.0, 6)
     # The vuln shape as it was: divide the output back down, round, scale back up.
     from_output = round(round(percentage / 100.0, 6) * 100.0, 6)

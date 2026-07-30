@@ -252,6 +252,43 @@ class VulnerabilityRecord(BaseModel):
         return value
 
 
+class VulnerabilityUncertaintySurcharge(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rate: float
+    unknown_weight: float
+    contribution: float
+
+    @field_validator("rate", mode="before")
+    @classmethod
+    def _rate(cls, value: object) -> float:
+        selected = _unit(value, field="uncertainty surcharge rate")
+        if selected <= 0.0 or selected >= 0.5:
+            raise VulnConfigInvalid(
+                "uncertainty surcharge rate must be greater than 0 and below 0.5"
+            )
+        return selected
+
+    @field_validator("unknown_weight", mode="before")
+    @classmethod
+    def _unknown_weight(cls, value: object) -> float:
+        return _unit(value, field="uncertainty surcharge unknown weight")
+
+    @field_validator("contribution", mode="before")
+    @classmethod
+    def _contribution(cls, value: object) -> float:
+        return _bounded_score(value, field="uncertainty surcharge contribution")
+
+    @model_validator(mode="after")
+    def _consistent(self) -> VulnerabilityUncertaintySurcharge:
+        expected = round(self.rate * self.unknown_weight * 100.0, 6)
+        if not math.isclose(self.contribution, expected, rel_tol=0.0, abs_tol=1e-6):
+            raise VulnConfigInvalid(
+                "uncertainty surcharge contribution does not match rate and unknown weight"
+            )
+        return self
+
+
 class VulnPriority(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -261,6 +298,7 @@ class VulnPriority(BaseModel):
     score: float
     priority: str
     factors: dict[str, Any]
+    uncertainty_surcharge: VulnerabilityUncertaintySurcharge
     confidence: float
     derivation: Derivation
     rationale: str

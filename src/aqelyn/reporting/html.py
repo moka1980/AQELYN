@@ -178,6 +178,13 @@ def _finding(item: ReportFinding, index: int) -> str:
         for name, factor in priority.factors.items()
         if isinstance(factor, Mapping)
     )
+    known_contribution = sum(_number(factor.get("contribution")) * 100.0 for _, factor in knowns)
+    surcharge = priority.uncertainty_surcharge
+    surcharge_row = _uncertainty_surcharge_row(
+        rate=surcharge.rate,
+        unknown_weight=surcharge.unknown_weight,
+        contribution=surcharge.contribution,
+    )
     derivation_steps = "\n".join(
         f"""
         <li>
@@ -236,9 +243,15 @@ def _finding(item: ReportFinding, index: int) -> str:
         <section class="factor-section">
           <h3>Why this priority?</h3>
           <p class="calculation-summary">
-            Known factors were reweighted across the available evidence:
-            <strong>{_e(known_names)}</strong>. Excluded from the calculation:
-            <strong>{_e(excluded_names)}</strong>.
+            Known factors keep their configured share:
+            <strong>{_e(known_names)}</strong>. Unknown factors receive no factor weight:
+            <strong>{_e(excluded_names)}</strong>; their raw weight informs the separate
+            uncertainty surcharge.
+          </p>
+          <p class="calculation-total">
+            <strong>{known_contribution:.1f}</strong> known-factor points +
+            <strong>{surcharge.contribution:.1f}</strong> uncertainty points =
+            <strong>{priority.score:.1f}</strong> total points.
           </p>
           <div class="table-wrap">
             <table>
@@ -248,7 +261,7 @@ def _finding(item: ReportFinding, index: int) -> str:
                   <th>Contribution</th><th>Reason</th>
                 </tr>
               </thead>
-              <tbody>{factor_rows}</tbody>
+              <tbody>{factor_rows}{surcharge_row}</tbody>
             </table>
           </div>
           <details class="derivation">
@@ -306,6 +319,31 @@ def _factor_row(name: str, factor: Mapping[str, Any]) -> str:
     """
 
 
+def _uncertainty_surcharge_row(
+    *,
+    rate: float,
+    unknown_weight: float,
+    contribution: float,
+) -> str:
+    status = "Applied" if unknown_weight > 0.0 else "Not applied"
+    return f"""
+    <tr class="factor-surcharge">
+      <th scope="row">
+        <span>Uncertainty surcharge</span>
+        <small>EA-0024 typed unknown policy</small>
+      </th>
+      <td data-label="Status"><span class="status">{status}</span></td>
+      <td data-label="Signal">u = {rate:.2f}</td>
+      <td data-label="Weight">{unknown_weight * 100.0:.1f}% unknown</td>
+      <td data-label="Contribution">{contribution:.1f} points</td>
+      <td data-label="Reason">
+        Unknown factors remain excluded individually; their retained raw weight contributes
+        only through this separate surcharge.
+      </td>
+    </tr>
+    """
+
+
 def _rejected_matches(analysis: CollectionAnalysis) -> str:
     if not analysis.rejected_matches:
         return ""
@@ -359,6 +397,7 @@ def _operation_label(value: str) -> str:
         "select_claims": "Select cited owner records",
         "weigh": "Compose available factors",
         "mission_weight": "Emit the replayable score",
+        "vulnerability_priority_score": "Compose factors and uncertainty",
     }
     return labels.get(value, _label(value))
 
@@ -564,6 +603,7 @@ h3 { margin: 0 0 8px; font-size: 16px; }
 .unknown-section li small { color: var(--muted); }
 .unknown-section .known-complete { display: block; color: var(--teal-dark); }
 .calculation-summary { color: var(--muted); }
+.calculation-total { color: var(--ink); }
 .table-wrap { width: 100%; overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td {
@@ -586,6 +626,8 @@ tbody th small {
 .status.known { color: var(--teal-dark); background: var(--soft-teal); }
 .status.unknown { color: #17447e; background: #dceaff; }
 .factor-unknown td:last-child { color: #244b7a; }
+.factor-surcharge { background: var(--soft-teal); }
+.factor-surcharge td:last-child { color: var(--teal-dark); }
 .derivation { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
 .derivation summary { cursor: pointer; font-weight: 800; color: var(--teal-dark); }
 .derivation-intro { color: var(--muted); }

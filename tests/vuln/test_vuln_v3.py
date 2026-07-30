@@ -27,6 +27,7 @@ from aqelyn.vuln import (
     VulnerabilityRecord,
     VulnerabilityStore,
     validate_replayable_priority,
+    vulnerability_operation_registry,
 )
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -198,11 +199,19 @@ async def test_vuln_priority_replayable(kind: str) -> None:
         assert priority.score == pytest.approx(81.65)
         assert priority.priority == "high"
         assert priority.confidence == 0.6
-        assert replay(priority.derivation) == priority.derivation.result
-        assert max(item["score"] for item in priority.derivation.result["items"]) == pytest.approx(
-            priority.score / 100.0
+        assert (
+            replay(
+                priority.derivation,
+                registry=vulnerability_operation_registry(),
+            )
+            == priority.derivation.result
         )
+        assert priority.derivation.result["score"] == priority.score
         assert priority.derivation.steps[1].params["factor_sources"] == priority.factors
+        assert priority.uncertainty_surcharge.rate == 0.25
+        assert priority.uncertainty_surcharge.unknown_weight == 0.0
+        assert priority.uncertainty_surcharge.contribution == 0.0
+        assert priority.derivation.engine_version == "vulnerability-priority/v2"
         assert set(priority.factors) == {
             "cvss",
             "epss",
@@ -230,6 +239,51 @@ async def test_vuln_priority_replay_mismatch(kind: str) -> None:
             validate_replayable_priority(
                 priority.model_copy(update={"derivation": tampered}, deep=True)
             )
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_vuln_priority_replay_rejects_score_factor_surcharge_and_policy_drift(
+    kind: str,
+) -> None:
+    async for harness in _store(kind):
+        saved = await harness.store.put(_record())
+        priority = await _engine(harness.store, _OwnerSpies()).prioritize(
+            saved.id, tenant_id=TENANT
+        )
+
+        changed_factors = priority.model_copy(deep=True)
+        changed_factors.factors["trust"]["contribution"] += 0.1
+        changed_surcharge = priority.uncertainty_surcharge.model_copy(
+            update={"contribution": 1.0},
+            deep=True,
+        )
+        changed_steps = [step.model_copy(deep=True) for step in priority.derivation.steps]
+        changed_steps[1] = changed_steps[1].model_copy(
+            update={
+                "params": {
+                    **changed_steps[1].params,
+                    "unknown_surcharge_rate": 0.1,
+                }
+            },
+            deep=True,
+        )
+        changed_policy = priority.derivation.model_copy(
+            update={"steps": changed_steps},
+            deep=True,
+        )
+
+        candidates = (
+            priority.model_copy(update={"score": priority.score + 16.25}, deep=True),
+            changed_factors,
+            priority.model_copy(
+                update={"uncertainty_surcharge": changed_surcharge},
+                deep=True,
+            ),
+            priority.model_copy(update={"derivation": changed_policy}, deep=True),
+        )
+        for candidate in candidates:
+            with pytest.raises(VulnNotReplayable):
+                validate_replayable_priority(candidate)
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])

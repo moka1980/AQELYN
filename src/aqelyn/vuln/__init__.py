@@ -1,6 +1,7 @@
 """Vulnerability Intelligence & Prioritization Engine (EA-0024)."""
 
 from aqelyn.vuln.engine import (
+    VULNERABILITY_UNKNOWN_SURCHARGE_RATE,
     BaselineBlockingProvider,
     ExposureReachabilityProvider,
     PriorityFactor,
@@ -11,6 +12,8 @@ from aqelyn.vuln.engine import (
     VulnerabilityMissionProvider,
     VulnerabilityTrendProvider,
     validate_replayable_priority,
+    vulnerability_operation_registry,
+    vulnerability_score_result,
 )
 from aqelyn.vuln.memory import InMemoryVulnerabilityStore
 from aqelyn.vuln.models import (
@@ -34,6 +37,7 @@ from aqelyn.vuln.models import (
     VulnConfig,
     VulnerabilityAssessment,
     VulnerabilityRecord,
+    VulnerabilityUncertaintySurcharge,
     VulnPriority,
     VulnStatus,
 )
@@ -56,6 +60,7 @@ __all__ = [
     "VALID_SEVERITIES",
     "VALID_VULN_BASIS_KINDS",
     "VALID_VULN_STATUS",
+    "VULNERABILITY_UNKNOWN_SURCHARGE_RATE",
     "VULN_EVENTS",
     "BaselineBlockingProvider",
     "CarriedScore",
@@ -90,6 +95,9 @@ __all__ = [
     "VulnerabilityRecord",
     "VulnerabilityStore",
     "VulnerabilityTrendProvider",
+    "VulnerabilityUncertaintySurcharge",
     "register_vuln_events",
     "validate_replayable_priority",
+    "vulnerability_operation_registry",
+    "vulnerability_score_result",
 ]

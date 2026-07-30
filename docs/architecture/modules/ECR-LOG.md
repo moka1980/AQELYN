@@ -87,7 +87,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0080 | S-track tooling | Accepted | **A documented flag defeats the freshness gate.** `--reuse` sets `collected_at` fresh over cached content. |
 | ECR-0081 | P-track (new) | Accepted | **A new track, and the rigor that does not transfer.** Design choices cannot be verified against shipped code; acceptance is a person. |
 | ECR-0082 | EA-0024 (+ GC) | Proposed | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
-| ECR-0083 | EA-0024 + GC-001 AC-3 | Proposed | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a typed uncertainty surcharge, with `u = 0.25` only a measured candidate pending the full KEV-bearing corpus. |
+| ECR-0083 | EA-0024 + GC-001 AC-3 | Proposed | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
 
 ---
 
@@ -5833,7 +5833,8 @@ Every unknown factor retains its configured `raw_weight`, `status="unknown"`, an
 while its normalized `weight` and `contribution` remain `0.0`. The surcharge is a separate,
 replay-pinned score term outside the factor records. It SHALL NOT be represented by assigning an
 unknown factor normalized weight or value `u`: that algebraically equivalent encoding silently
-repeals ECR-0040's zero-normalized-weight guarantee and six discovered-provider assertions.
+repeals ECR-0040's zero-normalized-weight guarantee, five discovered-provider assertions, and
+the fixed wired-mission absence assertion.
 
 This is the orientation-reversed analogue of `secrets/scoring.py:188-200`, where
 `uncertainty_penalty` is a separate result term rather than a factor weight. The shipped
@@ -5894,17 +5895,26 @@ The measurement excludes two unsafe regions:
 The hard constraints established here are `u > 0` (FR-7/FR-9) and approximately `u < 0.5`
 (avoid the measured re-inversion). The `0.15-0.35` range describes the useful cohort placement
 observed in this slice; it is not a validity floor. The credential precedent `u = 0.10` is valid
-and more conservative than the current vulnerability candidate. **`u = 0.25` is the candidate,
-not the policy value.** Cross-finding ordering by unknown count is product evidence, not a
-guarantee: FR-7/FR-9 remain per-finding and sibling-contribution invariance remains the central
-property.
+and more conservative than the selected vulnerability value.
 
-This slice carries **zero KEV-confirmed findings**. The July 29 4,117-finding corpus is no longer
-available, so the KEV-confirmed finding's rank cannot be measured here. Before production
-arithmetic lands, the full corpus must be regenerated with the KEV feed and this sweep rerun.
-The resulting rank is recorded, not predicted.
+The 302-finding slice carries **zero KEV-confirmed findings**, so it could not pin the policy.
+Before implementation, Codex reran the same sweep against the retained full-host inputs:
 
-### 6. Required proof after `u` is pinned
+- `vulns.json`: 10,784 scanner matches,
+  SHA-256 `67b45f4fe9cd8247bc34f2523fd23b0b365ca4c962a0e80d2e61979b170afc9f`;
+- `kev.json`: 1,653 catalogue entries,
+  SHA-256 `036c579ee00120ad6b77a9e391ef96c96bd7ba4ab060214df0d79ddda2e64ce6`;
+- real owner path: 10,173 findings, zero rejected matches, one KEV-confirmed finding.
+
+At `u = 0.25`, the excluded-factor cohort means for 3 / 4 / 5 / 6 unknowns are
+`53.57 / 34.85 / 25.78 / 28.25`; no six-excluded finding appears in the top 20; the
+distribution is 10,168 Low and 5 Medium; and the KEV-confirmed vulnerability is first by score
+at `53.569` (Medium), with three excluded factors. The full-corpus result confirms the slice
+rather than reversing it, so **this implementation pins `u = 0.25`**. Cross-finding ordering by
+unknown count remains product evidence, not a guarantee: FR-7/FR-9 are per-finding and
+sibling-contribution invariance remains the central property.
+
+### 6. Required implementation proof
 
 1. The rule-29 discovery registry covers `ispm`, `secrets`, and `vuln`, records each scorer's
    orientation as a first-class fact, and fails when a fourth composition scorer is added without
@@ -5926,14 +5936,13 @@ The resulting rank is recorded, not predicted.
    surcharge into unknown factor weights, removal of the all-unknown refusal, and bypassing the
    recomputation validator.
 8. The unedited P-001 corpus is rerun. The trust-only `90.0` top-band cohort disappears, and the
-   KEV-confirmed vulnerability's resulting order is recorded rather than predicted.
+   KEV-confirmed vulnerability remains first by score at the pinned rate.
 
 ### 7. Impact
 
-No production arithmetic changes under this ECR alone. ECR-0082 remains Proposed and its
-implementation is blocked at the scoring-policy boundary, while its demonstrated defect remains
-open and visible. The representation is selected; the numeric policy remains unpinned until the
-full KEV-bearing corpus is regenerated and measured.
+No production arithmetic changes under this ECR alone. The separate representation and numeric
+policy are now both selected; ECR-0082 and this ECR remain Proposed until the implementation,
+replay, reporting, guarantee, and real-corpus proofs are reviewed together.
 
 When the repair is accepted, the record needs both back-pointers that the status guard cannot
 infer: ECR-0040's normalization clause amended by ECR-0082, and ECR-0082's total-score
