@@ -168,7 +168,9 @@ rather than re-specifying them as new work.**
    (2), not chosen**, and measured expensive: the shipped ECR-0062 keyset lands in `Filter`,
    not `Index Cond` (28,500 rows / 29,366 buffers / 18.2 ms versus 0 / 6 / 0.156 ms), so a
    second cursor on a **mutable** key would have to be **redesigned, not copied**.
-3. **Anything P-001 renders must sum and reconcile** — satisfied here by showing no delta.
+3. **No duplicate first-seen derivation.** ECR-0083 §6.6's reconciliation obligation is
+   **removed here, not satisfied by a test**: R1 keeps the existing headline and only rescales
+   `current_severity_score` for display.
 
 ## R4 — The test must prove **consumption**, and the obvious test is the forbidden one
 
@@ -176,10 +178,14 @@ rather than re-specifying them as new work.**
 number. **That test is the reason this defect shipped with green CI.** Do not add another of
 its kind.
 
-**Assert on rendered output, not on the model:**
+**Assert on rendered output, not on the model — and scope both assertions to the escalation
+annotation element.** The headline renders on every card, so card-wide number matching cannot
+distinguish the branch:
 
-- divergent values → the HTML **contains both numbers and the disclosure sentence**;
-- equal values → it contains **neither**.
+- divergent values → the annotation element exists and contains the **current severity
+  rescaled to 0–100 at one decimal**, plus the disclosure sentence;
+- equal values → the annotation element and disclosure sentence are both absent; the existing
+  headline is outside the assertion and remains unchanged.
 
 **Mutation-verify, and run both** (rules 21, 24, 31 — rule 24 is explicit that a control never
 run against a broken implementation is an untested test):
@@ -214,12 +220,15 @@ actually produces*.
    into (1b).
 2. **The disclosure sentence is present and accurate** — and its claim about how the rank
    relates to severity was **verified against shipped code**, not carried from the brief.
-3. **A bare badge fails review.** Without the disclosure the annotation **creates** the
-   misreading; that is the whole argument for the labelled pair.
+3. **A bare current-severity number fails review.** Without the mandatory disclosure the
+   annotation **creates** the misreading; after the collapse, the sentence carries the entire
+   relationship between the headline and the added number.
 4. **No delta rendered.**
 5. **Dormancy recorded in all three places**, including the test.
 6. **Both mutations run**, not merely specified.
 7. **The fixture goes through the real re-emission path**, not a hand-set attribute.
 8. **The ECR-0084 status transition** names **who chose and when** — owner, 2026-07-30 — in
    the row **and** the body.
-9. `mypy --strict src tests`; `gh pr checks` PASS.
+9. **The scale contract is under test:** the annotation element renders
+   `current_severity_score × 100` at one decimal, while equal values suppress the element.
+10. `mypy --strict src tests`; `gh pr checks` PASS.
