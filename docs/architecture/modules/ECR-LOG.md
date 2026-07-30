@@ -5587,7 +5587,7 @@ the score.** One finding read directly: **six factors excluded, only Trust known
 | module | normalises by | consequence |
 |---|---|---|
 | `ispm/scoring.py` | **total weight, including unknowns** | knowing less **lowers** the score - `known_only x coverage_adjustment` |
-| `vuln/engine.py:61` | **known weights only** | one known factor normalises to weight **1.0**; its value **becomes** the score |
+| `vuln/engine.py:614` | **known weights only** | one known factor normalises to weight **1.0**; its value **becomes** the score |
 
 **`vuln` applies no coverage adjustment at all.** The absent factors' weight is not
 discarded - it is **redistributed to whatever survives.**
@@ -5606,25 +5606,41 @@ ones. They score **higher**, and the reason is statistical rather than semantic:
 
 ### 4. Which normalisation is right, and the principle that settles it
 
-**`ispm`'s.** Not by seniority - by **ECR-0040**, whose whole point was that uncertainty
-**removes a factor's vote**:
+**`ispm`'s.** But this is **not** what ECR-0040 required. ECR-0040's accepted
+Resolution says that unknown factors receive zero normalized weight and **"known weights are
+renormalized."** `vuln/engine.py:614` implements that decision literally. The amplification was
+therefore not an implementation drift; it was a conformant result of the accepted record.
 
 > **Removing a voter must not amplify the remaining voters.** Excluding a factor from the
 > denominator does not discard its weight; it **hands that weight to the survivors.**
 > Discounting and amplifying are opposite operations, and only one of them is what
 > "exclusion" was ever supposed to mean.
 
-**ECR-0054 §3.1 already stated this explicitly**, in the credential scorer, and it is the
-same sentence one module over:
+**This ECR amends ECR-0040's Resolution.** ECR-0040 remains authoritative for the typed
+`known|unknown` factor, the retained source/reason/raw weight, and the requirement that unknown
+never contribute an invented value. It is superseded only on normalization: configured unknown
+weight remains in the denominator and is not redistributed to known factors.
+
+The later credential-score analysis stated this explicitly in
+`IS-035_Conformance_Analysis.md:71-75` (rules 4/5, ECR-0040), one module over:
 
 > *"Denominator exclusion alone is insufficient: without the coverage adjustment, a credential
 > with one known-good factor and nine unknowns scores like one with ten known-good factors -
 > i.e. 'unknown' silently becomes 'present'."*
 
-**Resolution: `vuln` adopts `known_only x coverage_adjustment`**, matching `ispm` and
-`secrets`. And per **rule 29**, the closing question is not *"is `vuln` fixed"* but
-***"which other scorers normalise by known-only?"*** - enumerated with the type system, not
-grep (rule 22), and every composition scorer checked, not only the two named here.
+**Resolution: `vuln` adopts the numeric equivalent of
+`known_only x coverage_adjustment`**, matching `ispm` and `secrets`:
+
+> `sum(known weight x value) / sum(all configured weights)`
+
+The numerator still contains only known factors. The denominator contains every configured V3
+factor, including unknowns, so removing a known factor cannot amplify the survivors. A separate
+`known_weight <= 0` guard **must continue to refuse an all-unknown finding**; widening the
+denominator must never turn that refusal into `0.0`, the most favourable score on this scale.
+
+Per **rule 29**, the closing question is not *"is `vuln` fixed"* but ***"which other scorers
+normalise by known-only?"*** - enumerated with the type system, not grep (rule 22), and every
+composition scorer checked, not only the two named here.
 
 ### 5. The defence that does not hold
 
@@ -5669,19 +5685,27 @@ discovery-not-declaration form: enumerate composition scorers, assert monotonici
 survivor, and shows six factors as `Not scored / Excluded / 0 points` with their causes. **It
 is why the defect is visible at all.**
 
-Forty-one milestones of mutation-verified guarantees did not surface it, because **every one
-of them asked whether a value was wrong** and this defect is in a **relationship between
-values** - which nothing sees until a person reads them side by side, ordered.
+Forty-one milestones did not surface it because the implementation was **conformant with
+ECR-0040's accepted decision**. ECR-0040's Q5 proof correctly established that an unknown factor
+contributes neither a favourable zero nor an invented value. It did not ask what removing that
+factor from the denominator hands to its known siblings. The defect is in that **relationship
+between values**, which remained outside the accepted test until a person read the results side
+by side, ordered.
 
 **P-001's stated purpose was to make the platform usable. Its first run made the platform
 *correctable* in a way no engine milestone had.**
 
 ### 8. Scope
 
-- **`vuln/engine.py` adopts the coverage adjustment**; scores change materially and **records
-  with thin evidence will drop out of the top band.** That is the correction, not a
-  regression - and per the C-041 precedent it is **a record for the first deployment**, not a
-  communication, since there are none.
+- **`vuln/engine.py` uses all configured V3 weights as the denominator and known factors only
+  in the numerator**; scores change materially and **records with thin evidence will drop out
+  of the top band.** This is algebraically the existing `known_only x coverage_adjustment`
+  pattern, without a second multiplier.
+- **Preserve a separate all-unknown refusal.** `known_weight <= 0` raises
+  `VulnConfigInvalid`; it must never return `0.0`. Tests prove both the refusal and a genuine
+  known factor with value `0.0`, so absence and an explicit favourable value remain distinct.
+  This is the correction, not a regression - and per the C-041 precedent it is **a record for
+  the first deployment**, not a communication, since there are none.
 - **Enumerate every composition scorer** for known-only normalisation (rule 29 / rule 22).
 - **Coverage monotonicity** raised as a GC milestone rather than folded here.
 - **Re-run P-001's report** afterwards: the top band is the acceptance evidence, and the
