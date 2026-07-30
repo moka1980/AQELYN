@@ -19,7 +19,7 @@
 
 ---
 
-## R1 — The annotation
+## R1 — The annotation *(revised — supersedes the original R1)*
 
 **Seam:** `reporting/html.py:141` — `_finding(item, index)` already holds
 `finding = item.finding` (`:142`), so **both scores are in scope with no signature change and
@@ -29,43 +29,89 @@ no new plumbing.** `ReportFinding` needs no new field. Card region `:222-240`; s
 **Renderer-only.** If a field is added to `ReportFinding`, or a query to `analyze.py`, **that
 is shape (1) drifting into (1b) — stop and raise.**
 
-### The form: a labelled pair with a disclosure sentence — **adopted**
+### 1.1 The data flow, corrected
 
-The reviewer's §2.2 recommendation is adopted, and the reason is stronger than "clearer":
+`vuln/engine.py:511-512` computes `priority.score` **first** and derives the finding's
+`severity_score` **from it** (`round(priority.score / 100.0, 6)`).
 
-> **P-001 does not render `severity_score` at all.** The big number is `priority.score`
-> (`html.py:185, 219, 236`) and the list order is `priority.score`, KEV-exploited first
-> (`analyze.py:217-224`). `current_severity_score` escalates the **finding severity** — a
-> different number.
+> **The rank and the first-seen severity are the same measurement at two scales.**
 
-**So a bare badge would manufacture a false inference that does not exist today.** Before
-P-002 a reader sees a priority rank and no severity information — **no wrong conclusion is
-available to them.** After P-002 with a bare *"now 88"* beside a rank, the available
-conclusion is *"the rank moved"* — and it did not, and under shape (1) never will.
+The original R1 carried *"the rank is computed from the first-seen severity"*, which
+**inverts the data flow**. It was flagged as a claim about shipped code rather than asserted,
+and verification is what caught it. **The form survived; the claim did not** — and separating
+them is what made the correction cheap.
 
-> **An annotation without its disclosure is worse than no annotation**, because it creates
-> the misreading rather than failing to prevent one.
+On re-emission `current_severity_score` takes the new emission's value
+(`findings/memory.py:86-87`); the rank and `severity_score` both stay at their first-raise
+values.
 
-**Required form:**
+### 1.2 Render **one** added number, not a pair
 
-- a **labelled pair** — *first seen* / *now* — not a bare badge or a delta;
-- **one sentence** stating that **the priority rank does not reflect the escalated value**;
-- rendered **only when the two differ**.
+**The headline already *is* "first seen"** — same value, same first raise, at 0–100 scale.
+A labelled pair would **re-derive a number already on the card.**
 
-**On the sentence's wording:** it must be accurate about *how* the rank relates to severity.
-**Confirm against shipped code how `priority.score` consumes the finding's severity before
-writing it** — the claim *"the rank is computed from the first-seen severity"* is the
-reviewer's and is very likely right, but it is a claim about shipped code and this spec is
-not the place it gets asserted from memory.
+> **Render the current severity, rescaled, beside the disclosure. Nothing else.**
 
-This is **ECR-0081 invariant 1** in minimal form — *the caveat travels with the claim* — and
-it is what keeps annotate **honest** rather than merely **literal** (ECR-0084 §7).
+| | pair | single |
+|---|---|---|
+| numbers on the card | 3 | **2** |
+| derivations of the first-raise value | 2 | **1** |
+| reconciliation required | yes, by test | **none — satisfied by construction** |
 
-**No delta.** Two displayed numbers are two facts; **a displayed delta is a computed claim**
-and would fall under ECR-0083 §6.6's reconciliation requirement, whose measured floor is one
-display unit at one-decimal display. **Show both, compute nothing.**
+**The reconciliation requirement the original R1 imposed was self-inflicted.** ECR-0083
+§6.6 applied *because* R1 specified a second derivation of a value already on screen.
+**Removing the derivation removes the requirement rather than satisfying it** — and **a
+constraint satisfied by construction beats one satisfied by a test**, because a test can be
+deleted and a construction cannot. That is ECR-0069's structural discipline applied to a
+rendering decision.
 
-**Acceptance:** `test_p002_divergent_renders_pair_and_disclosure`,
+**The trade, stated rather than hidden:** a pair shows the movement in one glance; a single
+number requires the reader to compare it against the headline. **The headline is adjacent and
+labelled `of 100`, and the disclosure sentence names the relationship explicitly**, so the
+cost is small — but it is not zero, and it is the reason the sentence is mandatory rather than
+helpful.
+
+### 1.3 Scale — `× 100`, one decimal
+
+Both severity fields are on **0–1**. The card headline is on **0–100** (`html.py:236-237`
+renders the total above the literal `of 100`; `:219` clamps the bar to 100).
+
+**Render the added number on the card's scale, one decimal. A reader must not hold two scales
+at once.**
+
+**Never assert string equality between two re-derived numbers.** They would reach the screen
+by different rounding paths — `round(x/100, 6)` then `× 100`, versus the headline's
+`Decimal(f"{x:.1f}")` (`html.py:376`) — which agree at one decimal for every realistic value
+but **not provably for all**. A test asserting equality would assert something the code does
+not guarantee. **Under 1.2 the question does not arise**, and that is the point.
+
+### 1.4 The disclosure sentence
+
+**Required form** — it must state **identity**, not derivation:
+
+> *This priority is the severity recorded when the finding was first raised. Its current
+> severity is **88.0**, which does not change the priority or its position in this list.*
+
+**Requirements on the wording:**
+
+- **Name both things the escalated value does not move** — the **score** *and* the
+  **ordering**. `analyze.py:217-224` orders on `priority.score`, KEV-exploited first, so
+  ordering is a **separate claim** from the number.
+- **Do not say "computed from."** The data flow runs the other way (1.1).
+- **Do not imply a recomputation is pending.** Under shape (1) there is none, **by choice**.
+
+### 1.5 The disclosure is *more* load-bearing after the collapse, not less
+
+**A single added number is more naked than a pair, not less.** *"first seen 30.0 / now 88.0"*
+at least implies a progression a reader can partly infer. **`88.0` beside a headline of
+`30.0` states two facts and no relationship** — so the sentence carries the entire
+interpretation.
+
+> **A bare number fails review.** Without the sentence the annotation *creates* the *"the rank
+> moved"* misreading rather than failing to prevent one — **worse than no annotation**,
+> because before P-002 no wrong conclusion was available to the reader at all.
+
+**Acceptance:** `test_p002_divergent_renders_current_and_disclosure`,
 `test_p002_equal_renders_neither`.
 
 ## R2 — Record the dormancy, in three places
