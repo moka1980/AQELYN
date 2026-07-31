@@ -399,6 +399,27 @@ opposite failure: a plausible value satisfies the field's **shape** while violat
 changing the implementation. The product remains strict: a PID matching no collected unit is
 unattributable, because resolving it would turn a plausible-looking reference into a false answer.
 
+### 33. A test that a field holds the right value proves maintenance, not use
+ECR-0084 / P-002: selected under the owner's delegation on 2026-07-30, with both clauses
+required. `current_severity_score` was written correctly, updated on re-emission, and covered
+by a passing conformance test, while no user-facing path read it.
+
+> **A test that a field holds the right value proves maintenance, not use.** *Is it read?* is
+> the question that decides whether the feature exists, and no assertion about the field can
+> answer it.
+
+The mechanical form is `grep -rn <field> src/ | grep -v <owning package>`: a persisted field
+with no reader outside its owner is maintained internal state, not a delivered feature.
+
+**Second clause:** a consumer **no shipped path can reach with the data it reads** is a
+consumer **for the checker and not for the user**. A grep hit is necessary, not sufficient.
+P-002 demonstrates the distinction: its renderer branch is reachable from `__main__`, but a
+fresh per-run store cannot produce the re-emission state that makes the branch fire.
+
+**Review consequence:** when a persisted field gains its first reader, determine whether a
+shipped path can supply the state that reader consumes. If not, record the consumer as dormant
+rather than claiming the feature exists.
+
 ## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
 
 **Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
