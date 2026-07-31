@@ -223,7 +223,7 @@ actually produces*.
 | **(2) a second ordering** | **ranking is a claim about priority, and two rankings is no ranking**; measured expensive; not chosen |
 | **(3) re-emission raises a new finding** | changes dedup semantics EA-0003 chose deliberately |
 | **the GC candidate** (enumerate persisted fields, assert an external consumer) | **stays raised, not folded in** |
-| **the standing rule becoming rule 33** | remains an ECR candidate **until the owner says otherwise** |
+| **the standing rule becoming rule 33** | **resolved:** kept out of P-002 as required, then selected by the owner on 2026-07-31 and landed separately |
 
 ## Review protocol (Claude Code)
 

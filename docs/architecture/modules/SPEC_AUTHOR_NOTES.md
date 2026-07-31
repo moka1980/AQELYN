@@ -400,9 +400,9 @@ changing the implementation. The product remains strict: a PID matching no colle
 unattributable, because resolving it would turn a plausible-looking reference into a false answer.
 
 ### 33. A test that a field holds the right value proves maintenance, not use
-ECR-0084 / P-002: selected under the owner's delegation on 2026-07-30, with both clauses
-required. `current_severity_score` was written correctly, updated on re-emission, and covered
-by a passing conformance test, while no user-facing path read it.
+ECR-0084 / P-002: selected by the owner on 2026-07-31, with both clauses required.
+`current_severity_score` was written correctly, updated on re-emission, and covered by a
+passing conformance test, while no user-facing path read it.
 
 > **A test that a field holds the right value proves maintenance, not use.** *Is it read?* is
 > the question that decides whether the feature exists, and no assertion about the field can

@@ -6043,7 +6043,7 @@ because the value is correct, while nothing consumes it.
 asserts the column holds the right number, so CI confirms the maintenance while nothing
 confirms the use.
 
-> **Proposed standing rule.** *A test that a field holds the right value proves maintenance,
+> **Standing rule 33, selected by the owner on 2026-07-31.** *A test that a field holds the right value proves maintenance,
 > not use.* ***Is it read?*** *is the question that decides whether the feature exists, and
 > no assertion about the field can answer it.*
 
