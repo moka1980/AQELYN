@@ -110,7 +110,7 @@ by tests. Not a print, not a log line — **a value the controls can assert on.*
 ## H5 — Controls, and only one of them discriminates
 
 **Reuse `tests/guarantees/controls/`** — modules that *perform* the forbidden thing.
-`health_service.py`'s docstring is the pattern: *"If the guarantee is neutered, this control
+`unscoped_health_service.py`'s docstring is the pattern: *"If the guarantee is neutered, this control
 stops failing."*
 
 | control | asserts | discriminates? |
