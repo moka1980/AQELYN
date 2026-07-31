@@ -79,6 +79,8 @@ renders the total above the literal `of 100`; `:219` clamps the bar to 100).
 **Render the added number on the card's scale, one decimal. A reader must not hold two scales
 at once.**
 
+**Decision attribution:** selected by **the reviewer, 2026-07-31**; **the owner may overrule**.
+
 **The annotation renders only when the two values differ at display precision.** Compare the
 formatted one-decimal strings, not the underlying floats. A finer comparison would make a
 claim below the resolution the card renders: the sentence would assert a change while the
@@ -195,14 +197,14 @@ distinguish the branch:
 - values that differ as floats but format to the same one-decimal string → the annotation
   element and disclosure sentence are both absent.
 
-**Mutation-verify, and run both** (rules 21, 24, 31 — rule 24 is explicit that a control never
-run against a broken implementation is an untested test):
+**Mutation-verify, and run all three** (rules 21, 24, 31 — rule 24 is explicit that a control
+never run against a broken implementation is an untested test):
 
 | mutation | expected |
 |---|---|
 | delete the annotation branch | **red** |
 | render unconditionally | the **equal-values** case goes **red** |
-| compare underlying floats instead of rendered strings | the **sub-display-precision** case goes **red** |
+| suppress with `math.isclose(current, first_seen)` instead of comparing rendered strings | the **sub-display-precision** case goes **red** |
 
 **Fixture warning (rules 27, 32).** The divergent state **cannot arise from the P-001 path**
 (R2), so the fixture must construct it. **A synthesized fixture can manufacture a defect as

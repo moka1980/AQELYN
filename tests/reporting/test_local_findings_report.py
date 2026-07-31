@@ -345,12 +345,13 @@ async def test_p002_sub_display_precision_difference_renders_neither(tmp_path: P
     current = next(
         candidate
         for candidate in (
-            math.nextafter(first_seen, -math.inf),
-            math.nextafter(first_seen, math.inf),
+            first_seen - 0.0004,
+            first_seen + 0.0004,
         )
         if 0.0 <= candidate <= 1.0 and f"{candidate * 100.0:.1f}" == first_seen_text
     )
     assert current != first_seen
+    assert not math.isclose(current, first_seen)
     assert f"{current * 100.0:.1f}" == first_seen_text
     item = await _reemitted_at(
         analysis.findings[0],
