@@ -10,10 +10,12 @@ from guarantees.discovery import GuaranteeViolation, aqelyn_source_root
 from guarantees.persisted_fields import (
     DORMANT_FIELDS,
     EXEMPT_FIELDS,
+    OPAQUE_WRITERS,
     FieldClassification,
     assert_persisted_fields_consumed,
     classify_persisted_fields,
     discover_persisted_fields,
+    discover_unscanned_memory_writers,
 )
 
 CONTROL_ROOT = Path(__file__).resolve().parent / "controls" / "persisted_fields"
@@ -28,6 +30,11 @@ CONTROL_EXEMPT = {
     "writer.memory_only": "Synthetic memory-only field has no external reader by design.",
     "writer.owner_only": "Synthetic field is deliberately read only by its owning package.",
     "writer.postgres_only": "Synthetic Postgres-only field has no external reader by design.",
+}
+CONTROL_OPAQUE_WRITERS = {
+    "writer.InMemoryOpaqueBus": (
+        "Synthetic whole-record writer proves an unscanned writer needs an explicit reason."
+    )
 }
 
 
@@ -52,6 +59,7 @@ def test_gc004_reader_outside_owning_package_detected() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
+        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert classified["writer.dormant_probe"].readers == ("reader",)
@@ -62,6 +70,7 @@ def test_gc004_reader_inside_owning_package_does_not_count() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
+        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     owner_only = classified["writer.owner_only"]
@@ -82,20 +91,73 @@ def test_gc004_exempt_registry_pinned() -> None:
     assert _expected_exempt_fields() == EXEMPT_FIELDS
 
 
-@pytest.mark.parametrize("selected_registry", ["dormant", "exempt"])
+def test_gc004_opaque_writer_registry_pinned() -> None:
+    assert OPAQUE_WRITERS == {
+        "events.InMemoryEventBus": (
+            "EA-0003 appends complete Event envelopes to its transport log rather than "
+            "maintaining named Event fields; expanding that append into every model field "
+            "would reintroduce the rejected whole-model population."
+        )
+    }
+    assert discover_unscanned_memory_writers() == frozenset(OPAQUE_WRITERS)
+
+
+@pytest.mark.parametrize("selected_registry", ["dormant", "exempt", "opaque"])
 def test_gc004_registry_entry_without_reason_rejected(selected_registry: str) -> None:
     dormant = dict(CONTROL_DORMANT)
     exempt = dict(CONTROL_EXEMPT)
+    opaque = dict(CONTROL_OPAQUE_WRITERS)
     if selected_registry == "dormant":
         dormant["writer.dormant_probe"] = ""
-    else:
+    elif selected_registry == "exempt":
         exempt["writer.owner_only"] = ""
+    else:
+        opaque["writer.InMemoryOpaqueBus"] = ""
 
     with pytest.raises(GuaranteeViolation, match="registry entries require reasons"):
         classify_persisted_fields(
             CONTROL_ROOT,
             dormant_fields=dormant,
             exempt_fields=exempt,
+            opaque_writers=opaque,
+        )
+
+
+def test_gc004_dormant_entry_without_external_reader_rejected() -> None:
+    dormant = {**CONTROL_DORMANT, "writer.owner_only": "Synthetic invalid dormant entry."}
+    exempt = {key: value for key, value in CONTROL_EXEMPT.items() if key != "writer.owner_only"}
+
+    with pytest.raises(GuaranteeViolation, match="dormant field has no discovered external reader"):
+        classify_persisted_fields(
+            CONTROL_ROOT,
+            dormant_fields=dormant,
+            exempt_fields=exempt,
+            opaque_writers=CONTROL_OPAQUE_WRITERS,
+        )
+
+
+def test_gc004_exempt_entry_with_external_reader_rejected() -> None:
+    exempt = {**CONTROL_EXEMPT, "writer.dormant_probe": "Synthetic invalid exemption."}
+
+    with pytest.raises(GuaranteeViolation, match="exempt field has discovered external readers"):
+        classify_persisted_fields(
+            CONTROL_ROOT,
+            dormant_fields={},
+            exempt_fields=exempt,
+            opaque_writers=CONTROL_OPAQUE_WRITERS,
+        )
+
+
+def test_gc004_unscanned_memory_writer_without_registry_rejected() -> None:
+    with pytest.raises(
+        GuaranteeViolation,
+        match=r"unscanned in-memory writers require classification: .*InMemoryOpaqueBus",
+    ):
+        classify_persisted_fields(
+            CONTROL_ROOT,
+            dormant_fields=CONTROL_DORMANT,
+            exempt_fields=_control_exempt(include_unconsumed=True),
+            opaque_writers={},
         )
 
 
@@ -106,6 +168,7 @@ def test_gc004_classification_is_returned_not_printed(
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
+        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert isinstance(classified, dict)
@@ -119,6 +182,7 @@ def test_gc004_control_no_reader_fails() -> None:
             CONTROL_ROOT,
             dormant_fields=CONTROL_DORMANT,
             exempt_fields=CONTROL_EXEMPT,
+            opaque_writers=CONTROL_OPAQUE_WRITERS,
         )
 
 
@@ -127,6 +191,7 @@ def test_gc004_control_declared_dormant_passes() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
+        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert all(item.state != "unconsumed" for item in classified.values())
@@ -137,6 +202,7 @@ def test_gc004_control_dormant_classified_dormant_not_consumed() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
+        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert classified["writer.dormant_probe"].state == "dormant"

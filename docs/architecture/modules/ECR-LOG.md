@@ -6316,10 +6316,14 @@ at the minimum magnitude that separates the rule from no rule at all.
 The test-only guard discovers Postgres `INSERT`/`UPDATE` columns and field-level writes named by
 in-memory stores. At acceptance the inspectable census contained **497 fields**: **403 consumed,
 1 declared dormant, 93 reasoned exemptions, and 0 unconsumed**. Backend provenance remains on
-each field, so memory-only and Postgres-only writes stay distinguishable.
+each field, so memory-only and Postgres-only writes stay distinguishable. An exact third registry
+records the one discovered opaque whole-record writer, `events.InMemoryEventBus`, so a package
+whose write shape cannot enter the field census cannot silently contribute zero.
 
 H4 shipped before H5: classification is returned as a per-field value, and the discriminating
-control asserts `dormant` rather than merely asserting that the suite passes. Six independent
-mutations were run: collapsing dormant into consumed, dropping both registries' reason check,
-drifting each registry's equality pin, counting owner-local reads, and removing memory-write
-discovery all turned the focused suite red.
+control asserts `dormant` rather than merely asserting that the suite passes. Eight independent
+mutations were run: collapsing dormant into consumed, dropping the reason check, drifting each
+field registry's equality pin, counting owner-local reads, removing memory-write discovery,
+allowing a dormant entry with no external reader, and allowing an exempt entry with an external
+reader all turned the focused suite red. The opaque-writer registry is independently pinned and
+fails closed when a discovered writer is omitted.

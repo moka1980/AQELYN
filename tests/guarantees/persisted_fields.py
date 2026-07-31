@@ -3,7 +3,8 @@
 The guard reports a census, not a clearance. It can discover writes and source-level
 readers, but it cannot prove that a shipped path can produce the state a reader needs.
 Dormancy is therefore declared and review-owned; undeclared dormancy remains a named
-limit of this module.
+limit of this module. Whole-record writers that do not expose field-level operations
+must appear in a separate exact, reasoned registry so they cannot silently disappear.
 
 The population is write-defined. SQL INSERT/UPDATE columns describe Postgres writes,
 while field-level store operations describe in-memory writes. A DDL column describes
@@ -34,6 +35,14 @@ DORMANT_FIELDS = {
     "findings.current_severity_score": (
         "The only divergence point is re-emission in findings/memory.py, while the "
         "shipped reporting path constructs a fresh store for each run."
+    )
+}
+
+OPAQUE_WRITERS = {
+    "events.InMemoryEventBus": (
+        "EA-0003 appends complete Event envelopes to its transport log rather than "
+        "maintaining named Event fields; expanding that append into every model field "
+        "would reintroduce the rejected whole-model population."
     )
 }
 
@@ -335,10 +344,12 @@ def classify_persisted_fields(
     *,
     dormant_fields: Mapping[str, str] = DORMANT_FIELDS,
     exempt_fields: Mapping[str, str] = EXEMPT_FIELDS,
+    opaque_writers: Mapping[str, str] = OPAQUE_WRITERS,
 ) -> dict[str, FieldClassification]:
     root = aqelyn_root or aqelyn_source_root()
     population = discover_persisted_fields(root)
     _validate_registries(population, dormant_fields=dormant_fields, exempt_fields=exempt_fields)
+    _validate_opaque_writers(root, opaque_writers)
     reads = _external_readers(root)
     classified: dict[str, FieldClassification] = {}
 
@@ -373,11 +384,13 @@ def assert_persisted_fields_consumed(
     *,
     dormant_fields: Mapping[str, str] = DORMANT_FIELDS,
     exempt_fields: Mapping[str, str] = EXEMPT_FIELDS,
+    opaque_writers: Mapping[str, str] = OPAQUE_WRITERS,
 ) -> dict[str, FieldClassification]:
     classified = classify_persisted_fields(
         aqelyn_root,
         dormant_fields=dormant_fields,
         exempt_fields=exempt_fields,
+        opaque_writers=opaque_writers,
     )
     missing = sorted(key for key, value in classified.items() if value.state == "unconsumed")
     if missing:
@@ -406,6 +419,29 @@ def _validate_registries(
     stale = sorted((frozenset(dormant_fields) | frozenset(exempt_fields)) - population_keys)
     if stale:
         raise GuaranteeViolation(f"persisted-field registry contains unknown entries: {stale}")
+
+
+def discover_unscanned_memory_writers(aqelyn_root: Path | None = None) -> frozenset[str]:
+    root = aqelyn_root or aqelyn_source_root()
+    return frozenset(
+        writer
+        for module in _source_modules(root).values()
+        for writer in _unscanned_memory_writers(module)
+    )
+
+
+def _validate_opaque_writers(root: Path, opaque_writers: Mapping[str, str]) -> None:
+    blank = sorted(key for key, reason in opaque_writers.items() if not reason.strip())
+    if blank:
+        raise GuaranteeViolation(f"opaque-writer registry entries require reasons: {blank}")
+    discovered = discover_unscanned_memory_writers(root)
+    declared = frozenset(opaque_writers)
+    missing = sorted(discovered - declared)
+    if missing:
+        raise GuaranteeViolation(f"unscanned in-memory writers require classification: {missing}")
+    stale = sorted(declared - discovered)
+    if stale:
+        raise GuaranteeViolation(f"opaque-writer registry contains unknown entries: {stale}")
 
 
 def _source_modules(root: Path) -> dict[str, _SourceModule]:
@@ -452,6 +488,38 @@ def _memory_written_fields(module: _SourceModule) -> tuple[tuple[str, int], ...]
                 elif isinstance(selected, ast.Call):
                     _record_memory_call(selected, written)
     return tuple(sorted(written))
+
+
+def _unscanned_memory_writers(module: _SourceModule) -> tuple[str, ...]:
+    writers: list[str] = []
+    for node in module.tree.body:
+        if not (
+            isinstance(node, ast.ClassDef)
+            and node.name.startswith("InMemory")
+            and not node.name.endswith(("Store", "Registry"))
+        ):
+            continue
+        if any(_is_container_write(selected) for selected in ast.walk(node)):
+            writers.append(f"{module.package}.{node.name}")
+    return tuple(sorted(writers))
+
+
+def _is_container_write(node: ast.AST) -> bool:
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"append", "extend", "insert"}
+    ):
+        return _is_self_storage(node.func.value)
+    if isinstance(node, ast.Assign):
+        return any(_is_storage_subscript(target) for target in node.targets)
+    if isinstance(node, ast.AnnAssign):
+        return _is_storage_subscript(node.target)
+    return isinstance(node, ast.AugAssign) and _is_storage_subscript(node.target)
+
+
+def _is_storage_subscript(node: ast.expr) -> bool:
+    return isinstance(node, ast.Subscript) and _is_self_storage(node.value)
 
 
 def _record_memory_target(

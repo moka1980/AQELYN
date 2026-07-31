@@ -26,3 +26,13 @@ class InMemoryControlStore:
 
     def owner_read(self, record: ControlRecord) -> str:
         return record.owner_only
+
+
+class InMemoryOpaqueBus:
+    """Whole-record writer that must be classified outside the field census."""
+
+    def __init__(self) -> None:
+        self._log: list[ControlRecord] = []
+
+    def publish(self, record: ControlRecord) -> None:
+        self._log.append(record)
