@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import replace
 from decimal import Decimal
 from html.parser import HTMLParser
@@ -331,6 +332,33 @@ async def test_p002_equal_renders_neither(tmp_path: Path) -> None:
 
     parser = _EscalationAnnotationParser()
     parser.feed(render_findings_report(analysis))
+
+    assert parser.annotations == []
+
+
+@pytest.mark.asyncio
+async def test_p002_sub_display_precision_difference_renders_neither(tmp_path: Path) -> None:
+    _write_collection(tmp_path, include_rejected=False)
+    analysis = await analyze_collection(tmp_path)
+    first_seen = analysis.findings[0].finding.severity_score
+    first_seen_text = f"{first_seen * 100.0:.1f}"
+    current = next(
+        candidate
+        for candidate in (
+            math.nextafter(first_seen, -math.inf),
+            math.nextafter(first_seen, math.inf),
+        )
+        if 0.0 <= candidate <= 1.0 and f"{candidate * 100.0:.1f}" == first_seen_text
+    )
+    assert current != first_seen
+    assert f"{current * 100.0:.1f}" == first_seen_text
+    item = await _reemitted_at(
+        analysis.findings[0],
+        current_severity_score=current,
+    )
+
+    parser = _EscalationAnnotationParser()
+    parser.feed(render_findings_report(replace(analysis, findings=(item,))))
 
     assert parser.annotations == []
 

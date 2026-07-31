@@ -314,9 +314,12 @@ def _finding(item: ReportFinding, index: int) -> str:
 def _escalation_annotation(*, first_seen: float, current: float | None) -> str:
     # P-002 dormancy: aqelyn-report uses a fresh store per run, so shipped reports cannot
     # reach this branch until findings persist. Tests exercise the real re-emission path.
-    if current is None or current == first_seen:
+    if current is None:
         return ""
     current_text = f"{current * 100.0:.1f}"
+    first_seen_text = f"{first_seen * 100.0:.1f}"
+    if current_text == first_seen_text:
+        return ""
     return f"""
     <aside class="severity-escalation" data-severity-escalation>
       <p>

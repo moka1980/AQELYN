@@ -79,6 +79,11 @@ renders the total above the literal `of 100`; `:219` clamps the bar to 100).
 **Render the added number on the card's scale, one decimal. A reader must not hold two scales
 at once.**
 
+**The annotation renders only when the two values differ at display precision.** Compare the
+formatted one-decimal strings, not the underlying floats. A finer comparison would make a
+claim below the resolution the card renders: the sentence would assert a change while the
+reader sees the same number twice.
+
 **Never assert string equality between two re-derived numbers.** They would reach the screen
 by different rounding paths — `round(x/100, 6)` then `× 100`, versus the headline's
 `Decimal(f"{x:.1f}")` (`html.py:376`) — which agree at one decimal for every realistic value
@@ -112,7 +117,8 @@ interpretation.
 > because before P-002 no wrong conclusion was available to the reader at all.
 
 **Acceptance:** `test_p002_divergent_renders_current_and_disclosure`,
-`test_p002_equal_renders_neither`.
+`test_p002_equal_renders_neither`,
+`test_p002_sub_display_precision_difference_renders_neither`.
 
 ## R2 — Record the dormancy, in three places
 
@@ -185,7 +191,9 @@ distinguish the branch:
 - divergent values → the annotation element exists and contains the **current severity
   rescaled to 0–100 at one decimal**, plus the disclosure sentence;
 - equal values → the annotation element and disclosure sentence are both absent; the existing
-  headline is outside the assertion and remains unchanged.
+  headline is outside the assertion and remains unchanged;
+- values that differ as floats but format to the same one-decimal string → the annotation
+  element and disclosure sentence are both absent.
 
 **Mutation-verify, and run both** (rules 21, 24, 31 — rule 24 is explicit that a control never
 run against a broken implementation is an untested test):
@@ -194,6 +202,7 @@ run against a broken implementation is an untested test):
 |---|---|
 | delete the annotation branch | **red** |
 | render unconditionally | the **equal-values** case goes **red** |
+| compare underlying floats instead of rendered strings | the **sub-display-precision** case goes **red** |
 
 **Fixture warning (rules 27, 32).** The divergent state **cannot arise from the P-001 path**
 (R2), so the fixture must construct it. **A synthesized fixture can manufacture a defect as
@@ -230,5 +239,6 @@ actually produces*.
 8. **The ECR-0084 status transition** names **who chose and when** — owner, 2026-07-30 — in
    the row **and** the body.
 9. **The scale contract is under test:** the annotation element renders
-   `current_severity_score × 100` at one decimal, while equal values suppress the element.
+   `current_severity_score × 100` at one decimal, while equal and display-equal values suppress
+   the element.
 10. `mypy --strict src tests`; `gh pr checks` PASS.
