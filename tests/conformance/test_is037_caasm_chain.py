@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from aqelyn.conventions import new_id, utc_now
+from aqelyn.conventions import ActorRef, new_id, parse_id, utc_now
 from aqelyn.conventions.errors import (
     CoverageUnavailable,
     InventoryUnavailable,
@@ -45,7 +45,8 @@ from aqelyn.inventory import (
     PostgresAssetStore,
 )
 from aqelyn.inventory.engine import _ASSET_PAGE_SIZE
-from aqelyn.objects import InMemoryObjectStore
+from aqelyn.objects import AQObject, InMemoryObjectStore, NaturalKey, SourceRef
+from aqelyn.supplychain import ensure_supplychain_object_type
 from aqelyn.vuln import InMemoryVulnerabilityStore
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -87,6 +88,43 @@ def _asset(
         ],
         first_seen_at=seen,
         last_reported_at=seen,
+    )
+
+
+def _component_for_asset(asset: AssetRecord, *, identity_kind: str) -> AQObject:
+    """A software component whose object id maps to the inventory asset id."""
+    prefix, payload = parse_id(asset.id)
+    assert prefix == "ast"
+    observed_at = asset.last_reported_at
+    actor = ActorRef(actor_type="system", actor_id="is037-conformance")
+    coordinate = (
+        f"pkg:generic/{payload}"
+        if identity_kind == "purl"
+        else f"cpe:2.3:a:aqelyn:{payload}:1.0:*:*:*:*:*:*:*"
+    )
+    return AQObject(
+        id=f"obj_{payload}",
+        object_type="software_component",
+        schema_version=1,
+        tenant_id=asset.tenant_id,
+        display_name=f"component-{payload}",
+        attributes={"identity_kind": identity_kind},
+        labels={"module": "EA-0030"},
+        natural_keys=[NaturalKey(namespace=identity_kind, value=coordinate)],
+        sources=[
+            SourceRef(
+                source_id=new_id("src"),
+                evidence_id=new_id("evd"),
+                observed_at=observed_at,
+                method="C-036 coverage budget control",
+            )
+        ],
+        first_seen_at=observed_at,
+        last_seen_at=observed_at,
+        created_at=observed_at,
+        updated_at=observed_at,
+        created_by=actor,
+        updated_by=actor,
     )
 
 
@@ -456,6 +494,39 @@ async def test_is037_downstream_gates_refuse_on_degraded() -> None:
 
     # 4. The passthrough carries the flag to its caller intact.
     assert (await engine.inventory(tenant_id=TENANT)).degraded is True
+
+
+async def test_software_component_coverage_refuses_when_page_budget_exhausted() -> None:
+    """The second C-036 paging loop must not return partial coverage as complete.
+
+    The third component is deliberately CPE-only: silently truncating before it would
+    omit a named unassessable gap and make coverage look better than it was measured.
+    """
+    asset_store = InMemoryAssetStore(mode="enterprise")
+    object_store = InMemoryObjectStore(mode="enterprise")
+    ensure_supplychain_object_type(object_store)
+    assets = [_asset(TENANT, index=index) for index in range(3)]
+    for asset in assets:
+        await asset_store.put(asset)
+    for asset in assets[:2]:
+        await object_store.upsert(_component_for_asset(asset, identity_kind="purl"))
+
+    provider = InventoryVulnerabilityCoverageProvider(
+        InventoryIntelligenceEngine(store=asset_store),
+        InMemoryVulnerabilityStore(mode="enterprise"),
+        object_store,
+        page_budget=2,
+    )
+
+    boundary = await provider.coverage(tenant_id=TENANT)
+    assert boundary.unassessable == []
+
+    await object_store.upsert(_component_for_asset(assets[2], identity_kind="cpe"))
+    with pytest.raises(
+        CoverageUnavailable,
+        match="software component coverage exceeded the configured page budget",
+    ):
+        await provider.coverage(tenant_id=TENANT)
 
 
 async def test_sweep_unreported_exhausts_and_sweeps() -> None:
