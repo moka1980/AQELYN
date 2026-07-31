@@ -89,7 +89,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0082 | EA-0024 (+ GC) | Accepted | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
 | ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
 | ECR-0084 | EA-0013 / `findings` | Accepted (shape 1; owner, 2026-07-30) | **`current_severity_score` is maintained and never read.** Shape 1 selected: P-001 annotates current severity beside the existing first-seen priority headline without changing ordering; dormant until persistence. |
-| ECR-0085 | GC-004 (cross-cutting) | Proposed | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
+| ECR-0085 | GC-004 (cross-cutting) | Accepted (GC-004) | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
 
 ---
 
@@ -6157,7 +6157,7 @@ invariant 1** already imposes on unknowns: **the caveat travels with the claim.*
 ## ECR-0085 - GC-004: persisted fields must have consumers, and dormancy must be declared
 
 **Raised by:** ECR-0084 §3, which proposed the guard and deliberately did not fold it in.
-**Status:** Proposed.
+**Status:** Accepted - GC-004 shipped.
 **Number precedent:** GC-001 <- ECR-0057, GC-002 <- ECR-0058. **GC-003 does not follow that
 shape** - its guard (`tests/guarantees/test_service_health.py`) is recorded in
 **`C-038_Task_Bundle.md` and ECR-0063** rather than in dedicated GC documents. **That is a
@@ -6172,8 +6172,11 @@ this ECR read it as the latter.
 
 ### 2. Population: **fields a store writes** - chosen, and why
 
-Three definitions were on the table. **The second is chosen: fields appearing in a store's
-INSERT/UPDATE column lists**, across **both** backends.
+Three definitions were on the table. **The second is chosen: fields at actual store write
+sites**, across **both** backends. Postgres supplies explicit `INSERT`/`UPDATE` columns. A
+memory backend supplies direct field mutations plus the fields of a statically typed model
+inserted or appended to a container that is actually mutated. **Class naming is not evidence**:
+an `InMemory*Store` and a bare `*Log` are treated identically when their write shape is identical.
 
 **The reason is not that the ECR-0084 defect lived there** - though it did
 (`findings/postgres.py:206-215`). It is that **the population must match the claim**:
@@ -6190,9 +6193,15 @@ INSERT/UPDATE column lists**, across **both** backends.
   contract divergence the one-suite requirement should already have caught, so a hit there is
   a finding either way - not a false positive.
 
+**Named limit:** whole-record discovery requires a statically resolvable container model
+annotation. An untyped, `Any`-typed, or dynamically constructed container cannot supply field
+names to this source-level guard. The implementation records that limit rather than substituting
+a class-name convention, which would invert the blind spot: conforming names would disappear.
+
 **Rejected:** DDL column lists (misses memory-only, and defines capacity rather than
-maintenance); all fields of any persisted model (produces a long first allow-list, and **a long
-allow-list is where reasons go stale**).
+maintenance); all fields of any persisted model **without a matching write site** (defines model
+capacity rather than maintenance, produces a long first allow-list, and **a long allow-list is
+where reasons go stale**).
 
 ### 3. Three states - and **dormancy cannot be computed**
 
@@ -6310,3 +6319,22 @@ PR #278**: the fixture now uses a `+/-0.0004` divergence - large in float terms,
 decimal - and **explicitly rejects `math.isclose`**. Recorded because the *reasoning* generalises
 (§5): **a control must sit where the specified rule and the plausible alternative disagree**, not
 at the minimum magnitude that separates the rule from no rule at all.
+
+### 9. Resolution - GC-004 shipped
+
+The test-only guard discovers Postgres `INSERT`/`UPDATE` columns, direct in-memory field
+mutations, and fields resolved from typed models at whole-record container write sites. At
+acceptance the inspectable census contained **670 fields**: **520 consumed, 1 declared dormant,
+149 reasoned exemptions, and 0 unconsumed**. Backend provenance remains on each field: **461 are
+written by both backends, 176 are memory-only, and 33 are Postgres-only**. Forty-five
+whole-record writers are resolved by behavior rather than class name; a convention-named store
+and a bare log are both controls, while a typed model with no write site stays outside the census.
+
+H4 shipped before H5: classification is returned as a per-field value, and the discriminating
+control asserts `dormant` rather than merely asserting that the suite passes. Ten independent
+mutations were run: collapsing dormant into consumed, dropping the reason check, drifting each
+field registry's equality pin, counting owner-local reads, removing memory-write discovery,
+allowing a dormant entry with no external reader, and allowing an exempt entry with an external
+reader all turned the focused suite red. Reintroducing class-name gating also turns the suite red
+because the bare-log whole-record field disappears, and disabling type-alias resolution turns it
+red because the union-backed control fields disappear.
