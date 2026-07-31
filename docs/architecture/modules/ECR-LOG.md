@@ -89,6 +89,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0082 | EA-0024 (+ GC) | Accepted | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
 | ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
 | ECR-0084 | EA-0013 / `findings` | Accepted (shape 1; owner, 2026-07-30) | **`current_severity_score` is maintained and never read.** Shape 1 selected: P-001 annotates current severity beside the existing first-seen priority headline without changing ordering; dormant until persistence. |
+| ECR-0085 | GC-004 (cross-cutting) | Proposed | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
 
 ---
 
@@ -6152,3 +6153,160 @@ invariant 1** already imposes on unknowns: **the caveat travels with the claim.*
   that residual is **recorded, not fixed**.
 - **Anything P-001 renders must sum and reconcile** - three passes were needed on ECR-0083
   §6.6, and the measured floor is **one display unit at one-decimal display**.
+
+## ECR-0085 - GC-004: persisted fields must have consumers, and dormancy must be declared
+
+**Raised by:** ECR-0084 §3, which proposed the guard and deliberately did not fold it in.
+**Status:** Proposed.
+**Number precedent:** GC-001 <- ECR-0057, GC-002 <- ECR-0058. **GC-003 does not follow that
+shape** - its guard (`tests/guarantees/test_service_health.py`) is recorded in
+**`C-038_Task_Bundle.md` and ECR-0063** rather than in dedicated GC documents. **That is a
+difference in location, not an absence of record** - see §8.1, and note that an earlier draft of
+this ECR read it as the latter.
+**Blocks:** nothing.
+
+### 1. The guarantee, in one sentence
+
+> **Every field a store writes has a reader outside its owning package - or a recorded reason
+> why it does not, or a recorded note that its reader cannot yet be reached.**
+
+### 2. Population: **fields a store writes** - chosen, and why
+
+Three definitions were on the table. **The second is chosen: fields appearing in a store's
+INSERT/UPDATE column lists**, across **both** backends.
+
+**The reason is not that the ECR-0084 defect lived there** - though it did
+(`findings/postgres.py:206-215`). It is that **the population must match the claim**:
+
+> **The guard's claim is that *the system does work nobody consumes*. Work is writing.** A DDL
+> column defines **capacity**; a write defines **maintenance**. The defect class is
+> maintenance-without-consumption, so the population is **write-defined**.
+
+**Two consequences worth stating:**
+
+- **The memory-only blind spot of the DDL definition does not arise**, because both stores
+  write and both are in scope.
+- **If the two backends write different field sets, the guard surfaces it.** That is a
+  contract divergence the one-suite requirement should already have caught, so a hit there is
+  a finding either way - not a false positive.
+
+**Rejected:** DDL column lists (misses memory-only, and defines capacity rather than
+maintenance); all fields of any persisted model (produces a long first allow-list, and **a long
+allow-list is where reasons go stale**).
+
+### 3. Three states - and **dormancy cannot be computed**
+
+| state | determined |
+|---|---|
+| **consumed** | **mechanically** - a reader exists outside the owning package |
+| **dormant** | **declared** - a reader exists, no shipped path reaches it with the data it reads. **Reason required.** |
+| **exempt** | **declared** - no external reader by design. **Reason required.** |
+| **unconsumed** | **mechanically** - no reader, not declared. **Fails.** |
+
+**Reachability analysis does not decide dormancy, and this is the load-bearing point.**
+P-002's branch **is** reachable from `__main__`; it simply never fires, because
+`reporting/analyze.py:192-196` builds a fresh store per run and only `findings/memory.py:86-87`
+diverges. **A call-graph guard would pass, and pass for the right reason** - which is what makes
+it the wrong instrument.
+
+> **A guard that claimed to decide *"has anything ever been read?"* would be ECR-0084's defect
+> one level up: a check reporting a closed gap because the thing it can measure looks right.**
+
+**So the guard reports a census, not a clearance.** It does **not** assert the gap is closed;
+that claim is not available to it.
+
+**Named limit, recorded rather than papered over:** the guard **cannot detect undeclared
+dormancy**. A reader that exists but is unreachable, and is not declared, classifies as
+`consumed` and the guard is wrong. **The countermeasure is review-time, not mechanical** - a
+field gaining its first reader requires a dormancy determination at that moment.
+
+**`current_severity_score` is the guard's first `dormant` entry**, reason: *the only divergence
+point is re-emission, and the shipped report path constructs a fresh store per run.*
+
+### 4. The classification must be **inspectable**, or three states cannot be tested
+
+This falls out of the §5 constraint and it changes the guard's shape:
+
+**A two-state implementation and a three-state one agree on every pass/fail outcome.**
+`dormant` passes; `consumed` passes. **The distinction is invisible to an exit code.**
+
+> **The difference lives in what the guard *records*, not in what it *rejects*.** Two-state
+> records `current_severity_score` as consumed and a reader concludes the gap is closed;
+> three-state records it as dormant and the reader knows it is open.
+
+**Therefore the guard must expose its classification per field, and the controls must assert on
+that classification - not merely on pass/fail.** Without this, the three-state model is
+unfalsifiable and would ship as decoration.
+
+### 5. Controls - and the one that discriminates
+
+**Reuse `tests/guarantees/controls/`**, whose modules *perform* the forbidden thing.
+`unscoped_health_service.py`'s docstring is the pattern: *"If the guarantee is neutered, this control
+stops failing."*
+
+| control | asserts | discriminates? |
+|---|---|---|
+| a written field with **no reader** | the guard **fails** | **no** - a two-state guard fails it too |
+| a written field with a **declared-dormant** reader | the guard **passes** | **no** - two-state passes it too |
+| **a declared-dormant field classified as `dormant`, not `consumed`** | **the classification** | **YES** - a two-state guard has no `dormant` to report |
+
+**Only the third control separates the specified rule from the rule someone would plausibly
+write instead**, which is exactly what §5 requires. The first two are necessary and prove
+nothing about the design.
+
+**This is §4.3's lesson generalised:** a 1-ULP fixture proved only that noise is suppressed,
+which `math.isclose` also achieves. **The control must sit where the specified rule and the
+plausible alternative disagree** - and here that is the **classification**, not the outcome.
+
+### 6. Reuse, do not invent
+
+- **Allow-list shape:** `tests/guarantees/discovery.py:17`'s
+  `EXECUTION_SCAN_EXCLUSIONS = {"workflow": "<reason>"}`, **pinned by an equality assertion** so
+  an entry cannot be added quietly. **Copy it for both the exempt and the dormant registries.**
+- **Discovery:** `discover_packages()` (`discovery.py:60`), already tested against a temp root
+  where a package arriving later **must** appear; plus `aqelyn_source_root()`,
+  `source_python_files()`, `GuaranteeViolation` (`discovery.py:25`).
+- **Controls:** `tests/guarantees/controls/`, per §5.
+
+### 7. Constraints
+
+- **Test-only, no runtime surface** - as GC-001 and GC-002 are recorded in `README.md`.
+- **Rule 33 is not restated here.** It **landed** in `SPEC_AUTHOR_NOTES.md:403`, selected by the
+  owner 2026-07-31, and the collection now runs 1-33. **GC-004 enforces rule 33's
+  persisted-field subset and must not repeat its text** - a guard and a rule are different
+  artifacts, and duplicating the wording is how the two drift.
+  *(An earlier draft of this bullet said the rule remained absent and was the owner's call;
+  corrected against the merged record before publication.)*
+- **Both registries pinned by equality assertion**, or reasons rot silently.
+
+### 8. Two items raised here and **not** folded in
+
+**8.1 WITHDRAWN.** An earlier draft claimed GC-003's intended assertion was **unrecorded** and
+proposed a retrospective spec. **That claim was false**, and the premise it rested on was an
+inference rather than a check: **no dedicated `GC-003-*.spec.md` and no ECR numbered for GC-003
+were read as *no record*.**
+
+**GC-003's assertion is recorded.** `C-038_Task_Bundle.md` specifies its discovery-based
+guarantee and its negative control; `ECR-LOG.md:3315` records it as owner-approved with its
+intended assertion, behavioural scope, discovery model, and mutation-proven control.
+**Weakening can be detected** - against those - so the rationale for a retrospective spec does
+not hold.
+
+**What actually remains is much smaller: a findability gap, not a verifiability one.** GC-003's
+record lives in a **milestone** document rather than a **guard** document, so a reader looking
+for it looks in the wrong place. **A one-line docstring cross-reference in
+`tests/guarantees/test_service_health.py`** pointing at C-038 would close it. **Not GC-004's
+job, and not worth more than that line.**
+
+**Recorded rather than deleted**, because the error is the instructive part: **absence of a
+document shape was read as absence of a record.** That is ECR-0084's defect **mirrored** - there,
+a field's *presence* did not mean it was consumed; here, a document's *absence* did not mean the
+assertion was unrecorded. **Both infer a property from a proxy for it.**
+
+**8.2 The §4.3 sub-display test - raised here and CLOSED before publication.** A 1-ULP
+divergence is suppressed by `math.isclose` as readily as by the specified string comparison, so
+the original test passed against an implementation that was not the specified rule. **Fixed in
+PR #278**: the fixture now uses a `+/-0.0004` divergence - large in float terms, invisible at one
+decimal - and **explicitly rejects `math.isclose`**. Recorded because the *reasoning* generalises
+(§5): **a control must sit where the specified rule and the plausible alternative disagree**, not
+at the minimum magnitude that separates the rule from no rule at all.
