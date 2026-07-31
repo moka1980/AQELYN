@@ -89,7 +89,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0082 | EA-0024 (+ GC) | Accepted | **Absence exiting the fold.** `vuln` normalises by known weights only, so excluded weight is redistributed to the survivors. |
 | ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
 | ECR-0084 | EA-0013 / `findings` | Accepted (shape 1; owner, 2026-07-30) | **`current_severity_score` is maintained and never read.** Shape 1 selected: P-001 annotates current severity beside the existing first-seen priority headline without changing ordering; dormant until persistence. |
-| ECR-0085 | GC-004 (cross-cutting) | Proposed | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
+| ECR-0085 | GC-004 (cross-cutting) | Accepted (GC-004) | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
 
 ---
 
@@ -6157,7 +6157,7 @@ invariant 1** already imposes on unknowns: **the caveat travels with the claim.*
 ## ECR-0085 - GC-004: persisted fields must have consumers, and dormancy must be declared
 
 **Raised by:** ECR-0084 §3, which proposed the guard and deliberately did not fold it in.
-**Status:** Proposed.
+**Status:** Accepted - GC-004 shipped.
 **Number precedent:** GC-001 <- ECR-0057, GC-002 <- ECR-0058. **GC-003 does not follow that
 shape** - its guard (`tests/guarantees/test_service_health.py`) is recorded in
 **`C-038_Task_Bundle.md` and ECR-0063** rather than in dedicated GC documents. **That is a
@@ -6310,3 +6310,16 @@ PR #278**: the fixture now uses a `+/-0.0004` divergence - large in float terms,
 decimal - and **explicitly rejects `math.isclose`**. Recorded because the *reasoning* generalises
 (§5): **a control must sit where the specified rule and the plausible alternative disagree**, not
 at the minimum magnitude that separates the rule from no rule at all.
+
+### 9. Resolution - GC-004 shipped
+
+The test-only guard discovers Postgres `INSERT`/`UPDATE` columns and field-level writes named by
+in-memory stores. At acceptance the inspectable census contained **497 fields**: **403 consumed,
+1 declared dormant, 93 reasoned exemptions, and 0 unconsumed**. Backend provenance remains on
+each field, so memory-only and Postgres-only writes stay distinguishable.
+
+H4 shipped before H5: classification is returned as a per-field value, and the discriminating
+control asserts `dormant` rather than merely asserting that the suite passes. Six independent
+mutations were run: collapsing dormant into consumed, dropping both registries' reason check,
+drifting each registry's equality pin, counting owner-local reads, and removing memory-write
+discovery all turned the focused suite red.
