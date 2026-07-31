@@ -10,12 +10,11 @@ from guarantees.discovery import GuaranteeViolation, aqelyn_source_root
 from guarantees.persisted_fields import (
     DORMANT_FIELDS,
     EXEMPT_FIELDS,
-    OPAQUE_WRITERS,
     FieldClassification,
     assert_persisted_fields_consumed,
     classify_persisted_fields,
     discover_persisted_fields,
-    discover_unscanned_memory_writers,
+    discover_whole_record_writers,
 )
 
 CONTROL_ROOT = Path(__file__).resolve().parent / "controls" / "persisted_fields"
@@ -26,24 +25,38 @@ CONTROL_DORMANT = {
     )
 }
 CONTROL_EXEMPT = {
+    "writer.alias_left": "Synthetic union-alias field has no external reader by design.",
+    "writer.alias_right": "Synthetic union-alias field has no external reader by design.",
+    "writer.bare_only": "Synthetic bare whole-record writer has no external reader by design.",
+    "writer.conforming_only": (
+        "Synthetic convention-named whole-record writer has no external reader by design."
+    ),
+    "writer.direct_only": "Synthetic direct memory mutation has no external reader by design.",
     "writer.id": "Synthetic Postgres identity is internal to the control store.",
     "writer.memory_only": "Synthetic memory-only field has no external reader by design.",
     "writer.owner_only": "Synthetic field is deliberately read only by its owning package.",
     "writer.postgres_only": "Synthetic Postgres-only field has no external reader by design.",
-}
-CONTROL_OPAQUE_WRITERS = {
-    "writer.InMemoryOpaqueBus": (
-        "Synthetic whole-record writer proves an unscanned writer needs an explicit reason."
-    )
 }
 
 
 def test_gc004_population_is_write_defined() -> None:
     population = {field.key: field for field in discover_persisted_fields(CONTROL_ROOT)}
 
+    assert "writer.capacity_only" not in population
     assert "writer.ddl_only" not in population
+    assert population["writer.alias_left"].backends == frozenset({"memory"})
+    assert population["writer.alias_right"].backends == frozenset({"memory"})
+    assert population["writer.bare_only"].backends == frozenset({"memory"})
+    assert population["writer.conforming_only"].backends == frozenset({"memory"})
+    assert population["writer.direct_only"].backends == frozenset({"memory"})
     assert population["writer.memory_only"].backends == frozenset({"memory"})
     assert population["writer.postgres_only"].backends == frozenset({"postgres"})
+    assert {
+        "writer.AliasLog",
+        "writer.InMemoryControlStore",
+        "writer.InMemoryWholeRecordStore",
+        "writer.ProbeLog",
+    } <= discover_whole_record_writers(CONTROL_ROOT)
 
 
 def test_gc004_backend_write_divergence_surfaces() -> None:
@@ -59,7 +72,6 @@ def test_gc004_reader_outside_owning_package_detected() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
-        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert classified["writer.dormant_probe"].readers == ("reader",)
@@ -70,7 +82,6 @@ def test_gc004_reader_inside_owning_package_does_not_count() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
-        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     owner_only = classified["writer.owner_only"]
@@ -91,35 +102,20 @@ def test_gc004_exempt_registry_pinned() -> None:
     assert _expected_exempt_fields() == EXEMPT_FIELDS
 
 
-def test_gc004_opaque_writer_registry_pinned() -> None:
-    assert OPAQUE_WRITERS == {
-        "events.InMemoryEventBus": (
-            "EA-0003 appends complete Event envelopes to its transport log rather than "
-            "maintaining named Event fields; expanding that append into every model field "
-            "would reintroduce the rejected whole-model population."
-        )
-    }
-    assert discover_unscanned_memory_writers() == frozenset(OPAQUE_WRITERS)
-
-
-@pytest.mark.parametrize("selected_registry", ["dormant", "exempt", "opaque"])
+@pytest.mark.parametrize("selected_registry", ["dormant", "exempt"])
 def test_gc004_registry_entry_without_reason_rejected(selected_registry: str) -> None:
     dormant = dict(CONTROL_DORMANT)
     exempt = dict(CONTROL_EXEMPT)
-    opaque = dict(CONTROL_OPAQUE_WRITERS)
     if selected_registry == "dormant":
         dormant["writer.dormant_probe"] = ""
-    elif selected_registry == "exempt":
-        exempt["writer.owner_only"] = ""
     else:
-        opaque["writer.InMemoryOpaqueBus"] = ""
+        exempt["writer.owner_only"] = ""
 
     with pytest.raises(GuaranteeViolation, match="registry entries require reasons"):
         classify_persisted_fields(
             CONTROL_ROOT,
             dormant_fields=dormant,
             exempt_fields=exempt,
-            opaque_writers=opaque,
         )
 
 
@@ -132,7 +128,6 @@ def test_gc004_dormant_entry_without_external_reader_rejected() -> None:
             CONTROL_ROOT,
             dormant_fields=dormant,
             exempt_fields=exempt,
-            opaque_writers=CONTROL_OPAQUE_WRITERS,
         )
 
 
@@ -144,20 +139,6 @@ def test_gc004_exempt_entry_with_external_reader_rejected() -> None:
             CONTROL_ROOT,
             dormant_fields={},
             exempt_fields=exempt,
-            opaque_writers=CONTROL_OPAQUE_WRITERS,
-        )
-
-
-def test_gc004_unscanned_memory_writer_without_registry_rejected() -> None:
-    with pytest.raises(
-        GuaranteeViolation,
-        match=r"unscanned in-memory writers require classification: .*InMemoryOpaqueBus",
-    ):
-        classify_persisted_fields(
-            CONTROL_ROOT,
-            dormant_fields=CONTROL_DORMANT,
-            exempt_fields=_control_exempt(include_unconsumed=True),
-            opaque_writers={},
         )
 
 
@@ -168,7 +149,6 @@ def test_gc004_classification_is_returned_not_printed(
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
-        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert isinstance(classified, dict)
@@ -182,7 +162,6 @@ def test_gc004_control_no_reader_fails() -> None:
             CONTROL_ROOT,
             dormant_fields=CONTROL_DORMANT,
             exempt_fields=CONTROL_EXEMPT,
-            opaque_writers=CONTROL_OPAQUE_WRITERS,
         )
 
 
@@ -191,7 +170,6 @@ def test_gc004_control_declared_dormant_passes() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
-        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert all(item.state != "unconsumed" for item in classified.values())
@@ -202,7 +180,6 @@ def test_gc004_control_dormant_classified_dormant_not_consumed() -> None:
         CONTROL_ROOT,
         dormant_fields=CONTROL_DORMANT,
         exempt_fields=_control_exempt(include_unconsumed=True),
-        opaque_writers=CONTROL_OPAQUE_WRITERS,
     )
 
     assert classified["writer.dormant_probe"].state == "dormant"
@@ -254,7 +231,14 @@ def _expected_exempt_fields() -> dict[str, str]:
         ),
         (
             "decision",
-            ("action_hint", "tenant_key"),
+            (
+                "action_hint",
+                "applied",
+                "feedback",
+                "proposed_change",
+                "recommendation_id",
+                "tenant_key",
+            ),
             "EA-0021 persists model-selection bookkeeping inside its owner; callers consume "
             "the validated recommendation contract.",
         ),
@@ -266,7 +250,25 @@ def _expected_exempt_fields() -> dict[str, str]:
         ),
         (
             "dspm",
-            ("classification_status", "store_id", "store_type", "tenant_key"),
+            (
+                "access_claims",
+                "access_evidence_ids",
+                "classification_status",
+                "classified_fields",
+                "coverage_reason",
+                "coverage_status",
+                "data_asset_id",
+                "exposure_ref",
+                "field_classifications",
+                "gap_ids",
+                "max_known_sensitivity",
+                "reachability_claim",
+                "store_id",
+                "store_type",
+                "stores_evaluated",
+                "tenant_key",
+                "unknown_fields",
+            ),
             "EA-0031 keeps normalized store identity and classification bookkeeping inside "
             "its owner; external consumers use posture and exposure outputs.",
         ),
@@ -275,6 +277,12 @@ def _expected_exempt_fields() -> dict[str, str]:
             ("anchor", "manifest_hash", "package_hash"),
             "EA-0002 keeps integrity-chain material inside the evidence owner; callers consume "
             "verification outcomes rather than recomputing these fields.",
+        ),
+        (
+            "events",
+            ("attempts", "causation_id", "consumer", "trace_id"),
+            "EA-0003 keeps delivery-attempt and trace bookkeeping inside the event owner; "
+            "external consumers receive validated Event envelopes through the bus contract.",
         ),
         (
             "executive",
@@ -340,6 +348,25 @@ def _expected_exempt_fields() -> dict[str, str]:
             "assets and ownership results.",
         ),
         (
+            "ispm",
+            (
+                "account_object_ids",
+                "approved_at",
+                "approved_by",
+                "drift_snapshot_id",
+                "iag_risks",
+                "identities_evaluated",
+                "inventory_complete",
+                "inventory_note",
+                "relationship_ids",
+                "score_ids",
+                "unknown_controls",
+            ),
+            "EA-0033 keeps normalized relationship, assessment, and approval bookkeeping "
+            "inside its owner; external consumers use posture scores, drift, and delegated "
+            "IAG outputs.",
+        ),
+        (
             "lake",
             (
                 "archived_at",
@@ -353,6 +380,7 @@ def _expected_exempt_fields() -> dict[str, str]:
                 "retention_policy_id",
                 "retention_state",
                 "schema",
+                "schema_",
             ),
             "EA-0019 keeps dataset, retention, and archive bookkeeping inside the lake owner; "
             "external consumers use query and retention operations.",
@@ -371,7 +399,7 @@ def _expected_exempt_fields() -> dict[str, str]:
         ),
         (
             "response",
-            ("max_effect",),
+            ("escalate_to", "max_effect", "requested_at", "sla_seconds"),
             "EA-0018 owns bounded-effect campaign metadata; callers consume gated campaign "
             "and workflow outcomes.",
         ),
@@ -387,6 +415,33 @@ def _expected_exempt_fields() -> dict[str, str]:
             ),
             "EA-0013 keeps snapshot composition and treatment bookkeeping inside its owner; "
             "external consumers use scored risk records and findings.",
+        ),
+        (
+            "secrets",
+            (
+                "active_critical_exposure_ids",
+                "assets_evaluated",
+                "certificates",
+                "expiry",
+                "expiring_soon",
+                "external_key_ref",
+                "governance_incomplete_reason",
+                "governance_score_ids",
+                "governance_scoring_status",
+                "issuer",
+                "key_size",
+                "last_rotated_at",
+                "not_after",
+                "revocation",
+                "rotation",
+                "serial",
+                "secrets",
+                "strength",
+                "unknown_lifecycle",
+                "usages",
+            ),
+            "EA-0032 keeps lifecycle inventory and governance-assessment bookkeeping inside "
+            "its owner; external consumers use value-free crypto assets, scores, and proposals.",
         ),
         (
             "soc",

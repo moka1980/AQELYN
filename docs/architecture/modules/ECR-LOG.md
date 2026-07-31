@@ -6172,8 +6172,11 @@ this ECR read it as the latter.
 
 ### 2. Population: **fields a store writes** - chosen, and why
 
-Three definitions were on the table. **The second is chosen: fields appearing in a store's
-INSERT/UPDATE column lists**, across **both** backends.
+Three definitions were on the table. **The second is chosen: fields at actual store write
+sites**, across **both** backends. Postgres supplies explicit `INSERT`/`UPDATE` columns. A
+memory backend supplies direct field mutations plus the fields of a statically typed model
+inserted or appended to a container that is actually mutated. **Class naming is not evidence**:
+an `InMemory*Store` and a bare `*Log` are treated identically when their write shape is identical.
 
 **The reason is not that the ECR-0084 defect lived there** - though it did
 (`findings/postgres.py:206-215`). It is that **the population must match the claim**:
@@ -6190,9 +6193,15 @@ INSERT/UPDATE column lists**, across **both** backends.
   contract divergence the one-suite requirement should already have caught, so a hit there is
   a finding either way - not a false positive.
 
+**Named limit:** whole-record discovery requires a statically resolvable container model
+annotation. An untyped, `Any`-typed, or dynamically constructed container cannot supply field
+names to this source-level guard. The implementation records that limit rather than substituting
+a class-name convention, which would invert the blind spot: conforming names would disappear.
+
 **Rejected:** DDL column lists (misses memory-only, and defines capacity rather than
-maintenance); all fields of any persisted model (produces a long first allow-list, and **a long
-allow-list is where reasons go stale**).
+maintenance); all fields of any persisted model **without a matching write site** (defines model
+capacity rather than maintenance, produces a long first allow-list, and **a long allow-list is
+where reasons go stale**).
 
 ### 3. Three states - and **dormancy cannot be computed**
 
@@ -6313,17 +6322,19 @@ at the minimum magnitude that separates the rule from no rule at all.
 
 ### 9. Resolution - GC-004 shipped
 
-The test-only guard discovers Postgres `INSERT`/`UPDATE` columns and field-level writes named by
-in-memory stores. At acceptance the inspectable census contained **497 fields**: **403 consumed,
-1 declared dormant, 93 reasoned exemptions, and 0 unconsumed**. Backend provenance remains on
-each field, so memory-only and Postgres-only writes stay distinguishable. An exact third registry
-records the one discovered opaque whole-record writer, `events.InMemoryEventBus`, so a package
-whose write shape cannot enter the field census cannot silently contribute zero.
+The test-only guard discovers Postgres `INSERT`/`UPDATE` columns, direct in-memory field
+mutations, and fields resolved from typed models at whole-record container write sites. At
+acceptance the inspectable census contained **670 fields**: **520 consumed, 1 declared dormant,
+149 reasoned exemptions, and 0 unconsumed**. Backend provenance remains on each field: **461 are
+written by both backends, 176 are memory-only, and 33 are Postgres-only**. Forty-five
+whole-record writers are resolved by behavior rather than class name; a convention-named store
+and a bare log are both controls, while a typed model with no write site stays outside the census.
 
 H4 shipped before H5: classification is returned as a per-field value, and the discriminating
-control asserts `dormant` rather than merely asserting that the suite passes. Eight independent
+control asserts `dormant` rather than merely asserting that the suite passes. Ten independent
 mutations were run: collapsing dormant into consumed, dropping the reason check, drifting each
 field registry's equality pin, counting owner-local reads, removing memory-write discovery,
 allowing a dormant entry with no external reader, and allowing an exempt entry with an external
-reader all turned the focused suite red. The opaque-writer registry is independently pinned and
-fails closed when a discovered writer is omitted.
+reader all turned the focused suite red. Reintroducing class-name gating also turns the suite red
+because the bare-log whole-record field disappears, and disabling type-alias resolution turns it
+red because the union-backed control fields disappear.

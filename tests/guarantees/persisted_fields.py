@@ -3,12 +3,16 @@
 The guard reports a census, not a clearance. It can discover writes and source-level
 readers, but it cannot prove that a shipped path can produce the state a reader needs.
 Dormancy is therefore declared and review-owned; undeclared dormancy remains a named
-limit of this module. Whole-record writers that do not expose field-level operations
-must appear in a separate exact, reasoned registry so they cannot silently disappear.
+limit of this module.
 
-The population is write-defined. SQL INSERT/UPDATE columns describe Postgres writes,
-while field-level store operations describe in-memory writes. A DDL column describes
-capacity and is deliberately not enough to enter the census.
+The population is write-defined. SQL INSERT/UPDATE columns describe Postgres writes.
+For memory backends, direct field mutations and fields of a typed model written into a
+mutated container describe writes. Model declarations without a matching write site,
+like DDL columns without an INSERT/UPDATE, describe capacity and do not enter the census.
+
+Named limit: whole-record discovery requires a statically resolvable container model
+annotation. An untyped, Any-typed, or dynamically constructed container cannot supply
+field names to this source-level guard; class naming is deliberately not used as a proxy.
 """
 
 from __future__ import annotations
@@ -38,14 +42,6 @@ DORMANT_FIELDS = {
     )
 }
 
-OPAQUE_WRITERS = {
-    "events.InMemoryEventBus": (
-        "EA-0003 appends complete Event envelopes to its transport log rather than "
-        "maintaining named Event fields; expanding that append into every model field "
-        "would reintroduce the rejected whole-model population."
-    )
-}
-
 _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     (
         "assetconfig",
@@ -68,7 +64,14 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     (
         "decision",
-        ("action_hint", "tenant_key"),
+        (
+            "action_hint",
+            "applied",
+            "feedback",
+            "proposed_change",
+            "recommendation_id",
+            "tenant_key",
+        ),
         "EA-0021 persists model-selection bookkeeping inside its owner; callers consume the "
         "validated recommendation contract.",
     ),
@@ -80,7 +83,25 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     (
         "dspm",
-        ("classification_status", "store_id", "store_type", "tenant_key"),
+        (
+            "access_claims",
+            "access_evidence_ids",
+            "classification_status",
+            "classified_fields",
+            "coverage_reason",
+            "coverage_status",
+            "data_asset_id",
+            "exposure_ref",
+            "field_classifications",
+            "gap_ids",
+            "max_known_sensitivity",
+            "reachability_claim",
+            "store_id",
+            "store_type",
+            "stores_evaluated",
+            "tenant_key",
+            "unknown_fields",
+        ),
         "EA-0031 keeps normalized store identity and classification bookkeeping inside its "
         "owner; external consumers use posture and exposure outputs.",
     ),
@@ -89,6 +110,12 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
         ("anchor", "manifest_hash", "package_hash"),
         "EA-0002 keeps integrity-chain material inside the evidence owner; callers consume "
         "verification outcomes rather than recomputing these fields.",
+    ),
+    (
+        "events",
+        ("attempts", "causation_id", "consumer", "trace_id"),
+        "EA-0003 keeps delivery-attempt and trace bookkeeping inside the event owner; "
+        "external consumers receive validated Event envelopes through the bus contract.",
     ),
     (
         "executive",
@@ -154,6 +181,24 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
         "assets and ownership results.",
     ),
     (
+        "ispm",
+        (
+            "account_object_ids",
+            "approved_at",
+            "approved_by",
+            "drift_snapshot_id",
+            "iag_risks",
+            "identities_evaluated",
+            "inventory_complete",
+            "inventory_note",
+            "relationship_ids",
+            "score_ids",
+            "unknown_controls",
+        ),
+        "EA-0033 keeps normalized relationship, assessment, and approval bookkeeping inside "
+        "its owner; external consumers use posture scores, drift, and delegated IAG outputs.",
+    ),
+    (
         "lake",
         (
             "archived_at",
@@ -167,6 +212,7 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
             "retention_policy_id",
             "retention_state",
             "schema",
+            "schema_",
         ),
         "EA-0019 keeps dataset, retention, and archive bookkeeping inside the lake owner; "
         "external consumers use query and retention operations.",
@@ -185,7 +231,7 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     (
         "response",
-        ("max_effect",),
+        ("escalate_to", "max_effect", "requested_at", "sla_seconds"),
         "EA-0018 owns bounded-effect campaign metadata; callers consume gated campaign and "
         "workflow outcomes.",
     ),
@@ -201,6 +247,33 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
         ),
         "EA-0013 keeps snapshot composition and treatment bookkeeping inside its owner; "
         "external consumers use scored risk records and findings.",
+    ),
+    (
+        "secrets",
+        (
+            "active_critical_exposure_ids",
+            "assets_evaluated",
+            "certificates",
+            "expiry",
+            "expiring_soon",
+            "external_key_ref",
+            "governance_incomplete_reason",
+            "governance_score_ids",
+            "governance_scoring_status",
+            "issuer",
+            "key_size",
+            "last_rotated_at",
+            "not_after",
+            "revocation",
+            "rotation",
+            "serial",
+            "secrets",
+            "strength",
+            "unknown_lifecycle",
+            "usages",
+        ),
+        "EA-0032 keeps lifecycle inventory and governance-assessment bookkeeping inside its "
+        "owner; external consumers use value-free crypto assets, scores, and proposals.",
     ),
     (
         "soc",
@@ -319,6 +392,8 @@ _SQL_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 def discover_persisted_fields(aqelyn_root: Path | None = None) -> tuple[PersistedField, ...]:
     root = aqelyn_root or aqelyn_source_root()
     modules = _source_modules(root)
+    class_nodes = _class_nodes(modules)
+    type_aliases = _type_aliases(modules)
     writes: dict[tuple[str, str], set[WriteSite]] = defaultdict(set)
 
     for module in modules.values():
@@ -326,6 +401,12 @@ def discover_persisted_fields(aqelyn_root: Path | None = None) -> tuple[Persiste
             for name, line in _postgres_written_fields(module):
                 writes[(module.package, name)].add(WriteSite("postgres", module.path, line))
         for name, line in _memory_written_fields(module):
+            writes[(module.package, name)].add(WriteSite("memory", module.path, line))
+        for name, line in _whole_record_written_fields(
+            module,
+            class_nodes,
+            type_aliases,
+        ):
             writes[(module.package, name)].add(WriteSite("memory", module.path, line))
 
     return tuple(
@@ -344,12 +425,10 @@ def classify_persisted_fields(
     *,
     dormant_fields: Mapping[str, str] = DORMANT_FIELDS,
     exempt_fields: Mapping[str, str] = EXEMPT_FIELDS,
-    opaque_writers: Mapping[str, str] = OPAQUE_WRITERS,
 ) -> dict[str, FieldClassification]:
     root = aqelyn_root or aqelyn_source_root()
     population = discover_persisted_fields(root)
     _validate_registries(population, dormant_fields=dormant_fields, exempt_fields=exempt_fields)
-    _validate_opaque_writers(root, opaque_writers)
     reads = _external_readers(root)
     classified: dict[str, FieldClassification] = {}
 
@@ -384,13 +463,11 @@ def assert_persisted_fields_consumed(
     *,
     dormant_fields: Mapping[str, str] = DORMANT_FIELDS,
     exempt_fields: Mapping[str, str] = EXEMPT_FIELDS,
-    opaque_writers: Mapping[str, str] = OPAQUE_WRITERS,
 ) -> dict[str, FieldClassification]:
     classified = classify_persisted_fields(
         aqelyn_root,
         dormant_fields=dormant_fields,
         exempt_fields=exempt_fields,
-        opaque_writers=opaque_writers,
     )
     missing = sorted(key for key, value in classified.items() if value.state == "unconsumed")
     if missing:
@@ -421,27 +498,16 @@ def _validate_registries(
         raise GuaranteeViolation(f"persisted-field registry contains unknown entries: {stale}")
 
 
-def discover_unscanned_memory_writers(aqelyn_root: Path | None = None) -> frozenset[str]:
+def discover_whole_record_writers(aqelyn_root: Path | None = None) -> frozenset[str]:
     root = aqelyn_root or aqelyn_source_root()
+    modules = _source_modules(root)
+    class_nodes = _class_nodes(modules)
+    type_aliases = _type_aliases(modules)
     return frozenset(
         writer
-        for module in _source_modules(root).values()
-        for writer in _unscanned_memory_writers(module)
+        for module in modules.values()
+        for writer in _whole_record_writers(module, class_nodes, type_aliases)
     )
-
-
-def _validate_opaque_writers(root: Path, opaque_writers: Mapping[str, str]) -> None:
-    blank = sorted(key for key, reason in opaque_writers.items() if not reason.strip())
-    if blank:
-        raise GuaranteeViolation(f"opaque-writer registry entries require reasons: {blank}")
-    discovered = discover_unscanned_memory_writers(root)
-    declared = frozenset(opaque_writers)
-    missing = sorted(discovered - declared)
-    if missing:
-        raise GuaranteeViolation(f"unscanned in-memory writers require classification: {missing}")
-    stale = sorted(declared - discovered)
-    if stale:
-        raise GuaranteeViolation(f"opaque-writer registry contains unknown entries: {stale}")
 
 
 def _source_modules(root: Path) -> dict[str, _SourceModule]:
@@ -458,6 +524,40 @@ def _source_modules(root: Path) -> dict[str, _SourceModule]:
             tree=tree,
         )
     return modules
+
+
+def _class_nodes(
+    modules: Mapping[str, _SourceModule],
+) -> dict[str, tuple[_SourceModule, ast.ClassDef]]:
+    return {
+        f"{module.name}.{node.name}": (module, node)
+        for module in modules.values()
+        for node in module.tree.body
+        if isinstance(node, ast.ClassDef)
+    }
+
+
+def _type_aliases(
+    modules: Mapping[str, _SourceModule],
+) -> dict[str, tuple[_SourceModule, ast.expr]]:
+    aliases: dict[str, tuple[_SourceModule, ast.expr]] = {}
+    for module in modules.values():
+        for node in module.tree.body:
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+            ):
+                aliases[f"{module.name}.{node.targets[0].id}"] = (module, node.value)
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.value is not None
+            ):
+                aliases[f"{module.name}.{node.target.id}"] = (module, node.value)
+            elif isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+                aliases[f"{module.name}.{node.name.id}"] = (module, node.value)
+    return aliases
 
 
 def _memory_written_fields(module: _SourceModule) -> tuple[tuple[str, int], ...]:
@@ -490,36 +590,240 @@ def _memory_written_fields(module: _SourceModule) -> tuple[tuple[str, int], ...]
     return tuple(sorted(written))
 
 
-def _unscanned_memory_writers(module: _SourceModule) -> tuple[str, ...]:
+def _whole_record_written_fields(
+    module: _SourceModule,
+    class_nodes: Mapping[str, tuple[_SourceModule, ast.ClassDef]],
+    type_aliases: Mapping[str, tuple[_SourceModule, ast.expr]],
+) -> tuple[tuple[str, int], ...]:
+    written: set[tuple[str, int]] = set()
+    for node in module.tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        fields_by_storage = _model_fields_by_storage(module, node, class_nodes, type_aliases)
+        for storage_name, line in _container_write_sites(node):
+            written.update((field, line) for field in fields_by_storage.get(storage_name, ()))
+    return tuple(sorted(written))
+
+
+def _whole_record_writers(
+    module: _SourceModule,
+    class_nodes: Mapping[str, tuple[_SourceModule, ast.ClassDef]],
+    type_aliases: Mapping[str, tuple[_SourceModule, ast.expr]],
+) -> tuple[str, ...]:
     writers: list[str] = []
     for node in module.tree.body:
-        if not (
-            isinstance(node, ast.ClassDef)
-            and node.name.startswith("InMemory")
-            and not node.name.endswith(("Store", "Registry"))
-        ):
+        if not isinstance(node, ast.ClassDef):
             continue
-        if any(_is_container_write(selected) for selected in ast.walk(node)):
+        fields_by_storage = _model_fields_by_storage(module, node, class_nodes, type_aliases)
+        if any(name in fields_by_storage for name, _line in _container_write_sites(node)):
             writers.append(f"{module.package}.{node.name}")
     return tuple(sorted(writers))
 
 
-def _is_container_write(node: ast.AST) -> bool:
+def _model_fields_by_storage(
+    module: _SourceModule,
+    node: ast.ClassDef,
+    class_nodes: Mapping[str, tuple[_SourceModule, ast.ClassDef]],
+    type_aliases: Mapping[str, tuple[_SourceModule, ast.expr]],
+) -> dict[str, frozenset[str]]:
+    selected: dict[str, set[str]] = defaultdict(set)
+    imports = _import_targets(module)
+    for candidate in ast.walk(node):
+        if not (
+            isinstance(candidate, ast.AnnAssign)
+            and isinstance(candidate.target, ast.Attribute)
+            and isinstance(candidate.target.value, ast.Name)
+            and candidate.target.value.id == "self"
+            and candidate.target.attr.startswith("_")
+        ):
+            continue
+        for class_key in _annotation_class_keys(
+            candidate.annotation,
+            module,
+            imports,
+            class_nodes,
+            type_aliases,
+            seen_aliases=frozenset(),
+        ):
+            selected[candidate.target.attr].update(
+                _class_field_names(class_key, class_nodes, seen=frozenset())
+            )
+    return {name: frozenset(fields) for name, fields in selected.items() if fields}
+
+
+def _annotation_class_keys(
+    annotation: ast.expr,
+    module: _SourceModule,
+    imports: Mapping[str, str],
+    class_nodes: Mapping[str, tuple[_SourceModule, ast.ClassDef]],
+    type_aliases: Mapping[str, tuple[_SourceModule, ast.expr]],
+    *,
+    seen_aliases: frozenset[str],
+) -> frozenset[str]:
+    keys: set[str] = set()
+    for candidate in ast.walk(annotation):
+        if not isinstance(candidate, ast.Name | ast.Attribute):
+            continue
+        resolved = _resolve_class_key(candidate, module, imports, class_nodes)
+        if resolved is not None:
+            keys.add(resolved)
+            continue
+        alias_key = _resolve_alias_key(candidate, module, imports, type_aliases)
+        if alias_key is None or alias_key in seen_aliases:
+            continue
+        alias_module, expression = type_aliases[alias_key]
+        keys.update(
+            _annotation_class_keys(
+                expression,
+                alias_module,
+                _import_targets(alias_module),
+                class_nodes,
+                type_aliases,
+                seen_aliases=seen_aliases | {alias_key},
+            )
+        )
+    return frozenset(keys)
+
+
+def _resolve_alias_key(
+    node: ast.expr,
+    module: _SourceModule,
+    imports: Mapping[str, str],
+    type_aliases: Mapping[str, tuple[_SourceModule, ast.expr]],
+) -> str | None:
+    selected = _resolve_reference(node, module, imports)
+    return selected if selected in type_aliases else None
+
+
+def _resolve_class_key(
+    node: ast.expr,
+    module: _SourceModule,
+    imports: Mapping[str, str],
+    class_nodes: Mapping[str, tuple[_SourceModule, ast.ClassDef]],
+) -> str | None:
+    selected = _resolve_reference(node, module, imports)
+    return selected if selected in class_nodes else None
+
+
+def _resolve_reference(
+    node: ast.expr,
+    module: _SourceModule,
+    imports: Mapping[str, str],
+) -> str | None:
+    dotted = _dotted_name(node)
+    if dotted is None:
+        return None
+    parts = dotted.split(".")
+    if len(parts) == 1:
+        return imports.get(parts[0], f"{module.name}.{parts[0]}")
+    imported_root = imports.get(parts[0])
+    selected = ".".join([imported_root, *parts[1:]]) if imported_root else dotted
+    return selected.removeprefix("aqelyn.")
+
+
+def _class_field_names(
+    class_key: str,
+    class_nodes: Mapping[str, tuple[_SourceModule, ast.ClassDef]],
+    *,
+    seen: frozenset[str],
+) -> frozenset[str]:
+    if class_key in seen:
+        return frozenset()
+    selected = class_nodes.get(class_key)
+    if selected is None:
+        return frozenset()
+    module, node = selected
+    fields = {
+        candidate.target.id
+        for candidate in node.body
+        if isinstance(candidate, ast.AnnAssign)
+        and isinstance(candidate.target, ast.Name)
+        and not candidate.target.id.startswith("_")
+        and not _annotation_contains(candidate.annotation, "ClassVar")
+    }
+    imports = _import_targets(module)
+    nested_seen = seen | {class_key}
+    for base in node.bases:
+        resolved = _resolve_class_key(base, module, imports, class_nodes)
+        if resolved is not None:
+            fields.update(_class_field_names(resolved, class_nodes, seen=nested_seen))
+    return frozenset(fields)
+
+
+def _import_targets(module: _SourceModule) -> dict[str, str]:
+    targets: dict[str, str] = {}
+    for node in module.tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module is not None:
+            imported_module = node.module.removeprefix("aqelyn.")
+            for alias in node.names:
+                targets[alias.asname or alias.name] = f"{imported_module}.{alias.name}"
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                target = alias.name.removeprefix("aqelyn.")
+                local = alias.asname or target.split(".")[0]
+                targets[local] = target
+    return targets
+
+
+def _container_write_sites(node: ast.ClassDef) -> tuple[tuple[str, int], ...]:
+    sites: set[tuple[str, int]] = set()
+    for candidate in ast.walk(node):
+        if isinstance(candidate, ast.Assign):
+            for target in candidate.targets:
+                name = _storage_subscript_name(target)
+                if name is not None:
+                    sites.add((name, candidate.lineno))
+        elif isinstance(candidate, ast.AnnAssign | ast.AugAssign):
+            name = _storage_subscript_name(candidate.target)
+            if name is not None:
+                sites.add((name, candidate.lineno))
+        elif (
+            isinstance(candidate, ast.Call)
+            and isinstance(candidate.func, ast.Attribute)
+            and candidate.func.attr in {"add", "append", "extend", "insert", "setdefault", "update"}
+        ):
+            name = _storage_name(candidate.func.value)
+            if name is not None:
+                sites.add((name, candidate.lineno))
+    return tuple(sorted(sites))
+
+
+def _storage_subscript_name(node: ast.expr) -> str | None:
+    return _storage_name(node.value) if isinstance(node, ast.Subscript) else None
+
+
+def _storage_name(node: ast.expr) -> str | None:
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "self"
+        and node.attr.startswith("_")
+    ):
+        return node.attr
+    if isinstance(node, ast.Subscript):
+        return _storage_name(node.value)
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr in {"append", "extend", "insert"}
+        and node.func.attr == "setdefault"
     ):
-        return _is_self_storage(node.func.value)
-    if isinstance(node, ast.Assign):
-        return any(_is_storage_subscript(target) for target in node.targets)
-    if isinstance(node, ast.AnnAssign):
-        return _is_storage_subscript(node.target)
-    return isinstance(node, ast.AugAssign) and _is_storage_subscript(node.target)
+        return _storage_name(node.func.value)
+    return None
 
 
-def _is_storage_subscript(node: ast.expr) -> bool:
-    return isinstance(node, ast.Subscript) and _is_self_storage(node.value)
+def _dotted_name(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _dotted_name(node.value)
+        return f"{parent}.{node.attr}" if parent is not None else None
+    return None
+
+
+def _annotation_contains(node: ast.expr, name: str) -> bool:
+    return any(
+        isinstance(candidate, ast.Name) and candidate.id == name for candidate in ast.walk(node)
+    )
 
 
 def _record_memory_target(

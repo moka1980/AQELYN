@@ -40,7 +40,10 @@ in `SPEC_AUTHOR_NOTES.md` and duplicating it is how the two drift apart.
 
 ## H1 — The population: fields a store **writes**
 
-**Enumerate from store INSERT/UPDATE column lists, across both backends.**
+**Enumerate from actual store write sites, across both backends.** Postgres provides explicit
+`INSERT`/`UPDATE` columns. Memory provides direct field mutations plus fields resolved from a
+statically typed model inserted or appended to a container that is actually mutated. **Do not
+use class naming as a proxy** - the write shape, not `InMemory*Store`, puts a field in scope.
 
 **Why write-defined and not schema-defined** (ECR-0085 §2, carry the reasoning into the
 docstring): **the guard's claim is that the system does work nobody consumes. Work is
@@ -53,6 +56,10 @@ writing.** A DDL column defines **capacity**; a write defines **maintenance**.
 - **If the two backends write different field sets, the guard surfaces it.** That is a contract
   divergence the one-suite requirement should already have caught — **a hit there is a finding,
   not a false positive.** Do not normalise it away.
+
+**Named limit:** an untyped, `Any`-typed, or dynamically constructed whole-record container
+cannot supply field names to a source-level guard. Record that limit; do not replace it with a
+class-name convention that makes conforming stores disappear.
 
 **Reuse** `aqelyn_source_root()` and `source_python_files()` (`tests/guarantees/discovery.py`).
 
@@ -144,6 +151,8 @@ test.**
 | remove the equality pin on either registry | red |
 | classify readers **inside** the owning package as consumers | red |
 | populate from DDL columns instead of writes | red — a memory-only written field goes undetected |
+| gate whole-record discovery on a class-name convention | red — the bare-log control disappears |
+| stop resolving a typed union alias | red — the alias-backed fields disappear |
 
 **Record the run, not the intention.**
 
