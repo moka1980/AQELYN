@@ -90,7 +90,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
 | ECR-0084 | EA-0013 / `findings` | Accepted (shape 1; owner, 2026-07-30) | **`current_severity_score` is maintained and never read.** Shape 1 selected: P-001 annotates current severity beside the existing first-seen priority headline without changing ordering; dormant until persistence. |
 | ECR-0085 | GC-004 (cross-cutting) | Accepted (GC-004) | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
-| ECR-0086 | EA-0052–0063 batch | Proposed | Archive **not** exhausted — 12 unassessed. 3 conformant, 3 gaps, 6 non-capability. Only EA-0054 opens a socket. |
+| ECR-0086 | EA-0052–0063 batch | Accepted (owner decisions recorded; absence guards shipped) | Archive **not** exhausted — 12 unassessed. 3 conformant, 3 gaps, 6 non-capability. EA-0054 remains an open gap, not scheduled; EA-0052-FR-004 is not authorized. |
 
 ---
 
@@ -2975,6 +2975,7 @@ as the real backlog.
 
 **Raised by:** claude.ai (batch analysis) - **verified and implemented by Claude Code (C-035)
 at `2699006`**, during the Codex outage.
+**Status:** Accepted (C-035; archive-exhaustion clause superseded by ECR-0086).
 **Number:** confirmed free against this log before assignment (highest allocated was 0059,
 C-034). Rule 1 discharged - the ECR-0058 collision earlier in this sequence is why the
 number was carried as provisional until checked.
@@ -6343,7 +6344,8 @@ red because the union-backed control fields disappear.
 ## ECR-0086 - The EA-0052 ... EA-0063 batch, and two false status claims
 
 **Raised by:** the reviewer, 2026-08-01, verified against `main @ca59f0a`.
-**Status:** Proposed.
+**Status:** Accepted — owner decisions recorded in `ECR-0086_OWNER_DECISIONS.md`; three
+absence guards shipped.
 **Number:** verified free at `ca59f0a`; rule 20 re-derived against the archive through EA-0063.
 
 ### 1. Two recorded claims are false
@@ -6468,3 +6470,19 @@ evades it.** State the guarantee that way; do not overclaim it.
 
 **No module specs for EA-0052/0053/0054.** The batch decision comes first either way, and it is
 required before any scheduling question can be answered.
+
+### 8. Acceptance - requirement-level authorization and mechanical absence guards
+
+The owner specifically delegated the two named decisions after §3 exposed their boundaries. The
+accepted decisions are recorded in `ECR-0086_OWNER_DECISIONS.md`:
+
+- **EA-0054 remains an open capability gap, not scheduled.** Re-proposal requires a user-facing
+  surface, the shipped EA-0052 -> EA-0053 handed-in path, and reviewed runtime authorization
+  semantics. It returns under a new ECR rather than reopening this one.
+- **EA-0052-FR-004 is not authorized.** Any future EA-0052 scope is limited to owner-run,
+  handed-in descriptors. A resident or phone-home agent requires its own decision and ECR.
+
+The three Disposition-B absences are now guarded in `tests/conformance/` by exact declaration,
+raw vocabulary and token-normalised identifier discovery. Each branch has a unique witness for
+each capability. The guarantee remains deliberately bounded: conventional vocabulary and exact
+declarations are detected; determined novel vocabulary can evade the net.
