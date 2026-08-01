@@ -64,7 +64,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0057 | GC-001 (cross-cutting) | Accepted | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
 | ECR-0058 | GC-002 (cross-cutting) | Accepted | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
 | ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Accepted | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
-| ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive exhausted as a requirements source. |
+| ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive assessed only through EA-0051; EA-0052–0063 remained unassessed (see ECR-0086). |
 | ECR-0061 | EA-0025 (+ EA-0023, EA-0024) | Accepted (C-036) | ECR-0034's second half: `AssetStore` gains cursor pagination (EA-0002 D8), the engine pages under `InventoryConfig.page_budget`. **Moves the truncation threshold; does not remove `degraded`.** Budget exhausted -> partial + flag; `sweep_unreported` -> exhaust or refuse, never partial. |
 | ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
 | ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
@@ -90,6 +90,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0083 | EA-0024 + GC-001 AC-3 | Accepted | **Stable weights are necessary but not sufficient.** ECR-0082's all-weight denominator stops sibling amplification but maps an unknown lower-is-favourable factor to the same contribution as a proved-safe `0.0`; use a separate typed uncertainty surcharge, with `u = 0.25` selected after the full KEV-bearing corpus rerun. |
 | ECR-0084 | EA-0013 / `findings` | Accepted (shape 1; owner, 2026-07-30) | **`current_severity_score` is maintained and never read.** Shape 1 selected: P-001 annotates current severity beside the existing first-seen priority headline without changing ordering; dormant until persistence. |
 | ECR-0085 | GC-004 (cross-cutting) | Accepted (GC-004) | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
+| ECR-0086 | EA-0052–0063 batch | Proposed | Archive **not** exhausted — 12 unassessed. 3 conformant, 3 gaps, 6 non-capability. Only EA-0054 opens a socket. |
 
 ---
 
@@ -6338,3 +6339,125 @@ allowing a dormant entry with no external reader, and allowing an exempt entry w
 reader all turned the focused suite red. Reintroducing class-name gating also turns the suite red
 because the bare-log whole-record field disappears, and disabling type-alias resolution turns it
 red because the union-backed control fields disappear.
+
+## ECR-0086 - The EA-0052 ... EA-0063 batch, and two false status claims
+
+**Raised by:** the reviewer, 2026-08-01, verified against `main @ca59f0a`.
+**Status:** Proposed.
+**Number:** verified free at `ca59f0a`; rule 20 re-derived against the archive through EA-0063.
+
+### 1. Two recorded claims are false
+
+**1.1 ECR-0060's "archive exhausted as a requirements source" is wrong.** `archive/` runs to
+**EA-0063** - its own index says so on line 1. EA-0050/0051 were classified non-capability, which
+leaves **twelve masters never assessed at all.**
+
+**1.2 The rule-20 premise "archive stops at EA-0051" is wrong**, and this is the load-bearing
+one. Two ECR allocations discharged rule 20 with it. **Both conclusions still hold** - they were
+checking for an `EA-0071`, and 0063 < 0071 - **but they hold by luck, not by the check.** The
+premise gives the **wrong answer across the entire 0052-0063 band**, where ECR-0052 ... ECR-0063
+are all already allocated.
+
+> **Same family as C-038's `>= 30` registry floor: a bound that was true when written and does
+> not track what it measures.** And the failure mode is specific - **the next person to run a
+> rule-20 check reuses the sentence rather than re-deriving it**, which is how a stale premise
+> outlives every fact that supported it.
+
+### 2. Three dispositions, on the proven ECR-0060 shape
+
+**A - conformant via shipped owners (3).** EA-0055 -> **EA-0023**, EA-0056 -> **EA-0024**,
+EA-0057 -> **EA-0025**. The strongest evidence is EA-0056's: **the master's proposed engine name
+IS the shipped class** (`VulnerabilityIntelligenceEngine`, 14 occurrences).
+
+**B - genuine capability gaps (3).** EA-0052 Endpoint Intelligence, EA-0053 Endpoint Security
+Assessment, EA-0054 Web Intelligence. **Three times the EA-0048 result** - and unlike EA-0048,
+**the roadmap schedules them** (C-005, C-006). Note that **two of C-006's three already ship**
+under EA-0023/0024: the roadmap's coding order was written against archive numbers the platform
+has since realised elsewhere.
+
+**C - non-capability (6).** EA-0058 ... EA-0063.
+
+> **"Non-capability" must not collapse into "ignore."** EA-0058, EA-0060 and EA-0061 are
+> **normative standards documents** - 703 lines of real content, not the 485-line stub shape.
+> They plausibly contain coding and AI-engineering standards **this platform is supposed to
+> conform to**. Classified non-capability **for build purposes**, and recorded as **owing a
+> separate standards-conformance read.** One word must not close three documents nobody has
+> opened.
+
+### 3. The correction that changes the decision: **B is not one group**
+
+The brief states *"all three Disposition-B gaps are active scanners"* and that building any of
+them **opens AQELYN's first socket.** **That is right for one of the three and wrong for two.**
+
+**S-003 already collected, from a real host, handed in, with no socket opened:** package
+inventory, listening sockets, firewall rules, unit definitions, unit inventory. **That is
+substantially EA-0052's stated scope** - *endpoint telemetry inventory; process, service,
+software and firewall visibility.*
+
+| master | needs a socket? | why |
+|---|---|---|
+| **EA-0052** Endpoint Intelligence | **no** | the host's own state, read locally - **the S-003/S-004 pattern, already proven on a real estate** |
+| **EA-0053** Endpoint Security Assessment | **no** | pure analysis over EA-0052's descriptors; it reads nothing itself |
+| **EA-0054** Web Intelligence | **YES** | TLS handshake, DNS, HTTP headers against a **remote** host. No handed-in shape exists - **the evidence does not exist until someone connects** |
+
+**The distinction is not scanning versus not scanning. It is *whose* machine, and *who* runs the
+collector.**
+
+- **EA-0052's collector runs on the machine being assessed, by its owner**, and produces a
+  document. **S-004 settled the principle: *the driver does not need privilege - the owner needs
+  it, once.*** The same sentence applies to endpoints.
+- **EA-0054 reaches across a network to a host that has not handed anything in.** That is the
+  boundary, and it is genuine.
+
+**So the socket boundary is crossed by EA-0054 alone.** EA-0052/0053 are **buildable entirely
+within the shipped boundary** - which makes them a **product** decision, not a safety one, and
+they should not be gated behind a safety question they do not raise.
+
+**This does not weaken the boundary; it locates it.** EA-0054 remains exactly as consequential
+as the brief says - and stating it precisely is what keeps the boundary meaningful rather than
+making it a general reluctance.
+
+### 4. Disposition B recorded, **scheduling reserved**
+
+**Recorded as gaps. None scheduled**, following ECR-0060's EA-0048 precedent verbatim: *an open
+capability gap, not scheduled.*
+
+**Reserved to the owner:** whether **EA-0054** is built at all, given that it opens AQELYN's
+first socket. The evidence is in §3 so the decision is made **with it in view rather than
+discovered during implementation.**
+
+### 5. Absence guards - three new rows, and the net does not cover them
+
+`EA0048_OWNERSHIP_TERMS` is **AI vocabulary only** - `model_governance`, `ai_security`,
+`prompt_injection`, `training_data`. **Nothing in it would notice an endpoint or web module
+arriving.**
+
+**Each new Disposition-B row needs its own guard, built to the three-branch standard PR #283
+established** - exact declaration discovery, raw keyword net, token-normalised identifier
+matching - **each branch with a unique witness test.** Otherwise the batch certifies three
+absences with no control behind them, **which is the EA-0048 defect reintroduced at triple
+scale.**
+
+**Carry the honest limit forward too:** the guard catches **anticipated-or-conventional
+vocabulary, or an explicit declaration** - not *any* capability. **A determined novel vocabulary
+evades it.** State the guarantee that way; do not overclaim it.
+
+### 6. False friends verified by the reviewer
+
+- **`tlm` = `telemetry_record` is already allocated**, and EA-0052's FR-001 is *"endpoint
+  telemetry inventory"*. **No prefix exists for endpoint or web** - a Disposition-B module needs
+  new ones.
+- **ECR-0015 check:** every proposed engine name returns **0** in `src/` **except**
+  `VulnerabilityIntelligenceEngine` at **14** - the shipped EA-0024 class. **Do not restate it.**
+- **Rule 20, live:** EA-0052 declares *"Implementation Specification: IS-035"*, but **IS-035 is
+  closed** as Secrets/Keys/Certificate Lifecycle under EA-0032 (ECR-0054). **Same number,
+  incompatible artifact.** EA-0055 declares IS-038 and EA-0057 IS-040 - **verify each against its
+  source family, do not assume they map to the IS-0xx analyses on file.**
+- **Event names are generator output, not a contract.** The masters propose PascalCase
+  (`EndpointIntelligenceEngineDiscovered`); the shipped convention is dotted lowercase
+  `aqelyn.<domain>.<verb>`, and **GC-002 closes the namespace.**
+
+### 7. Not in this pass
+
+**No module specs for EA-0052/0053/0054.** The batch decision comes first either way, and it is
+required before any scheduling question can be answered.
