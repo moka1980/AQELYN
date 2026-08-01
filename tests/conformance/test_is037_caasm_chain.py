@@ -398,23 +398,39 @@ async def test_inventory_below_budget_not_degraded() -> None:
     assert report.total == 10_001
 
 
-async def test_inventory_degraded_when_budget_exhausted() -> None:
+@pytest.mark.parametrize("backend", ["memory", "postgres"])
+async def test_inventory_degraded_when_budget_exhausted(backend: str) -> None:
     """Above the budget the read is still partial, and still says so.
 
     The threshold moved; it did not disappear. A budget that truncates is still a cap,
-    only a better-behaved one.
+    only a better-behaved one. Both stores drive the full budget-to-report composition;
+    cursor primitives alone cannot prove the report carries the result.
     """
-    store = InMemoryAssetStore(mode="enterprise")
-    for index in range(6):
-        await store.put(_asset(TENANT, index=index))
-    engine = _budgeted(store, 5)
+    closeable: PostgresAssetStore | None = None
+    if backend == "memory":
+        store: AssetStore = InMemoryAssetStore(mode="enterprise")
+    else:
+        if not PG_URL:
+            pytest.skip("AQELYN_DATABASE_URL not set")
+        closeable = await PostgresAssetStore.connect(PG_URL, mode="enterprise")
+        async with closeable._pool.acquire() as conn:
+            await conn.execute("TRUNCATE aq_inventory_asset RESTART IDENTITY")
+        store = closeable
 
-    report = await engine.inventory(tenant_id=TENANT)
+    try:
+        for index in range(6):
+            await store.put(_asset(TENANT, index=index))
+        engine = _budgeted(store, 5)
 
-    assert report.degraded is True
-    # Partial and flagged, not refused: the gated consumers refuse on the flag anyway,
-    # and refusing here would foreclose callers that do not need completeness.
-    assert report.total == 5
+        report = await engine.inventory(tenant_id=TENANT)
+
+        assert report.degraded is True
+        # Partial and flagged, not refused: the gated consumers refuse on the flag anyway,
+        # and refusing here would foreclose callers that do not need completeness.
+        assert report.total == 5
+    finally:
+        if closeable is not None:
+            await closeable.close()
 
 
 async def test_inventory_not_degraded_at_budget_boundary() -> None:

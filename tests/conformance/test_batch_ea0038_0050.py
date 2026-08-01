@@ -21,10 +21,42 @@ what this file holds.
 
 from __future__ import annotations
 
+import ast
+import re
+from importlib import import_module
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "aqelyn"
+
+EA0048_OWNERSHIP_TERMS = (
+    "model_governance",
+    "ai_security",
+    "model_card",
+    "model_risk",
+    "model_inventory",
+    "model_bias",
+    "prompt_injection",
+    "training_data",
+    "ml_model",
+    "ai_system",
+)
+
+EA0048_OWNERSHIP_TOKEN_SETS = (
+    frozenset(("ai", "governance")),
+    frozenset(("ai", "security")),
+    frozenset(("model", "governance")),
+    frozenset(("model", "card")),
+    frozenset(("model", "risk")),
+    frozenset(("model", "inventory")),
+    frozenset(("model", "bias")),
+    frozenset(("prompt", "injection")),
+    frozenset(("training", "data")),
+    frozenset(("ml", "model")),
+    frozenset(("ai", "system")),
+)
 
 # Disposition A. Each row: archive master -> the shipped package(s) that realize it,
 # with the EA number each package declares in its own docstring. Verified against
@@ -82,25 +114,56 @@ DISPOSITION_A: dict[str, tuple[str, tuple[tuple[str, str], ...]]] = {
     ),
 }
 
-# Disposition B. The archive names this capability and specifies nothing about it.
-# These are the terms an owner would have to introduce to build it; their total
-# absence is what makes the gap real rather than assumed.
-EA0048_OWNERSHIP_TERMS = (
-    "model_governance",
-    "ai_security",
-    "model_card",
-    "model_risk",
-    "model_inventory",
-    "model_bias",
-    "prompt_injection",
-    "training_data",
-    "ml_model",
-    "ai_system",
-)
-
 
 def _package_docstring(package: str) -> str:
-    return (SRC / package / "__init__.py").read_text(encoding="utf-8")[:400]
+    source = (SRC / package / "__init__.py").read_text(encoding="utf-8")
+    return ast.get_docstring(ast.parse(source), clean=False) or ""
+
+
+def _declared_owners(root: Path, ea_number: str) -> list[Path]:
+    """Discover owner declarations semantically, independent of package vocabulary."""
+    owners: list[Path] = []
+    for package_init in root.rglob("__init__.py"):
+        source = package_init.read_text(encoding="utf-8")
+        docstring = ast.get_docstring(ast.parse(source), clean=False) or ""
+        declarations = set(re.findall(r"\bEA-\d{4}\b", docstring))
+        if ea_number in declarations:
+            owners.append(package_init)
+    return sorted(owners)
+
+
+def _identifier_tokens(identifier: str) -> frozenset[str]:
+    """Normalize snake_case and CamelCase without substring false positives."""
+    separated = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", identifier)
+    separated = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", separated)
+    return frozenset(part.lower() for part in re.findall(r"[A-Za-z0-9]+", separated))
+
+
+def _ownership_vocabulary_hits(root: Path) -> list[str]:
+    """Union the legacy keyword net with normalized source identifiers."""
+    hits: set[str] = set()
+    for path in root.rglob("*.py"):
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        relative_path = path.relative_to(root)
+        for term in EA0048_OWNERSHIP_TERMS:
+            if term in source.lower():
+                hits.add(f"{relative_path.as_posix()}: {term}")
+        identifiers = {path.stem, *relative_path.parts}
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                identifiers.add(node.name)
+            elif isinstance(node, ast.Name):
+                identifiers.add(node.id)
+            elif isinstance(node, ast.Attribute):
+                identifiers.add(node.attr)
+            elif isinstance(node, ast.alias):
+                identifiers.add(node.asname or node.name.rsplit(".", 1)[-1])
+        for identifier in sorted(identifiers):
+            tokens = _identifier_tokens(identifier)
+            if any(required <= tokens for required in EA0048_OWNERSHIP_TOKEN_SETS):
+                hits.add(f"{relative_path.as_posix()}: {identifier}")
+    return sorted(hits)
 
 
 def test_batch_disposition_a_owners_present() -> None:
@@ -119,8 +182,14 @@ def test_batch_disposition_a_owners_present() -> None:
             )
         # The named engine/service is the API that realizes the archive capability.
         owning_package = owners[0][0]
-        assert engine in (SRC / owning_package / "__init__.py").read_text(encoding="utf-8"), (
-            f"{archive_master}: {owning_package!r} no longer exports {engine!r}"
+        package_api = import_module(f"aqelyn.{owning_package}")
+        exported = getattr(package_api, engine, None)
+        assert exported is not None, (
+            f"{archive_master}: {owning_package!r} no longer exports {engine!r} as an API"
+        )
+        assert getattr(exported, "__name__", None) == engine
+        assert engine in getattr(package_api, "__all__", ()), (
+            f"{archive_master}: {engine!r} is not in {owning_package!r}.__all__"
         )
 
 
@@ -137,17 +206,55 @@ def test_batch_ea0048_no_owner() -> None:
     decisions over cases and claims. EA-0048 would be governance *of* customer AI/ML
     systems. Opposite directions; the question was asked and answered.
     """
-    offenders: list[str] = []
-    for path in SRC.rglob("*.py"):
-        text = path.read_text(encoding="utf-8").lower()
-        for term in EA0048_OWNERSHIP_TERMS:
-            if term in text:
-                offenders.append(f"{path.relative_to(ROOT)}: {term}")
-
-    assert offenders == [], (
-        "EA-0048 is recorded as an open capability gap, but AI/model-governance "
-        f"terms now appear in src/: {offenders}. Reclassify the row."
+    declared_owners = _declared_owners(SRC, "EA-0048")
+    vocabulary_hits = _ownership_vocabulary_hits(SRC)
+    assert declared_owners == [], (
+        "EA-0048 is recorded as an open capability gap, but packages now declare "
+        "ownership: "
+        f"{[path.relative_to(ROOT) for path in declared_owners]}. Reclassify the row."
     )
+    assert vocabulary_hits == [], (
+        "EA-0048 is recorded as an open capability gap, but source identifiers now "
+        f"name its capability: {vocabulary_hits}. Reclassify the row."
+    )
+
+
+def test_batch_ea0048_owner_discovery_is_name_independent(tmp_path: Path) -> None:
+    """An owner under vocabulary the old keyword roster never anticipated is found."""
+    package = tmp_path / "opaque_assurance"
+    package.mkdir()
+    (package / "__init__.py").write_text(
+        '"""Opaque assurance capability (EA-0048)."""\n',
+        encoding="utf-8",
+    )
+
+    assert _declared_owners(tmp_path, "EA-0048") == [package / "__init__.py"]
+    assert _ownership_vocabulary_hits(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    ("source", "expected_indicator"),
+    [
+        ("model_governance = True\n", "model_governance"),
+        ("class AISecurityGovernanceEngine:\n    pass\n", "AISecurityGovernanceEngine"),
+        ('capability = "model_governance"\n', "model_governance"),
+    ],
+)
+def test_batch_ea0048_vocabulary_discovery_handles_identifier_styles(
+    tmp_path: Path,
+    source: str,
+    expected_indicator: str,
+) -> None:
+    """Undeclared owners are caught by legacy terms and normalized identifiers."""
+    package = tmp_path / "opaque_assurance"
+    package.mkdir()
+    package_init = package / "__init__.py"
+    package_init.write_text(source, encoding="utf-8")
+
+    assert _declared_owners(tmp_path, "EA-0048") == []
+    assert _ownership_vocabulary_hits(tmp_path) == [
+        f"opaque_assurance/__init__.py: {expected_indicator}"
+    ]
 
 
 def test_batch_ea0020_is_not_the_ea0048_owner() -> None:
@@ -159,5 +266,4 @@ def test_batch_ea0020_is_not_the_ea0048_owner() -> None:
     """
     decision_init = _package_docstring("decision")
     assert "AI Decision Intelligence Engine (EA-0020)" in decision_init
-    for term in EA0048_OWNERSHIP_TERMS:
-        assert term not in decision_init.lower()
+    assert "EA-0048" not in set(re.findall(r"\bEA-\d{4}\b", decision_init))

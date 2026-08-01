@@ -65,16 +65,30 @@ async def test_gc_every_service_reports_ready_in_both_tenant_modes(tenant_mode: 
 
 
 async def test_gc_health_discovery_covers_the_whole_registry() -> None:
-    """Both modes register the same services, so neither can be checked in isolation.
+    """Both modes register the exact service surface exposed by the real runtime.
 
     If enterprise registered a subset, the check above could pass while skipping the
-    services most likely to have the defect.
+    services most likely to have the defect. Deriving the expected set from Runtime's
+    service objects avoids a numeric floor that becomes permissive as the registry grows.
     """
     local = create_inmemory_runtime(AQELYNConfig(tenant_mode="local"))
     enterprise = create_inmemory_runtime(AQELYNConfig(tenant_mode="enterprise"))
 
-    assert set(local.kernel._services) == set(enterprise.kernel._services)
-    assert len(local.kernel._services) >= 30
+    local_registry = set(local.kernel._services)
+    enterprise_registry = set(enterprise.kernel._services)
+    local_runtime_services = {
+        service.name for attribute, service in vars(local).items() if attribute.endswith("_service")
+    }
+    enterprise_runtime_services = {
+        service.name
+        for attribute, service in vars(enterprise).items()
+        if attribute.endswith("_service")
+    }
+    infrastructure_services = {"event_bus", "object_store"}
+
+    assert local_registry == enterprise_registry
+    assert local_runtime_services == enterprise_runtime_services
+    assert local_registry == local_runtime_services | infrastructure_services
 
 
 # --- negative control (rule 19: the control performs the omission) ----------------
