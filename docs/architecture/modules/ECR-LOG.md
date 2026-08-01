@@ -64,7 +64,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0057 | GC-001 (cross-cutting) | Accepted | Central §0 guarantee-conformance suite: discovery-based, test-only, negative-control-backed. |
 | ECR-0058 | GC-002 (cross-cutting) | Accepted | Event-namespace closure guard: registered-type + prefix-ownership, discovery-based, test-only. |
 | ECR-0059 | IS-037 / EA-0023+0024+0025+0005 | Accepted | Template stub; CAASM ships distributed. Conformance only, **no `Cyber*` event namespace**. |
-| ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive assessed only through EA-0051; EA-0052–0063 remained unassessed (see ECR-0086). |
+| ECR-0060 | EA-0038 – EA-0050 (batch) | Accepted (C-035; archive-exhaustion clause **superseded by ECR-0086**) | Thirteen same-generator stubs, **three** dispositions: eleven conformant via shipped owners; **EA-0048 an open capability gap, not scheduled**; **EA-0050 non-capability** (with EA-0051). Archive exhausted as a requirements source. ⚠️ **Superseded:** the archive continues through EA-0063; EA-0052–0063 remained unassessed — see ECR-0086. |
 | ECR-0061 | EA-0025 (+ EA-0023, EA-0024) | Accepted (C-036) | ECR-0034's second half: `AssetStore` gains cursor pagination (EA-0002 D8), the engine pages under `InventoryConfig.page_budget`. **Moves the truncation threshold; does not remove `degraded`.** Budget exhausted -> partial + flag; `sweep_unreported` -> exhaust or refuse, never partial. |
 | ECR-0062 | EA-0003 findings (+ EA-0013 risk) | Accepted (C-037) | `FindingStore.query` had a pagination-shaped signature that never paginated: `FindingQuery.cursor` accepted and ignored by both backends, `next_cursor` always `None`. Implements a **composite** keyset cursor on `(severity_score, id)` -- an `id`-only cursor is incoherent under `ORDER BY severity_score DESC, id`. Index extended to cover the tie-break. |
 | ECR-0063 | EA-0003 findings (+ EA-0018 response, EA-0027 idthreat) | Accepted (C-038) | Finding re-scoring: **option 3**. `severity_score` stays write-once as the cursor's sort key; `current_severity_score` carries the latest emission. Also C-038: impossible durations report unknown not zero, and GC-003 makes rule 11 mechanical. |
@@ -6392,26 +6392,30 @@ them **opens AQELYN's first socket.** **That is right for one of the three and w
 **S-003 already collected, from a real host, handed in, with no socket opened:** package
 inventory, listening sockets, firewall rules, unit definitions, unit inventory. **That is
 substantially EA-0052's stated scope** - *endpoint telemetry inventory; process, service,
-software and firewall visibility.*
+software and firewall visibility.* **It does not realise EA-0052-FR-004's cross-platform agent
+integration.** S-004 explicitly added capability **without adding a collector** and required a
+stop if the work gained an elevated subprocess, privileged service account, or new driver command.
 
 | master | needs a socket? | why |
 |---|---|---|
-| **EA-0052** Endpoint Intelligence | **no** | the host's own state, read locally - **the S-003/S-004 pattern, already proven on a real estate** |
+| **EA-0052** Endpoint Intelligence | **no for the handed-in descriptor path; FR-004 unresolved** | the host's own state can be read locally by its owner - **the S-003/S-004 pattern, already proven on a real estate**. A cross-platform agent is a separate collector boundary |
 | **EA-0053** Endpoint Security Assessment | **no** | pure analysis over EA-0052's descriptors; it reads nothing itself |
 | **EA-0054** Web Intelligence | **YES** | TLS handshake, DNS, HTTP headers against a **remote** host. No handed-in shape exists - **the evidence does not exist until someone connects** |
 
 **The distinction is not scanning versus not scanning. It is *whose* machine, and *who* runs the
 collector.**
 
-- **EA-0052's collector runs on the machine being assessed, by its owner**, and produces a
-  document. **S-004 settled the principle: *the driver does not need privilege - the owner needs
-  it, once.*** The same sentence applies to endpoints.
+- **EA-0052's proven path is an owner-run, one-shot local collection** that produces a document.
+  **S-004 settled the principle: *the driver does not need privilege - the owner needs it,
+  once.*** That does **not** settle FR-004: a cross-platform agent is persistent collector
+  integration and needs its own runtime, privilege and authorization decision.
 - **EA-0054 reaches across a network to a host that has not handed anything in.** That is the
   boundary, and it is genuine.
 
-**So the socket boundary is crossed by EA-0054 alone.** EA-0052/0053 are **buildable entirely
-within the shipped boundary** - which makes them a **product** decision, not a safety one, and
-they should not be gated behind a safety question they do not raise.
+**So the first-socket boundary is crossed by EA-0054 alone.** EA-0052's **handed-in descriptor
+path** and EA-0053 are buildable within the shipped boundary - which makes those paths a product
+decision, not a safety one. **EA-0052-FR-004 is not covered by that conclusion** and must not
+inherit it merely because it sits in the same master.
 
 **This does not weaken the boundary; it locates it.** EA-0054 remains exactly as consequential
 as the brief says - and stating it precisely is what keeps the boundary meaningful rather than
@@ -6425,6 +6429,9 @@ capability gap, not scheduled.*
 **Reserved to the owner:** whether **EA-0054** is built at all, given that it opens AQELYN's
 first socket. The evidence is in §3 so the decision is made **with it in view rather than
 discovered during implementation.**
+
+**EA-0052-FR-004 is also unscheduled.** It is not the first-socket decision, but it is a distinct
+collector safety and operations decision if EA-0052 is scoped. **This ECR authorizes no agent.**
 
 ### 5. Absence guards - three new rows, and the net does not cover them
 
