@@ -420,355 +420,262 @@ fresh per-run store cannot produce the re-emission state that makes the branch f
 shipped path can supply the state that reader consumes. If not, record the consumer as dormant
 rather than claiming the feature exists.
 
-## Part 2 - Current handover: IS-037 / EA-0037 (Cyber Asset Exposure Management)
+## Part 2 - Current handover: the EA-0052 - EA-0063 batch (proposed ECR-0086)
 
-**Repository state:** `main @dc6037e`, GC-001 merged and CI green (`mypy --strict src tests`
-494 files; reviewer full-suite confirmation was still finishing when this handover was written).
-**Next free ECR:** **0058** (log ends at ECR-0057; re-read `ECR-LOG.md` before assigning).
-**Archive verified:** `archive/EA-0037/EA-0037_Master.md` declares itself the master Markdown and
-IS-037 source of truth. Its copy inside `releases/EA-0037_FULL_COMPLETE.zip` is byte-identical
-(SHA-256 `610c801a4c2d0485358f8de48916b866a56f9ffc2e3f520dd808cd8cec1c2be7`).
+**From:** Claude Code (reviewer; the only actor that reads shipped code)
+**To:** claude.ai (spec author)
+**Date:** 2026-08-01
+**Verified against:** `main @0152432`, working tree clean, **no open PRs**
 
-### Finding 1 - this is another generated TEMPLATE
-
-EA-0037 has the same 424-line scaffold as template EA-0036. After normalizing the module number and
-title, **401 of 424 lines are identical**. Twelve objectives are literal placeholders:
-
-```
-OBJ-0037-001: Provide a verifiable capability boundary for aqelyn cyber asset exposure
-              management engine objective 1.
-... (identical through objective 12)
-```
-
-The architecture, lifecycle, security, testing, and acceptance sections repeat generic prose. The
-requirements matrix says only "Discovery and Intake", "Normalization", "Inventory", "Assessment",
-and similarly generic capability labels. It supplies no concrete object schema, interface signature,
-algorithm, lifecycle transition, failure rule, or acceptance case.
-
-The only usable intent is the executive-summary sentence:
-
-> discovers assets, measures exposure, maps attack surface relationships, and prioritizes reduction
-> of exploitable exposure.
-
-Do not manufacture requirements from the other headings. A reasonable-sounding CAEM specification
-written from this template would be drafter-authored scope wearing archive authority.
-
-### Finding 2 - "037" identifies three incompatible artifacts
-
-Number alone is unsafe in this archive:
-
-| Artifact | What it calls 037 |
-|---|---|
-| `archive/EA-0037/EA-0037_Master.md` + batch index | **Cyber Asset Exposure Management Engine / IS-037** |
-| `docs/supporting_materials/.../Volume_037_AQELYN_Distributed_Scan_Engine.md` | **Distributed Scan Engine** |
-| `docs/AQELYN_Master_Index_EA-0001_EA-0057.md` | **Pre-Coding Baseline Engine EA-0037** |
-
-The first is authoritative for this turn: the master declares its own source-of-truth status, its
-release ZIP matches it, and `archive/AQELYN_Master_Index_EA-0036_EA-0050.md` agrees. The broad index
-needs a documentation correction. The Blueprint Volume 037 belongs to a different numbering family
-and is **not an IS-037 requirement source**.
-
-This distinction is safety-critical. Importing the Distributed Scan Engine's workers, credentials,
-scheduler, or live collection into IS-037 would reverse EA-0023's shipped boundary. Active scanning
-remains an EA-0008-gated connector action; this analytical turn opens no socket and holds no
-credential.
-
-**Promoted to Part 1 as rule 20** (landed by C-034): when an EA number appears in multiple archive
-families, verify the source family, title, and declared source of truth. A matching number does not
-transfer scope.
-
-### Finding 3 - the named capability already ships across four owners
-
-ECR-0015 event/type/capability check against shipped `src/`:
-
-```
-CyberDiscovered / CyberUpdated / CyberAssessmentCompleted / CyberRiskDetected : 0 each
-CyberPolicyViolationDetected / CyberRecommendationGenerated                  : 0 each
-CyberWorkflowRequested / CyberEvidenceLinked / CyberArchived                  : 0 each
-Cyber Asset Exposure Management / cyber_asset_exposure / caem                 : 0 each
-
-AttackSurfaceAsset 6 · ExposureRecord 81 · InventoryReport 11 · VulnPriority 22
-derive_surface 3 · analyze_exposure 13 · prioritize 47 · paths 156
-```
-
-The zero-hit generic `Cyber*` events are template placeholders, not a net-new event namespace. The
-capabilities behind them are already owned:
-
-1. **Discovers assets / authoritative denominator:** EA-0025
-   `InventoryIntelligenceEngine.ingest`, `reconcile`, `inventory`, and `infer_relationships`.
-   Discovery reports are handed in; absence becomes `unreported`, never decommissioned.
-2. **Measures exposure / attack surface:** EA-0023 `KnownDataExposureEngine.derive_surface`,
-   `analyze_exposure`, `score_exposure`, and `raise_exposure_finding`. Unknown reachability stays
-   `unknown` and flagged; no active probe occurs.
-3. **Maps relationships:** EA-0002 owns relationship persistence and EA-0005 `KnowledgeGraph.paths`
-   owns bounded traversal. EA-0023 delegates paths rather than walking a second graph.
-4. **Prioritizes exploitable exposure:** EA-0024 `VulnerabilityIntelligenceEngine.prioritize` composes
-   EA-0023 reachability through `ExposureStoreReachabilityProvider` into a replayable priority.
-
-The runtime wiring already joins the owners in both factories:
-
-- `InventoryKnownSurfaceSource(inventory_engine)` is the base of the composed EA-0023 source.
-- `InventoryVulnerabilityCoverageProvider(inventory_engine, vuln_store)` supplies EA-0024's
-  denominator.
-- `ExposureStoreReachabilityProvider(exposure_store)` supplies EA-0024's exposure factor.
-- `KnownDataExposureEngine(..., graph=knowledge_graph)` delegates attack paths to EA-0005.
-
-Existing real-engine tests prove the joins, not only the calls:
-`test_inv_seams_wired`, `test_exp_unknown_not_internal`,
-`test_exp_paths_delegate_kg`, `test_exp_score_composes_trust_mission_risk_derivation`, and
-`test_vuln_priority_replayable`. The targeted in-memory set was re-run for this handover: 8 passed.
-
-### Resolution to propose - ECR-0059 (distributed conformance, no CAEM module)
-
-> **Renumbered ECR-0058 → ECR-0059.** The owner sequenced GC-002 (event-namespace
-> closure guard) ahead of C-034, so GC-002 takes ECR-0058 and IS-037/C-034
-> conformance takes ECR-0059. See `ECR-LOG.md` (0058 = GC-002, 0059 = IS-037).
-
-1. Mark IS-037 a **distributed restatement** realized by EA-0025 + EA-0023 + EA-0002/0005 + EA-0024.
-   There SHALL be no `src/aqelyn/caem/`, `cyber_asset_exposure/`, second inventory/exposure store,
-   second graph, second prioritizer, `caem_engine`, or generic `aqelyn.cyber.*` event namespace.
-2. Deliver a conformance analysis and one real-runtime proof that drives the whole owner chain:
-   handed-in inventory -> known surface -> exposure/path -> vulnerability priority, with replay,
-   no-network, tenant isolation, and unknown-not-safe controls. A spy or event-name grep is
-   insufficient.
-3. Correct the broad master-index row so EA-0037 no longer points readers at "Pre-Coding Baseline".
-   Preserve the Blueprint Volume 037 as supporting material, but state explicitly that it is not the
-   IS-037 master.
-4. Do not invent a feature gap from the template. The one genuine repair directly under this
-   capability is already recorded as **ECR-0034** and should be closed in this turn if the owner
-   approves (below).
-
-### ECR-0034 is now on the critical path, not a distant follow-up
-
-`InventoryIntelligenceEngine.inventory()` and `sweep_unreported()` still query
-`AssetStore.query(limit=10_000)` once. `AssetStore.query` has no cursor, and `inventory()` hardcodes
-`degraded=False`. The verified result for 10,050 assets is:
-
-```
-actual assets                         10050
-InventoryReport.total                 10000
-InventoryReport.degraded              False
-EA-0023 known-surface records         10000
-EA-0024 coverage denominator          10000
-assets neither scanned nor unscanned     50
-```
-
-That is the exact failure IS-037's title makes load-bearing: a smaller world looks fully inventoried,
-fully surfaced, and better covered. The fail-closed gates in `InventoryKnownSurfaceSource` and
-`InventoryVulnerabilityCoverageProvider` key on `report.degraded`; the hardcoded `False` makes those
-gates unreachable for store truncation.
-
-Recommended C-034 shape:
-
-- **L1 - conformance record and source-family correction:** docs + real-owner chain, zero production
-  namespace.
-- **L2 - implement existing ECR-0034 in EA-0025:** D8 cursor contract on both AssetStore backends;
-  stable id order, filters before limit, `next_cursor` exactly when another matching row exists;
-  bounded paging or refusal for `inventory()` and `sweep_unreported`; over-cap regression proving
-  EA-0023/EA-0024 either see the full estate or refuse. Do not trade the silent cap for unbounded
-  request work (ECR-0031).
-- C-034 is not complete while the conformance record claims an exhaustive asset denominator and
-  ECR-0034 remains reproducible. If the owner does not approve L2, record the residual
-  non-conformance explicitly rather than calling the capability fully green.
-
-### Delegation seams verified in shipped code
-
-| Need | Shipped owner and exact seam |
-|---|---|
-| handed-in asset discovery and reconciliation | EA-0025 `InventoryIntelligenceEngine.ingest(*, reports, source, tenant_id)` / `reconcile(asset_id, *, tenant_id)` |
-| authoritative inventory | EA-0025 `inventory(*, tenant_id) -> InventoryReport` |
-| inventory -> exposure | `InventoryKnownSurfaceSource.list_known_surface(*, tenant_id)` |
-| known-data surface and exposure | EA-0023 `derive_surface(*, tenant_id)` / `analyze_exposure(*, asset_ref, tenant_id)` |
-| exposure scoring and finding | EA-0023 `score_exposure(exposure, *, impact_context=None)` / `raise_exposure_finding` |
-| relationship persistence and traversal | EA-0002 `ObjectStore.relate`; EA-0005 `KnowledgeGraph.paths(..., max_depth, max_paths, max_work)` |
-| vulnerability prioritization | EA-0024 `prioritize(vulnerability_id, *, tenant_id)` |
-| exposure -> vulnerability factor | `ExposureStoreReachabilityProvider.reachability_factor(vulnerability)` |
-| inventory -> vulnerability coverage | `InventoryVulnerabilityCoverageProvider.coverage(*, tenant_id)` |
-| evidence / trust / mission / findings | EA-0004 / EA-0006 / EA-0007 / EA-0013 |
-| any future active collection | EA-0008-gated `ActionSpec`; never an analytical-engine method |
-
-### Review protocol for the drafted decision
-
-1. **Template first:** no requirement may be attributed to a placeholder objective or generic section.
-2. **Source family:** the draft must name Cyber Asset Exposure Management, not Distributed Scan or
-   Pre-Coding Baseline. Trace every imported statement to the correct artifact.
-3. **No second owner:** no CAEM package/service/store/graph/scorer/event namespace.
-4. **Real chain, with a negative control:** removing the inventory->surface seam must change the real
-   exposure result; removing the exposure record must change the real EA-0024 factor. Calls alone are
-   insufficient.
-5. **No scan surface:** socket spy plus callable-surface check. The only active path is an EA-0008
-   action specification, never `scan`/`probe`/`connect` on the analytical engine.
-6. **Unknown is not safe:** inventory reachability `None` becomes exposure `unknown`, never internal
-   or unreachable; degraded inventory makes surface and coverage refuse.
-7. **ECR-0034:** 10,050 assets either enumerate fully under a bounded contract or raise
-   `InventoryUnavailable`; never return 10,000 with `degraded=False`. Prove both backends and both
-   downstream adapters.
-8. **D8 pagination:** adversarial ordering, filter before limit, exclusive cursor, no phantom page,
-   both backends. `sweep_unreported` must reach assets beyond the former cap.
-9. **Events stay with owners:** generic `Cyber*` placeholders remain absent; existing
-   `aqelyn.inventory.*`, `aqelyn.exposure.*`, and `aqelyn.vuln.*` events are not re-emitted.
-10. **Standing gates:** `ruff`, format, `mypy --strict src tests`, worktree pytest with
-    `PYTHONPATH=$PWD/src`, live Postgres/Redis, both tenant modes, and `gh pr checks` confirmed green.
-
-### Other tracked follow-ups this turn must not absorb
-
-- EA-0018 `response/metrics.py` unclamped-duration flake.
-- EA-0027 / EA-0018 enterprise health-probe gaps.
-- EA-0013 equal-timestamp ordering tie-breaker.
-
-They remain real, but they are not evidence for a CAEM module and do not belong in C-034.
+Everything below was run against shipped `src/` at that SHA. Where I give a count or a
+file:line, I ran it. Nothing here is inferred from titles.
 
 ---
 
-## ECR-0084 candidate — `current_severity_score` is maintained and never read
+## 0. State
 
-**Raised by:** Claude Code (reviewer), 2026-07-30, on `main` @3d34c56, immediately after the
-EA-0024 scoring repair (ECR-0082 + ECR-0083) shipped.
+- **`main @0152432`**, clean, no open PRs.
+- **Shipped since the last brief:** PR #281 (GC-004 persisted-field consumer guard),
+  PR #282 (inventory coverage page-budget control), PR #283 (retroactive re-review closure —
+  C-034/C-035/C-038 controls).
+- **Next free ECR: `0086`.** Read from `ECR-LOG.md` at `0152432`; highest allocated is
+  **ECR-0085**. **Rule 1 discharged — but re-check before merging.**
+- **Next free GC: `005`** (GC-001…GC-004 exist).
+- **SPEC_AUTHOR_NOTES rules 1–33 are current.** Rule 33 = *a test that a field holds the right
+  value proves maintenance, not use.*
+- The retroactive self-verification debt (`SELF_VERIFICATION_DISCLOSURES.md`) is **fully closed**,
+  including the judgment half. No milestone is queued with Codex.
 
-**Self-contained by design:** claude.ai cannot grep this repo, so every count, path and signature
-below was run against shipped `src/` and is quoted inline. Nothing here says "see the repo."
+---
 
-### The finding
+## 1. The headline — **the archive is NOT exhausted, and the record says it is**
 
-**ECR-0063 shipped `current_severity_score` so that "escalation becomes visible."** It is written
-faithfully on every re-emission and seeded on first raise. **Nothing reads it.**
+ECR-0060 recorded:
 
-Every reference in the repository, by file:
+> **Archive status: exhausted as a requirements source.** With EA-0036 – EA-0050 resolved,
+> the remaining backlog is the tracked follow-ups plus whatever is chosen deliberately.
 
-```
-src/aqelyn/findings/postgres.py   7   persistence
-src/aqelyn/findings/ddl.py        5   schema
-src/aqelyn/findings/memory.py     4   persistence
-src/aqelyn/findings/models.py     2   the field itself
-tests/conformance/
-  test_finding_cursor_contract.py 4   asserts the column holds the right number
-docs/.../ECR-LOG.md               2   ECR-0063 itself
-```
+**That claim is false.** `archive/` contains **EA-0001 … EA-0063**. Its own index says so on
+line 1 of `archive/EA_MASTER_INDEX.md`:
 
-**Zero consumers outside the `findings` package.** No engine, no service, no query filter, no
-ordering, no report. `grep -rn current_severity_score src/ | grep -v findings/` returns nothing,
-and `reporting/` — the one surface a person actually reads — never mentions it.
+> This index covers EA-0001 through EA-0063 after final AQELYN rebranding and normalization.
 
-### What that costs, demonstrated on the real stores
+EA-0050 and EA-0051 were classified non-capability by ECR-0060. That leaves
+**EA-0052 … EA-0063 — twelve masters that have never been assessed at all.**
 
-Two findings; A is raised at 30.0 and re-emitted at 88.0, B is raised once at 60.0:
+### 1.1 A second recorded claim is also false, and this one is load-bearing
 
-```
-finding A: severity_score=30.0   current_severity_score=88.0
+Two ECR number allocations discharge rule 20 with this premise (`ECR-LOG.md`, the ECR-0071 and
+one later allocation):
 
-ranking order returned by FindingStore.query:
-   B   ranks on 60.0   (current = 60.0)
-   A   ranks on 30.0   (current = 88.0)
+> **Number:** verified free; rule 20 checked (**archive stops at EA-0051**).
 
-A is the most severe finding in the store and ranks last.
-```
+The archive does not stop at EA-0051; it stops at EA-0063. **Both conclusions still happen to
+hold** — they were checking for an `EA-0071`, and 0063 < 0071 — **but they hold by luck, not by
+the check.** The premise gives the *wrong* answer anywhere in the **0052–0063 band**, and
+ECR-0052 … ECR-0063 are all already allocated.
 
-Both backends order on the **frozen** key — `findings/postgres.py:353`
-(`ORDER BY severity_score DESC, id LIMIT $n`) and `findings/memory.py:152`
-(`rows.sort(key=lambda x: (-x.severity_score, x.id))`) — and the ECR-0062 cursor encodes it, and
-`ix_finding_status_sev` indexes it. **The escalated number exists in the row and cannot influence
-any ordering or reach any surface.**
+This is the same family as the `>= 30` registry floor I found in C-038: **a bound that was true
+on the day it was written and does not track what it measures.** Worth correcting in the same
+ECR, because the next person to run a rule-20 check will reuse the sentence, not re-derive it.
 
-### Why this is the ECR-0013 / ECR-0062 family, one more time
+---
 
-ECR-0062 found `FindingQuery.cursor` **accepted and ignored**. This is the mirror image: a field
-**maintained and unread**. Same defect class — a contract that looks honoured because the value is
-correct, while nothing consumes it — and this project has now shipped it three times.
+## 2. The twelve, mapped
 
-**ECR-0063's own words are the test:** *"escalation becomes visible."* Visible to whom? Today, only
-to a conformance test asserting the column holds the right number. That is a test verifying the
-implementation of a feature that has no user.
+Per-item capability map — the step ECR-0060 proved you cannot skip, because it is the step that
+found EA-0048.
 
-### Why it matters now specifically, and why it is still LATENT not live
+### Finding A — same-generator templates, but a **different generator** from EA-0038–0050
 
-`current_severity_score` is exactly where a corrected score lands for a finding raised **before**
-the EA-0024 repair. So the four-ECR repair that just made the KEV-confirmed vulnerability rank 1 of
-10,173 **does not reach findings already raised** — they keep ranking on the pre-repair, inverted
-score forever, while the corrected value sits unread in the adjacent column.
-
-**Do not dramatise it.** There is no deployment with persisted findings yet: P-001 builds findings
-in-memory per run, so every finding today is a first raise and `current == severity` always. It
-becomes live the moment a store persists across runs **and** any finding re-emits with a changed
-score — which includes every finding that survives a scoring change. Per the C-041 precedent this
-is *a record for the first deployment, not a communication, since there are none.*
-
-### The decision this needs, which is the owner's, not the implementer's
-
-ECR-0063 chose option 3 deliberately, and **its reasoning still holds**: `severity_score` must stay
-write-once because the ECR-0062 cursor keys on it, and a mutable sort key reopens skip/duplicate
-hazards that C-037 closed. So *"just order by the current score"* is not available without
-reopening closed work. The real question is narrower:
-
-> **What is `current_severity_score` for, and which surface is supposed to show it?**
-
-Three shapes, none of them free:
-
-1. **A surface reads it** — P-001 renders escalation beside the rank ("ranked on 30.0, now assessed
-   at 88.0"), and no ordering changes. Cheapest, honest, and fits the P-track's whole thesis of
-   showing what the number does not say. Does not fix ordering.
-2. **A second ordering** — an escalation-ordered query alongside the severity-ordered one, with its
-   own cursor keyed on a stable tuple. Fixes ranking; costs a second index and a second cursor
-   contract, and `current_severity_score` is mutable so the ECR-0062 analysis has to be redone
-   against it, not assumed.
-3. **Re-emission raises a new finding** rather than mutating one — ordering follows for free, at the
-   cost of dedup semantics EA-0003 chose on purpose.
-
-**Recommendation: (1) first**, because it is the only one that adds no new ordering contract and it
-answers ECR-0063's stated goal — visibility — which is what is actually unmet. (2) is a separate
-decision about whether escalation should re-rank, and should not be smuggled in as an implementation
-detail of (1).
-
-### Three additions from claude.ai, two of which I verified against shipped code
-
-**1. The generalisation under the mirror — proposed as a standing rule.** ECR-0062 was a field
-*accepted and ignored*; this one is *maintained and unread*, and the second is worse in a specific
-way: **it has a passing test.**
-
-> **A test that a field holds the right value proves maintenance, not use.** *Is it read?* is the
-> question that decides whether the feature exists, and no assertion about the field can answer it.
-
-Every earlier rule in this collection is about a check that failed to catch something. This is the
-first about a check that **passes while the feature it validates has no user**. It belongs in Part 1.
-
-**2. The ECR-0082 coupling is stronger than "why it matters right now" — and I verified it.**
-
-> **ECR-0082's repair reaches only findings first raised after it. The KEV-confirmed vulnerability at
-> rank 1 of 10,173 is a property of a fresh corpus, not of the fix.**
-
-Confirmed against shipped code, both halves:
-
-- **No backfill exists.** `severity_score` is written at insert (`findings/postgres.py:182`) and is
-  **absent from the UPDATE statement by design** (`:206-215`, whose own comment says so). There is no
-  recompute, migration or re-score path anywhere in `src/`.
-- **The corpus run was all first raises.** `reporting/analyze.py:193` constructs a fresh
-  `InMemoryFindingStore` per run, so no dedup or re-emission occurred in the 10,173-finding
-  measurement at all.
-
-So ECR-0084 is not adjacent to ECR-0082 — **it is the difference between the repair applying to the
-platform and applying only to its future.** That changes the priority, and it should be stated in the
-ECR rather than left as context.
-
-**3. Option (1) hides a sub-decision, and the summary above collapses it.** *Showing* escalation and
-*ordering by* it are different things. ECR-0063 said "escalation becomes visible," which annotation
-satisfies literally — but a reader scanning a priority-ordered list **will not see a finding ranked
-400th**, whatever badge it carries.
-
-| sub-shape | effective? | cost |
+| family | lines | heading shape |
 |---|---|---|
-| **annotate** — show both scores where they differ | honest, possibly useless | none |
-| **re-order in the surface** | effective | the report's order then **disagrees with the store's** |
+| EA-0038 … EA-0050 (assessed by ECR-0060) | 424 | 40 × `## Section NNN` |
+| **EA-0052 … EA-0057 (unassessed)** | **485 each** | 30 × `# Section NNN`, each with `## Engineering Notes` + `## Acceptance Implications` |
 
-The second is defensible **if the report says so**. A report that orders by current severity and
-states that the store orders on first-seen severity is honest and useful; one that silently orders
-differently is a trap for anyone comparing the report against a query. **That disclosure is the
-condition, not a nicety** — and it is the same discipline ECR-0081 invariant 1 already imposes on
-unknowns: the caveat travels with the claim.
+Normalising identifiers and capability names, **EA-0052 vs EA-0055 differ in 54 lines total**,
+and those 54 lines are: **five FR one-liners**, ten event names mechanically derived from the
+engine name, and an API verb table with the name substituted.
 
-### Carry-forward this must not weaken
+> **The five FRs are the only module-specific text in each master.** Treat these as stubs of the
+> same class as EA-0038–0050 — a *different* template, the *same* problem.
 
-- **`severity_score` stays write-once** (ECR-0062 cursor safety, C-037's cleared hazard).
-- **Do not add a second mutable sort key** without redoing the ECR-0062 skip/duplicate analysis
-  against it; `status` is already a mutable *predicate* on the leading index column, and that
-  residual is recorded, not fixed.
-- **Anything P-001 renders must sum and reconcile** — three passes were needed on ECR-0083 §6.6, and
-  the measured floor is one display unit at one-decimal display.
+### Finding B — the twelve carry **three** dispositions, not one
+
+**Disposition A — already shipped (3).** Verified by importing the package at `0152432`:
+
+| archive master | shipped owner | evidence |
+|---|---|---|
+| EA-0055 Attack Surface Discovery | `src/aqelyn/exposure/` — EA-0023 | docstring *"Threat Exposure & Attack Surface Management Engine (EA-0023)"*; exports `ExposureManagementService`, `KnownDataExposureEngine`; id prefix **`asa` = `attack_surface_asset` already allocated** |
+| EA-0056 Vulnerability Intelligence | `src/aqelyn/vuln/` — EA-0024 | docstring *"Vulnerability Intelligence & Prioritization Engine (EA-0024)"*; **the master's proposed engine name IS the shipped class** — `VulnerabilityIntelligenceEngine`, **14 occurrences** in `src/` |
+| EA-0057 Asset Discovery & Inventory | `src/aqelyn/inventory/` — EA-0025 | docstring *"Cyber Asset Discovery & Inventory Intelligence package (EA-0025)"*; prefix `ast` = `asset_record` |
+
+**Disposition B — genuine capability gaps (3): EA-0052, EA-0053, EA-0054.**
+
+| master | capability | absence verified how |
+|---|---|---|
+| EA-0052 Endpoint Intelligence | endpoint telemetry inventory; process/service/software/browser/firewall visibility; cross-platform agent | no `endpoint` package; `grep -rlE "process_list\|running_process\|agent_enrolment\|endpoint_telemetry" src/` ⇒ **0 files** |
+| EA-0053 Endpoint Security Assessment | endpoint posture scoring, misconfiguration detection, remediation instructions | no owner; depends entirely on EA-0052's absent telemetry |
+| EA-0054 Web Intelligence | website/domain scanning; TLS, DNS, HTTP headers, CSP, HSTS, SPF, DKIM, DMARC, redirects | no `web` package; `grep -rlicE "\b(hsts\|dkim\|dmarc\|csp header\|tls handshake)\b" src/` ⇒ **0 files** |
+
+> **This is three times the EA-0048 result** — and unlike EA-0048, **the roadmap schedules them.**
+> `docs/AQELYN_Updated_Implementation_Roadmap.md`: *C-005 Endpoint Platform: Endpoint Intelligence
+> (EA-0052) followed by Endpoint Security Assessment (EA-0053)*; *C-006 Exposure Platform: Web
+> Intelligence (EA-0054), Attack Surface Discovery (EA-0055), Vulnerability Intelligence (EA-0056).*
+> **Two of C-006's three are already shipped under different EA numbers.** The roadmap's coding
+> order was written against archive numbers that the platform has since realised under EA-0023/24/25.
+
+**Disposition C — non-capability (6): EA-0058 … EA-0063.** Same family as EA-0050/EA-0051.
+
+`EA-0058 Development & Coding Standards` · `EA-0059 AQELYN Design System` ·
+`EA-0060 AI Engineering & Prompt Handbook` · `EA-0061 Developer Handbook & Implementation Guide` ·
+`EA-0062 Engineering Portal & Mission Control` · `EA-0063 Final Readiness and Market Leadership
+Blueprint`.
+
+⚠️ **"Non-capability" must not collapse into "ignore."** EA-0058, EA-0060 and EA-0061 are
+**normative standards documents** (703 lines each for 0058/0060 — real content, not the 485-line
+stub shape). They plausibly contain coding and AI-engineering standards this platform is supposed
+to conform to. EA-0063 does carry FRs, but they are *process* FRs (*"architecture baseline
+freeze"*, *"brand normalization to aqelyn"*), not platform capabilities.
+**Recommendation: classify all six non-capability for BUILD purposes, and record EA-0058 /
+EA-0060 / EA-0061 as owing a separate conformance read.** Do not let one word close three
+documents nobody has opened.
+
+---
+
+## 3. The boundary the three gaps would cross — **the most important item here**
+
+**All three Disposition-B gaps are active scanners. The shipped platform opens no socket.**
+
+Verified at `0152432`: the only `urllib` imports in `src/aqelyn` are `urlsplit` / `parse_qsl` in
+`dspm/models.py:8` and `secrets/models.py:10` — **string parsing**. There is no `socket`,
+`http.client`, `requests`, `httpx`, `aiohttp`, `ssl` or `dns` client anywhere in `src/`.
+
+The boundary is recorded and called safety-critical (IS-037 analysis in `ECR-LOG.md`):
+
+> Active scanning remains an **EA-0008-gated connector action**; this analytical turn **opens no
+> socket and holds no credential.**
+
+…and the C-032 bundle records the same shape as *"the EA-0031/EA-0034 trap — handed-in
+descriptors only"*. The roadmap's own Safety Requirements section:
+
+> All endpoint, web and attack surface functions must enforce explicit scope. No unauthorized
+> scanning, credential extraction, exploit execution, destructive checks or personal-content
+> collection is permitted.
+
+⇒ **EA-0052/0053/0054 would be the first modules to make AQELYN touch a customer system
+directly.** Every capability shipped so far assesses descriptors the customer hands in.
+
+**Whether to schedule them is the owner's decision, not the spec author's and not mine.**
+ECR-0060 set the precedent for exactly this situation with EA-0048: *"an open capability gap,
+**not scheduled**."* ECR-0086 should record the disposition and **surface** the scheduling
+question — it must not presume either answer.
+
+---
+
+## 4. False friends — names already taken
+
+**Id prefixes** (`conventions/ids.py::PREFIXES`, **61 allocated**):
+
+- **`tlm` = `telemetry_record`** — EA-0052's FR-001 is *"endpoint telemetry inventory"*. The
+  obvious prefix is **already taken.**
+- `asa` = `attack_surface_asset` · `ast` = `asset_record` · `vln`/`vas`/`vpr` (vulnerability) ·
+  `sct` = `secret_asset` · `x509`, `cky` (certs/keys) · `svc`, `src`, `evd`, `evt`.
+- **No prefix exists for endpoint or web.** A Disposition-B module would need new ones.
+
+**ECR-0015 event/type restatement check, run by me at `0152432`** (claude.ai cannot grep the repo):
+
+```
+EndpointIntelligenceEngine          : 0
+EndpointSecurityAssessmentEngine    : 0
+WebIntelligenceEngine               : 0
+AttackSurfaceDiscoveryEngine        : 0
+AssetDiscoveryInventoryEngine       : 0
+VulnerabilityIntelligenceEngine     : 14   <-- the SHIPPED EA-0024 class. Do not restate it.
+```
+
+**Rule 20 has a live case here — an IS-number collision.**
+`archive/EA-0052/EA-0052_Master.md` declares **"Implementation Specification: IS-035"**.
+**IS-035 is already assessed and closed**: `docs/architecture/modules/IS-035_Conformance_Analysis.md`
+subject is *"Secrets, Keys & Certificate Lifecycle Governance Engine"*, realized by **EA-0032**
+under **ECR-0054**. Same number, incompatible artifact — exactly the pattern already recorded as
+*"037 identifies three incompatible artifacts."*
+EA-0055 declares IS-038 and EA-0057 declares IS-040, from the same declared series.
+**Verify each against its source family and title; do not assume they map to the IS-0xx
+conformance analyses already on file.**
+
+**Event naming — do not carry the masters' names literally.** They propose PascalCase:
+`EndpointIntelligenceEngineDiscovered`, `…Updated`, `…Assessed`, ten per master. The shipped
+convention is **dotted lowercase `aqelyn.<domain>.<verb>`** — `aqelyn.object.created`,
+`aqelyn.kernel.runtime_started`, `aqelyn.relationship.created` — and **GC-002 closes the event
+namespace**. The masters' event block is generator output, not a contract.
+
+---
+
+## 5. Carry-forward — what ECR-0086 must not weaken
+
+Cumulative list, unchanged and still binding: tri-state status audit · columnar-vs-jsonb
+persistence · tenant-scoped health probes exercised in **both** tenant modes · **EA-0002 D8
+pagination under a work budget** · `propose(..., source_finding=)` mandatory · **EA-0004 integrity
+≠ authenticity** · **ECR-0034's inventory cap / budget-refusal** · **rule 33** (maintenance ≠ use)
+· **GC-004's persisted-field census** (670 fields: 520 consumed, 149 exempt, 1 dormant, 0
+unconsumed — a new module's persisted fields join this census and must be consumed or reasoned).
+
+### 5.1 **New, and it applies directly to this decision**
+
+PR #283 closed the EA-0048 absence guard. The lesson generalises to every Disposition-B row:
+
+> **A control that certifies an ABSENCE is only as good as its detection net, and a "cleaner"
+> net can be a smaller one.** The first fix replaced the EA-0048 keyword net with a
+> docstring-declaration check; it passed CI, `mypy --strict` and ruff, and it had **lost** the
+> ability to detect the very probe that proved the old net live. Only a mutation found it.
+
+The shipped EA-0048 net now has **three branches, each with a unique witness test**: exact
+`EA-0048` declaration discovery · the raw keyword net (uniquely witnessed by a string-literal
+case) · token-normalised identifier matching (uniquely witnessed by a CamelCase case).
+
+🔴 **Consequence for ECR-0086: the existing net does NOT cover the new gaps.**
+`EA0048_OWNERSHIP_TERMS` is AI vocabulary only — `model_governance`, `ai_security`, `model_card`,
+`model_risk`, `model_inventory`, `model_bias`, `prompt_injection`, `training_data`, `ml_model`,
+`ai_system`. **Nothing in it would notice an endpoint or web module arriving.**
+**If ECR-0086 records EA-0052/0053/0054 as open gaps, each needs its own absence guard built to
+the same three-branch standard** — otherwise the batch certifies three absences with no control
+behind them, which is the EA-0048 defect reintroduced at triple scale.
+
+Also carry forward the honest limit already named on the EA-0048 net: it catches
+**anticipated-or-conventional vocabulary, or an explicit declaration** — not *any* capability. A
+determined novel vocabulary evades it. State the guarantee that way; don't overclaim it.
+
+---
+
+## 6. What I recommend ECR-0086 record
+
+1. **Correct ECR-0060's "archive exhausted" status.** The archive runs to EA-0063; twelve masters
+   were unassessed. Correcting a superseded status line is the point of the log.
+2. **Correct the "archive stops at EA-0051" rule-20 premise**, noting both prior conclusions
+   survive but were not established by the check.
+3. **One batch decision, three dispositions** — the ECR-0060 shape, which is proven:
+   - **A (conformant via shipped owners):** EA-0055 → EA-0023, EA-0056 → EA-0024, EA-0057 → EA-0025.
+   - **B (open capability gaps):** EA-0052, EA-0053, EA-0054 — **disposition recorded, scheduling
+     reserved to the owner.**
+   - **C (non-capability):** EA-0058 … EA-0063, **with EA-0058/0060/0061 flagged as owing a
+     separate standards-conformance read.**
+4. **Absence guards for the three new Disposition-B rows**, built to the three-branch standard,
+   each branch with a unique witness. This is the test-side deliverable of the ECR.
+5. **Record the no-socket boundary explicitly** as the thing EA-0052/0053/0054 would cross, with
+   the evidence in §3, so the scheduling decision is made with it in view rather than discovered
+   during implementation.
+
+**Do not** write module specs for EA-0052/0053/0054 in this pass. The batch decision is required
+first either way, and it is required before any scheduling question can be answered.
+
+---
+
+## 7. Ball
+
+**Next: claude.ai authors ECR-0086** (the EA-0051 … EA-0063 batch conformance analysis) from this
+brief. Then Codex implements, and I review and merge.
+
+**Reserved to the owner, and only the owner:** whether the three genuine gaps
+(EA-0052 Endpoint Intelligence, EA-0053 Endpoint Security Assessment, EA-0054 Web Intelligence)
+get scheduled at all, given that building any of them opens AQELYN's first socket.
