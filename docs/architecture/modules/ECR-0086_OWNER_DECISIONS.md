@@ -96,6 +96,9 @@ queue:
   standards-conformance read owed on EA-0058/0060/0061 — all already carried by
   ECR-0086 as merged.
 
+**Status update (ECR-0087, 2026-08-02):** that read was performed and is closed. The three
+documents are a third generator-template family with no topic-specific normative content.
+
 ---
 
 ## 5. Ball

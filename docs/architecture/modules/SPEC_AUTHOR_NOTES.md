@@ -541,6 +541,9 @@ freeze"*, *"brand normalization to aqelyn"*), not platform capabilities.
 EA-0060 / EA-0061 as owing a separate conformance read.** Do not let one word close three
 documents nobody has opened.
 
+**Status update (ECR-0087, 2026-08-02): CLOSED.** The read found a third generator template,
+not standards. The 703-line count measured the generator rather than normative content.
+
 ---
 
 ## 3. The boundary the three gaps would cross — **the most important item here**
@@ -658,8 +661,9 @@ determined novel vocabulary evades it. State the guarantee that way; don't overc
    - **A (conformant via shipped owners):** EA-0055 → EA-0023, EA-0056 → EA-0024, EA-0057 → EA-0025.
    - **B (open capability gaps):** EA-0052, EA-0053, EA-0054 — **disposition recorded, scheduling
      reserved to the owner.**
-   - **C (non-capability):** EA-0058 … EA-0063, **with EA-0058/0060/0061 flagged as owing a
-     separate standards-conformance read.**
+   - **C (non-capability):** EA-0058 … EA-0063. The EA-0058/0060/0061 standards-conformance read
+     is **discharged by ECR-0087**: all three are generator-template class 3 with no topic-specific
+     normative content.
 4. **Absence guards for the three new Disposition-B rows**, built to the three-branch standard,
    each branch with a unique witness. This is the test-side deliverable of the ECR.
 5. **Record the no-socket boundary explicitly** as the thing EA-0052/0053/0054 would cross, with
