@@ -1,0 +1,320 @@
+"""Behavioral tests for ECR-0088's kernel-backed read projections."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
+
+from aqelyn.kernel import AQELYNConfig, HealthStatus, create_inmemory_runtime
+from aqelyn.surface.app import MAX_PAGE_SIZE, SURFACE_WORK_BUDGET, SurfaceApplication
+
+NOW = datetime(2026, 8, 2, tzinfo=UTC)
+
+
+@dataclass(frozen=True)
+class _InventoryReport:
+    assets: list[str]
+    total: int
+    as_of: datetime = NOW
+    source_freshness: dict[str, datetime] | None = None
+    degraded: bool = False
+
+    def __post_init__(self) -> None:
+        if self.source_freshness is None:
+            object.__setattr__(self, "source_freshness", {})
+
+
+@dataclass(frozen=True)
+class _Priority:
+    vulnerability_id: str
+    score: float
+    priority: str
+    factors: dict[str, Any]
+
+    def model_dump(self, *, mode: str) -> dict[str, Any]:
+        assert mode == "json"
+        return {
+            "vulnerability_id": self.vulnerability_id,
+            "score": self.score,
+            "priority": self.priority,
+            "factors": self.factors,
+        }
+
+
+@dataclass(frozen=True)
+class _Finding:
+    id: str
+    title: str
+
+    def model_dump(self, *, mode: str) -> dict[str, Any]:
+        assert mode == "json"
+        return {
+            "id": self.id,
+            "severity": "medium",
+            "status": "open",
+            "title": self.title,
+            "why_it_matters": "Acceptance-scale pagination must not inline the corpus.",
+        }
+
+
+@dataclass(frozen=True)
+class _Coverage:
+    def model_dump(self, *, mode: str) -> dict[str, Any]:
+        assert mode == "json"
+        return {"scanned": [], "unscanned": [], "stale": [], "unassessable": []}
+
+
+@dataclass(frozen=True)
+class _Assessment:
+    priorities: list[_Priority]
+    coverage: _Coverage = _Coverage()
+    suppressed_count: int = 0
+    degraded: bool = False
+    unavailable: list[dict[str, str]] | None = None
+    generated_at: datetime = NOW
+
+    def __post_init__(self) -> None:
+        if self.unavailable is None:
+            object.__setattr__(self, "unavailable", [])
+
+
+class _ReadService:
+    def __init__(
+        self,
+        name: str,
+        *,
+        inventory: _InventoryReport | None = None,
+        assessment: _Assessment | None = None,
+        findings: list[_Finding] | None = None,
+    ) -> None:
+        self._name = name
+        self._inventory = inventory
+        self._assessment = assessment
+        self._findings = findings
+        self.tenant_calls: list[str | None] = []
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def dependencies(self) -> tuple[str, ...]:
+        return ()
+
+    @property
+    def critical(self) -> bool:
+        return False
+
+    async def start(self) -> None:
+        return None
+
+    async def stop(self) -> None:
+        return None
+
+    async def health(self) -> HealthStatus:
+        return HealthStatus(status="healthy", ready=True)
+
+    async def inventory(self, *, tenant_id: str | None) -> _InventoryReport:
+        self.tenant_calls.append(tenant_id)
+        assert self._inventory is not None
+        return self._inventory
+
+    async def assess(self, *, tenant_id: str | None) -> _Assessment:
+        self.tenant_calls.append(tenant_id)
+        assert self._assessment is not None
+        return self._assessment
+
+    async def query(
+        self,
+        *,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> tuple[list[_Finding], str | None]:
+        self.tenant_calls.append(tenant_id)
+        assert self._findings is not None
+        offset = 0 if cursor is None else int(cursor)
+        selected = self._findings[offset : offset + limit]
+        next_offset = offset + len(selected)
+        next_cursor = str(next_offset) if next_offset < len(self._findings) else None
+        return selected, next_cursor
+
+
+def _payload(body: bytes) -> dict[str, Any]:
+    selected = json.loads(body)
+    assert isinstance(selected, dict)
+    return selected
+
+
+def _app(
+    *,
+    tenant_mode: str = "local",
+    inventory: _InventoryReport | None = None,
+    assessment: _Assessment | None = None,
+    findings: list[_Finding] | None = None,
+) -> tuple[SurfaceApplication, _ReadService, _ReadService, _ReadService]:
+    runtime = create_inmemory_runtime(AQELYNConfig(tenant_mode=tenant_mode))
+    inventory_service = _ReadService(
+        "inventory_engine",
+        inventory=inventory or _InventoryReport(assets=[], total=0),
+    )
+    vulnerability_service = _ReadService(
+        "vuln_engine",
+        assessment=assessment or _Assessment(priorities=[]),
+    )
+    finding_service = _ReadService(
+        "finding_read",
+        findings=[] if findings is None else findings,
+    )
+    runtime.kernel._services["inventory_engine"] = inventory_service
+    runtime.kernel._services["vuln_engine"] = vulnerability_service
+    runtime.kernel._services["finding_read"] = finding_service
+    return SurfaceApplication(runtime), inventory_service, finding_service, vulnerability_service
+
+
+async def test_surface_inventory_uses_real_kernel_service_and_local_scope() -> None:
+    app, inventory, _findings, _vulnerabilities = _app(
+        inventory=_InventoryReport(assets=["ast_one", "ast_two"], total=2)
+    )
+
+    response = await app.handle("GET", "/api/v1/inventory?limit=1")
+    payload = _payload(response.body)
+
+    assert response.status == 200
+    assert inventory.tenant_calls == [None]
+    assert payload["items"] == [{"asset_id": "ast_one"}]
+    assert payload["next_cursor"] is not None
+    assert payload["inventory"]["degraded"] is False
+
+
+async def test_surface_paginates_the_10173_finding_acceptance_scale() -> None:
+    findings = [
+        _Finding(id=f"fnd_acceptance_{index:05d}", title=f"Finding {index}")
+        for index in range(10_173)
+    ]
+    app, _inventory, finding_service, _vulnerabilities = _app(findings=findings)
+    cursor: str | None = None
+    seen: list[str] = []
+
+    while True:
+        target = f"/api/v1/findings?limit={MAX_PAGE_SIZE}"
+        if cursor is not None:
+            target += f"&cursor={cursor}"
+        response = await app.handle("GET", target)
+        payload = _payload(response.body)
+        assert response.status == 200
+        assert payload["returned"] <= MAX_PAGE_SIZE
+        seen.extend(item["id"] for item in payload["items"])
+        cursor = payload["next_cursor"]
+        if cursor is None:
+            break
+
+    assert seen == [finding.id for finding in findings]
+    assert finding_service.tenant_calls == [None] * 102
+
+
+async def test_surface_refuses_collection_beyond_work_budget() -> None:
+    assets = [f"ast_over_budget_{index}" for index in range(SURFACE_WORK_BUDGET + 1)]
+    app, _inventory, _findings, _vulnerabilities = _app(
+        inventory=_InventoryReport(assets=assets, total=len(assets))
+    )
+
+    response = await app.handle("GET", "/api/v1/inventory")
+
+    assert response.status == 503
+    assert _payload(response.body)["error"]["code"] == "SurfaceUnavailable"
+
+
+async def test_surface_cursor_is_bound_to_route_and_tenant_scope() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app(
+        inventory=_InventoryReport(assets=["ast_one", "ast_two"], total=2)
+    )
+    first = _payload((await app.handle("GET", "/api/v1/inventory?limit=1")).body)
+
+    response = await app.handle(
+        "GET",
+        f"/api/v1/vulnerabilities?limit=1&cursor={first['next_cursor']}",
+    )
+
+    assert response.status == 400
+    assert "does not belong" in _payload(response.body)["error"]["message"]
+
+
+async def test_surface_requires_explicit_enterprise_tenant() -> None:
+    tenant_id = str(uuid4())
+    app, inventory, _findings, _vulnerabilities = _app(tenant_mode="enterprise")
+
+    missing = await app.handle("GET", "/api/v1/inventory")
+    selected = await app.handle("GET", f"/api/v1/inventory?tenant_id={tenant_id}")
+
+    assert missing.status == 400
+    assert _payload(missing.body)["error"]["code"] == "TenantScopeRequired"
+    assert selected.status == 200
+    assert inventory.tenant_calls == [tenant_id]
+
+
+async def test_surface_local_none_is_not_presented_as_an_all_tenants_wildcard() -> None:
+    app, inventory, _findings, _vulnerabilities = _app()
+
+    response = await app.handle("GET", f"/api/v1/inventory?tenant_id={uuid4()}")
+
+    assert response.status == 400
+    assert "this local estate, not all tenants" in _payload(response.body)["error"]["message"]
+    assert inventory.tenant_calls == []
+
+
+async def test_surface_preserves_unknown_factor_reasons() -> None:
+    priority = _Priority(
+        vulnerability_id="vln_one",
+        score=0.64,
+        priority="high",
+        factors={
+            "mission": {
+                "status": "unknown",
+                "reason": "no mission declaration supplied",
+                "weight": 0.0,
+            }
+        },
+    )
+    app, _inventory, _findings, vulnerabilities = _app(
+        assessment=_Assessment(priorities=[priority])
+    )
+
+    response = await app.handle("GET", "/api/v1/vulnerabilities")
+    payload = _payload(response.body)
+
+    assert response.status == 200
+    assert vulnerabilities.tenant_calls == [None]
+    assert payload["items"][0]["factors"]["mission"]["status"] == "unknown"
+    assert payload["items"][0]["factors"]["mission"]["reason"] == (
+        "no mission declaration supplied"
+    )
+
+
+async def test_surface_route_table_is_closed_and_read_only() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app()
+
+    unknown = await app.handle("GET", "/api/v1/actions")
+    write = await app.handle("POST", "/api/v1/inventory")
+
+    assert unknown.status == 404
+    assert write.status == 405
+    assert write.headers["Allow"] == "GET, HEAD"
+
+
+async def test_surface_html_is_local_and_dependency_free() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app()
+
+    response = await app.handle("GET", "/")
+    html = response.body.decode("utf-8")
+
+    assert response.status == 200
+    assert "AQELYN" in html
+    assert "https://" not in html
+    assert "http://" not in html
+    assert "/assets/app.css" in html
+    assert "/assets/app.js" in html
+    assert "default-src 'self'" in response.headers["Content-Security-Policy"]

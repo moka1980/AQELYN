@@ -29,9 +29,16 @@ authorization semantics would turn "scan only what you are permitted to scan" fr
 enforced obligation into a comment. It stays unbuilt until **all three** of the
 following hold:
 
+> **Clarification (ECR-0088):** *first-socket crossing* here means the first outbound
+> connection to a remote target that handed nothing in. ECR-0088 later introduced the
+> first inbound listener as a loopback-only, read-only surface. The EA-0054 decision is
+> unchanged.
+
 1. **A surface exists.** The roadmap's honest column no longer reads "no way in, no
    way to see." Assessment engines without a surface repeat the ordering failure the
    S-track exposed.
+   **Satisfied by ECR-0088:** the shipped loopback-only operator surface enters the
+   factory-built kernel. This does not satisfy either remaining precondition.
 2. **The handed-in pattern is proven in shipped code.** EA-0052 → EA-0053 (as bounded
    by Decision 2) have shipped and demonstrated the platform's assessment shape on
    endpoint data end to end.

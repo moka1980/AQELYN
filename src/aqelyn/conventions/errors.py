@@ -560,6 +560,16 @@ class ConfigError(AQError):
     code = "ConfigError"
 
 
+# --- ECR-0088 local operator surface ---
+class SurfaceRequestInvalid(AQError):
+    code = "SurfaceRequestInvalid"
+
+
+class SurfaceUnavailable(AQError):
+    code = "SurfaceUnavailable"
+    retriable = True
+
+
 def _all_error_classes() -> list[type[AQError]]:
     seen: set[type[AQError]] = set()
     stack: list[type[AQError]] = [AQError]

@@ -89,6 +89,7 @@ if TYPE_CHECKING:
         ReportStore,
     )
     from aqelyn.exposure import ExposureManagementService, ExposureStore, KnownDataExposureEngine
+    from aqelyn.findings.service import FindingReadService
     from aqelyn.forecast.engine import ForecastingEngine
     from aqelyn.forecast.service import ForecastingService
     from aqelyn.forecast.store import ForecastStore, PredictionModelStore
@@ -155,6 +156,7 @@ class Runtime:
     object_store: ObjectStore
     evidence_store: InMemoryEvidenceStore
     finding_store: InMemoryFindingStore
+    finding_read_service: FindingReadService
     blob_store: InMemoryBlobStore
     knowledge_graph: KnowledgeGraph
     knowledge_graph_service: KnowledgeGraphService
@@ -534,6 +536,7 @@ def _register_runtime_services(
     ResponseOrchestrationService,
     DigitalForensicsService,
     DataLakeService,
+    FindingReadService,
     ForecastingService,
     ExecutiveIntelligenceService,
     InventoryIntelligenceService,
@@ -553,6 +556,7 @@ def _register_runtime_services(
     from aqelyn.dspm.service import DSPMService
     from aqelyn.executive.service import ExecutiveIntelligenceService
     from aqelyn.exposure.service import ExposureManagementService
+    from aqelyn.findings.service import FindingReadService
     from aqelyn.forecast.service import ForecastingService
     from aqelyn.forensics.service import DigitalForensicsService
     from aqelyn.governance.service import ComplianceGovernanceService
@@ -571,6 +575,11 @@ def _register_runtime_services(
     from aqelyn.vuln.service import VulnerabilityIntelligenceService
 
     kernel.register(_RuntimeService("event_bus"))
+    finding_read_service = FindingReadService(
+        finding_store,
+        tenant_mode=kernel.config.tenant_mode,
+    )
+    kernel.register(finding_read_service)
     trust_service = TrustEngineService(trust_engine)
     kernel.register(trust_service)
     kernel.register(
@@ -856,6 +865,7 @@ def _register_runtime_services(
         response_service,
         forensics_service,
         lake_service,
+        finding_read_service,
         forecast_service,
         executive_service,
         inventory_service,
@@ -1386,6 +1396,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         response_engine_service,
         forensics_engine_service,
         lake_service,
+        finding_read_service,
         forecast_engine_service,
         executive_engine_service,
         inventory_engine_service,
@@ -1474,6 +1485,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         object_store=object_store,
         evidence_store=evidence_store,
         finding_store=finding_store,
+        finding_read_service=finding_read_service,
         blob_store=blob_store,
         knowledge_graph=knowledge_graph,
         knowledge_graph_service=knowledge_graph_service,
@@ -2157,6 +2169,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         response_engine_service,
         forensics_engine_service,
         lake_service,
+        finding_read_service,
         forecast_engine_service,
         executive_engine_service,
         inventory_engine_service,
@@ -2278,6 +2291,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         object_store=object_store,
         evidence_store=evidence_store,
         finding_store=finding_store,
+        finding_read_service=finding_read_service,
         blob_store=blob_store,
         knowledge_graph=knowledge_graph,
         knowledge_graph_service=knowledge_graph_service,
