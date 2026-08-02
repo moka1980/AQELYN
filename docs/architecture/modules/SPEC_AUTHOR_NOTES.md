@@ -420,266 +420,221 @@ fresh per-run store cannot produce the re-emission state that makes the branch f
 shipped path can supply the state that reader consumes. If not, record the consumer as dormant
 rather than claiming the feature exists.
 
-## Part 2 - Current handover: the EA-0052 - EA-0063 batch (proposed ECR-0086)
+## Part 2 - Current handover: the surface (proposed ECR-0088)
 
 **From:** Claude Code (reviewer; the only actor that reads shipped code)
 **To:** claude.ai (spec author)
-**Date:** 2026-08-01
-**Verified against:** `main @0152432`, working tree clean, **no open PRs**
+**Date:** 2026-08-02
+**Verified against:** `main @ce10936`, clean, no open PRs
 
-Everything below was run against shipped `src/` at that SHA. Where I give a count or a
-file:line, I ran it. Nothing here is inferred from titles.
+Every count, signature and grep below was run against shipped `src/` at that SHA. Nothing here is
+inferred from titles or line counts — that error is itself one of this brief's findings.
 
 ---
 
 ## 0. State
 
-- **`main @0152432`**, clean, no open PRs.
-- **Shipped since the last brief:** PR #281 (GC-004 persisted-field consumer guard),
-  PR #282 (inventory coverage page-budget control), PR #283 (retroactive re-review closure —
-  C-034/C-035/C-038 controls).
-- **Next free ECR: `0086`.** Read from `ECR-LOG.md` at `0152432`; highest allocated is
-  **ECR-0085**. **Rule 1 discharged — but re-check before merging.**
-- **Next free GC: `005`** (GC-001…GC-004 exist).
-- **SPEC_AUTHOR_NOTES rules 1–33 are current.** Rule 33 = *a test that a field holds the right
-  value proves maintenance, not use.*
-- The retroactive self-verification debt (`SELF_VERIFICATION_DISCLOSURES.md`) is **fully closed**,
-  including the judgment half. No milestone is queued with Codex.
+- **`main @ce10936`**, clean, no open PRs. Nothing queued with Codex, claude.ai, or the owner.
+- **Shipped since the last brief:** PR #285 (ECR-0086 recorded), #286 (ECR-0086 **Accepted** — owner
+  decisions + three-branch absence guards), #287 (ECR-0087 — the standards read).
+- **Next free ECR: `0088`.** Read from `ECR-LOG.md` at `ce10936`; highest allocated is **ECR-0087**.
+  **Rule 1 discharged — re-check before merging.**
+- **Next free GC: `005`.** SPEC_AUTHOR_NOTES **rules 1–33** current.
+- **Owner decisions of record (ECR-0086):** EA-0054 **not built**; EA-0052-FR-004 resident agent
+  **not authorized**. Neither is reopened by this brief.
 
 ---
 
-## 1. The headline — **the archive is NOT exhausted, and the record says it is**
+## 1. Why this ECR exists — **the archive does not contain the surface**
 
-ECR-0060 recorded:
+The owner asked whether the platform can soon be produced in a dashboard and tested. The answer
+required checking, and the checking is now complete: **no archive master specifies a product
+surface.** That is a finding, not an absence of effort.
 
-> **Archive status: exhausted as a requirements source.** With EA-0036 – EA-0050 resolved,
-> the remaining backlog is the tracked follow-ups plus whatever is chosen deliberately.
-
-**That claim is false.** `archive/` contains **EA-0001 … EA-0063**. Its own index says so on
-line 1 of `archive/EA_MASTER_INDEX.md`:
-
-> This index covers EA-0001 through EA-0063 after final AQELYN rebranding and normalization.
-
-EA-0050 and EA-0051 were classified non-capability by ECR-0060. That leaves
-**EA-0052 … EA-0063 — twelve masters that have never been assessed at all.**
-
-### 1.1 A second recorded claim is also false, and this one is load-bearing
-
-Two ECR number allocations discharge rule 20 with this premise (`ECR-LOG.md`, the ECR-0071 and
-one later allocation):
-
-> **Number:** verified free; rule 20 checked (**archive stops at EA-0051**).
-
-The archive does not stop at EA-0051; it stops at EA-0063. **Both conclusions still happen to
-hold** — they were checking for an `EA-0071`, and 0063 < 0071 — **but they hold by luck, not by
-the check.** The premise gives the *wrong* answer anywhere in the **0052–0063 band**, and
-ECR-0052 … ECR-0063 are all already allocated.
-
-This is the same family as the `>= 30` registry floor I found in C-038: **a bound that was true
-on the day it was written and does not track what it measures.** Worth correcting in the same
-ECR, because the next person to run a rule-20 check will reuse the sentence, not re-derive it.
-
----
-
-## 2. The twelve, mapped
-
-Per-item capability map — the step ECR-0060 proved you cannot skip, because it is the step that
-found EA-0048.
-
-### Finding A — same-generator templates, but a **different generator** from EA-0038–0050
-
-| family | lines | heading shape |
+| candidate | verdict | how it was established |
 |---|---|---|
-| EA-0038 … EA-0050 (assessed by ECR-0060) | 424 | 40 × `## Section NNN` |
-| **EA-0052 … EA-0057 (unassessed)** | **485 each** | 30 × `# Section NNN`, each with `## Engineering Notes` + `## Acceptance Implications` |
+| **EA-0059** AQELYN Design System | **generator-template class 3** — no design system | 703 lines; REQ **100 → 1** distinct after topic normalization; AC **80 → 1**; 20 "Implementation Rules" blocks → **1 SHA-256**. Its *"Dashboard components / Risk cards and findings"* are scope **bullets** at `EA-0059_Master.md:19-20`, inside ~29 unique lines |
+| **EA-0062** Engineering Portal & Mission Control | **real content, wrong subject** | singleton at 592 lines (no family); **425 of 455** non-blank lines distinct; only 3 repeat, one being `---` (29×); **all 29 section bodies distinct hashes** |
 
-Normalising identifiers and capability names, **EA-0052 vs EA-0055 differ in 54 lines total**,
-and those 54 lines are: **five FR one-liners**, ten event names mechanically derived from the
-engine name, and an API verb table with the name substituted.
+**EA-0062 passes the content test and fails the usefulness test.** Its domain vocabulary:
+`finding 0 · risk 0 · threat 0 · tenant 0 · asset 1 · vulnerability 1`. Its 17 data-model entities
+are `EngineeringArchive`, `Requirement`, `TraceabilityLink`, `ImplementationTask`, `TestRun`,
+`BuildRun`, `PullRequest`, `ArchitectureDecisionRecord`, `ReleaseCandidate`…; its APIs are
+`/api/v1/archives`, `/api/v1/implementation/status`, `/api/v1/agents/codex/task`, `/api/v1/ci/status`.
+Mission Control's own worked example reads *"Architecture: 100% / Implementation: 0% / Current task:
+EA-0001 AQELYN Kernel."* **It is a project-management view of building AQELYN, not a view onto what
+AQELYN produces.** Its 13 "evidence" hits are build traceability (`:77`, `:81`, `:522`), not EA-0004
+security evidence.
 
-> **The five FRs are the only module-specific text in each master.** Treat these as stubs of the
-> same class as EA-0038–0050 — a *different* template, the *same* problem.
+🔴 **And EA-0062's two most surface-relevant sections delegate to documents ECR-0087 proved empty.**
+Six normative references: `:403` *"All APIs shall follow **EA-0058** naming, error handling, logging,
+authentication, and observability rules"* · `:430` *"UI must follow **EA-0059**"* · `:121` · `:122` ·
+`:266` · `:516` (*"shall integrate EA-0058 through EA-0061 standards"*). **EA-0058/0059/0060/0061 are
+all class-3 templates.** So even as a portal spec, its API-conventions and UI halves rest on nothing.
 
-### Finding B — the twelve carry **three** dispositions, not one
+> **Consequence for this ECR: the surface is a fresh specification, not a read.** Nothing in the
+> archive can be conformed to, restated, or mined for it.
 
-**Disposition A — already shipped (3).** Verified by importing the package at `0152432`:
-
-| archive master | shipped owner | evidence |
-|---|---|---|
-| EA-0055 Attack Surface Discovery | `src/aqelyn/exposure/` — EA-0023 | docstring *"Threat Exposure & Attack Surface Management Engine (EA-0023)"*; exports `ExposureManagementService`, `KnownDataExposureEngine`; id prefix **`asa` = `attack_surface_asset` already allocated** |
-| EA-0056 Vulnerability Intelligence | `src/aqelyn/vuln/` — EA-0024 | docstring *"Vulnerability Intelligence & Prioritization Engine (EA-0024)"*; **the master's proposed engine name IS the shipped class** — `VulnerabilityIntelligenceEngine`, **14 occurrences** in `src/` |
-| EA-0057 Asset Discovery & Inventory | `src/aqelyn/inventory/` — EA-0025 | docstring *"Cyber Asset Discovery & Inventory Intelligence package (EA-0025)"*; prefix `ast` = `asset_record` |
-
-**Disposition B — genuine capability gaps (3): EA-0052, EA-0053, EA-0054.**
-
-| master | capability | absence verified how |
-|---|---|---|
-| EA-0052 Endpoint Intelligence | endpoint telemetry inventory; process/service/software/browser/firewall visibility; cross-platform agent | no `endpoint` package; `grep -rlE "process_list\|running_process\|agent_enrolment\|endpoint_telemetry" src/` ⇒ **0 files** |
-| EA-0053 Endpoint Security Assessment | endpoint posture scoring, misconfiguration detection, remediation instructions | no owner; depends entirely on EA-0052's absent telemetry |
-| EA-0054 Web Intelligence | website/domain scanning; TLS, DNS, HTTP headers, CSP, HSTS, SPF, DKIM, DMARC, redirects | no `web` package; `grep -rlicE "\b(hsts\|dkim\|dmarc\|csp header\|tls handshake)\b" src/` ⇒ **0 files** |
-
-> **This is three times the EA-0048 result** — and unlike EA-0048, **the roadmap schedules them.**
-> `docs/AQELYN_Updated_Implementation_Roadmap.md`: *C-005 Endpoint Platform: Endpoint Intelligence
-> (EA-0052) followed by Endpoint Security Assessment (EA-0053)*; *C-006 Exposure Platform: Web
-> Intelligence (EA-0054), Attack Surface Discovery (EA-0055), Vulnerability Intelligence (EA-0056).*
-> **Two of C-006's three are already shipped under different EA numbers.** The roadmap's coding
-> order was written against archive numbers that the platform has since realised under EA-0023/24/25.
-
-**Disposition C — non-capability (6): EA-0058 … EA-0063.** Same family as EA-0050/EA-0051.
-
-`EA-0058 Development & Coding Standards` · `EA-0059 AQELYN Design System` ·
-`EA-0060 AI Engineering & Prompt Handbook` · `EA-0061 Developer Handbook & Implementation Guide` ·
-`EA-0062 Engineering Portal & Mission Control` · `EA-0063 Final Readiness and Market Leadership
-Blueprint`.
-
-⚠️ **"Non-capability" must not collapse into "ignore."** EA-0058, EA-0060 and EA-0061 are
-**normative standards documents** (703 lines each for 0058/0060 — real content, not the 485-line
-stub shape). They plausibly contain coding and AI-engineering standards this platform is supposed
-to conform to. EA-0063 does carry FRs, but they are *process* FRs (*"architecture baseline
-freeze"*, *"brand normalization to aqelyn"*), not platform capabilities.
-**Recommendation: classify all six non-capability for BUILD purposes, and record EA-0058 /
-EA-0060 / EA-0061 as owing a separate conformance read.** Do not let one word close three
-documents nobody has opened.
-
-**Status update (ECR-0087, 2026-08-02): CLOSED.** The read found a third generator template,
-not standards. The 703-line count measured the generator rather than normative content.
+🧠 **Method note the ECR should carry, because I got it wrong twice:** ECR-0086 called EA-0058/0060/
+0061 *"703 lines … real content"* — a **line-count** inference. Reviewing the correction I then ran a
+normalized structural diff, saw **542 of 703 lines differ** (77%), and read *that* as content — also
+wrong, because those lines differ only where a section title is substituted into shared boilerplate.
+**Line count measures the generator; line *difference* measures the generator too.** Only normalizing
+the substitution and counting distinct survivors reaches content. **"Real content" and "useful
+content" are then still separate tests** — EA-0062 passes the first and fails the second.
 
 ---
 
-## 3. The boundary the three gaps would cross — **the most important item here**
+## 2. The single most important shipped fact: **there are two disconnected worlds**
 
-**All three Disposition-B gaps are active scanners. The shipped platform opens no socket.**
+This is the thing a surface spec must be built around, and it is not visible from any document.
 
-Verified at `0152432`: the only `urllib` imports in `src/aqelyn` are `urlsplit` / `parse_qsl` in
-`dspm/models.py:8` and `secrets/models.py:10` — **string parsing**. There is no `socket`,
-`http.client`, `requests`, `httpx`, `aiohttp`, `ssl` or `dns` client anywhere in `src/`.
-
-The boundary is recorded and called safety-critical (IS-037 analysis in `ECR-LOG.md`):
-
-> Active scanning remains an **EA-0008-gated connector action**; this analytical turn **opens no
-> socket and holds no credential.**
-
-…and the C-032 bundle records the same shape as *"the EA-0031/EA-0034 trap — handed-in
-descriptors only"*. The roadmap's own Safety Requirements section:
-
-> All endpoint, web and attack surface functions must enforce explicit scope. No unauthorized
-> scanning, credential extraction, exploit execution, destructive checks or personal-content
-> collection is permitted.
-
-⇒ **EA-0052/0053/0054 would be the first modules to make AQELYN touch a customer system
-directly.** Every capability shipped so far assesses descriptors the customer hands in.
-
-**Whether to schedule them is the owner's decision, not the spec author's and not mine.**
-ECR-0060 set the precedent for exactly this situation with EA-0048: *"an open capability gap,
-**not scheduled**."* ECR-0086 should record the disposition and **surface** the scheduling
-question — it must not presume either answer.
-
----
-
-## 4. False friends — names already taken
-
-**Id prefixes** (`conventions/ids.py::PREFIXES`, **61 allocated**):
-
-- **`tlm` = `telemetry_record`** — EA-0052's FR-001 is *"endpoint telemetry inventory"*. The
-  obvious prefix is **already taken.**
-- `asa` = `attack_surface_asset` · `ast` = `asset_record` · `vln`/`vas`/`vpr` (vulnerability) ·
-  `sct` = `secret_asset` · `x509`, `cky` (certs/keys) · `svc`, `src`, `evd`, `evt`.
-- **No prefix exists for endpoint or web.** A Disposition-B module would need new ones.
-
-**ECR-0015 event/type restatement check, run by me at `0152432`** (claude.ai cannot grep the repo):
+**World A — the platform.** `create_inmemory_runtime()` / `await create_runtime()`
+(`kernel/factory.py:873` and `:1571`) wire **30 registered services** (28 domain + `event_bus` +
+`object_store`):
 
 ```
-EndpointIntelligenceEngine          : 0
-EndpointSecurityAssessmentEngine    : 0
-WebIntelligenceEngine               : 0
-AttackSurfaceDiscoveryEngine        : 0
-AssetDiscoveryInventoryEngine       : 0
-VulnerabilityIntelligenceEngine     : 14   <-- the SHIPPED EA-0024 class. Do not restate it.
+acg_engine, compliance_engine, cspm_engine, datalake_engine, decision_engine, detection_engine,
+dspm_engine, event_bus, executive_engine, exposure_engine, forecast_engine, forensics_engine,
+iag_engine, idthreat_engine, inventory_engine, ispm_engine, knowledge_graph, mission_engine,
+object_store, policy_engine, response_engine, risk_engine, secrets_engine, soc_engine, sspm_engine,
+supplychain_engine, threat_fusion_engine, trust_engine, vuln_engine, workflow_engine
 ```
 
-**Rule 20 has a live case here — an IS-number collision.**
-`archive/EA-0052/EA-0052_Master.md` declares **"Implementation Specification: IS-035"**.
-**IS-035 is already assessed and closed**: `docs/architecture/modules/IS-035_Conformance_Analysis.md`
-subject is *"Secrets, Keys & Certificate Lifecycle Governance Engine"*, realized by **EA-0032**
-under **ECR-0054**. Same number, incompatible artifact — exactly the pattern already recorded as
-*"037 identifies three incompatible artifacts."*
-EA-0055 declares IS-038 and EA-0057 declares IS-040, from the same declared series.
-**Verify each against its source family and title; do not assume they map to the IS-0xx
-conformance analyses already on file.**
+**World B — the only user-facing surface.** `python -m aqelyn <collection_dir>` →
+`reporting.cli` → one static HTML file. Its docstring is the design property, verbatim:
+*"Local, operator-only findings report (P-001)."*
 
-**Event naming — do not carry the masters' names literally.** They propose PascalCase:
-`EndpointIntelligenceEngineDiscovered`, `…Updated`, `…Assessed`, ten per master. The shipped
-convention is **dotted lowercase `aqelyn.<domain>.<verb>`** — `aqelyn.object.created`,
-`aqelyn.kernel.runtime_started`, `aqelyn.relationship.created` — and **GC-002 closes the event
-namespace**. The masters' event block is generator output, not a contract.
+🔴 **World B never enters World A.** `reporting/analyze.py` imports
+`VulnerabilityIntelligenceEngine`, `InMemoryVulnerabilityStore`, `InMemoryFindingStore`,
+`InMemoryEvidenceStore` **directly** and constructs them per run. A grep of `src/aqelyn/reporting/`
+for `kernel`, `Runtime` or `get_service` returns **one hit, and it is `RuntimeError`.**
+
+⇒ **The shipped report exercises one domain engine (EA-0024) out of 28, and reaches the kernel
+never.** Twenty-seven domain engines have no user-facing path of any kind. **This is what "no way in,
+no way to see" means concretely** — and it is EA-0054's precondition #1, so this ECR unblocks the
+owner's own deferred decision as a side effect.
 
 ---
 
-## 5. Carry-forward — what ECR-0086 must not weaken
+## 3. Real delegation seams — quoted from shipped code
 
-Cumulative list, unchanged and still binding: tri-state status audit · columnar-vs-jsonb
-persistence · tenant-scoped health probes exercised in **both** tenant modes · **EA-0002 D8
-pagination under a work budget** · `propose(..., source_finding=)` mandatory · **EA-0004 integrity
-≠ authenticity** · **ECR-0034's inventory cap / budget-refusal** · **rule 33** (maintenance ≠ use)
-· **GC-004's persisted-field census** (670 fields: 520 consumed, 149 exempt, 1 dormant, 0
-unconsumed — a new module's persisted fields join this census and must be consumed or reasoned).
+A surface has exactly three seams available. **These are the real names; do not invent others.**
 
-### 5.1 **New, and it applies directly to this decision**
+**3.1 The kernel.** `AQKernel` public methods: `register`, `get_service`, `start`, `stop`,
+`signal_stop`, `health`. Every registered service satisfies `AQService`
+(`kernel/service.py:24`, `@runtime_checkable`):
 
-PR #283 closed the EA-0048 absence guard. The lesson generalises to every Disposition-B row:
+```python
+class AQService(Protocol):
+    @property
+    def name(self) -> str: ...
+    @property
+    def dependencies(self) -> Sequence[str]: ...
+    @property
+    def critical(self) -> bool: ...
+    async def start(self) -> None: ...
+    async def stop(self) -> None: ...
+    async def health(self) -> HealthStatus: ...
+```
 
-> **A control that certifies an ABSENCE is only as good as its detection net, and a "cleaner"
-> net can be a smaller one.** The first fix replaced the EA-0048 keyword net with a
-> docstring-declaration check; it passed CI, `mypy --strict` and ruff, and it had **lost** the
-> ability to detect the very probe that proved the old net live. Only a mutation found it.
+**A surface gets `/health` almost free** — `kernel.health()` over 30 services already exists and is
+guaranteed by GC-003 in both tenant modes. **That is the one endpoint that needs no new contract.**
 
-The shipped EA-0048 net now has **three branches, each with a unique witness test**: exact
-`EA-0048` declaration discovery · the raw keyword net (uniquely witnessed by a string-literal
-case) · token-normalised identifier matching (uniquely witnessed by a CamelCase case).
+**3.2 Domain services.** Public methods are narrow and **every domain call is keyword-only and
+carries tenant identity**:
 
-🔴 **Consequence for ECR-0086: the existing net does NOT cover the new gaps.**
-`EA0048_OWNERSHIP_TERMS` is AI vocabulary only — `model_governance`, `ai_security`, `model_card`,
-`model_risk`, `model_inventory`, `model_bias`, `prompt_injection`, `training_data`, `ml_model`,
-`ai_system`. **Nothing in it would notice an endpoint or web module arriving.**
-**If ECR-0086 records EA-0052/0053/0054 as open gaps, each needs its own absence guard built to
-the same three-branch standard** — otherwise the batch certifies three absences with no control
-behind them, which is the EA-0048 defect reintroduced at triple scale.
+```python
+InventoryIntelligenceService.inventory(*, tenant_id: str | None) -> InventoryReport
+InventoryIntelligenceService.sweep_unreported(*, source: DiscoverySource, tenant_id: str | None) -> list[AssetRecord]
+# also: classify, decommission, infer_relationships, ingest, mark_unreported, ownership, reconcile
+VulnerabilityIntelligenceService.assess / ingest / prioritize / raise_vulnerability / recommend / trend
+```
 
-Also carry forward the honest limit already named on the EA-0048 net: it catches
-**anticipated-or-conventional vocabulary, or an explicit declaration** — not *any* capability. A
-determined novel vocabulary evades it. State the guarantee that way; don't overclaim it.
+⇒ **`tenant_id` is not optional plumbing — it is on the signature of every read.** A surface that
+cannot supply it cannot call the platform, and `tenant_id=None` is the *local* mode value, not a
+"all tenants" wildcard. Get this into the spec's FR text explicitly.
+
+**3.3 The report.** `analyze_collection(directory: Path) -> CollectionAnalysis` and
+`render_findings_report(analysis: CollectionAnalysis) -> str`. Note the input is a **directory**,
+not a runtime — this is the seam that would have to change for a surface to render live data.
+
+**Config the surface must respect** (`kernel/config.py:70-71`):
+`tenant_mode: Literal["local","enterprise"] = "local"` · `backend: Literal["memory","postgres"] = "memory"`,
+and `backend=postgres` **requires** `AQELYN_DATABASE_URL` or raises `ConfigError`.
 
 ---
 
-## 6. What I recommend ECR-0086 record
+## 4. Constraints the surface spec must not break
 
-1. **Correct ECR-0060's "archive exhausted" status.** The archive runs to EA-0063; twelve masters
-   were unassessed. Correcting a superseded status line is the point of the log.
-2. **Correct the "archive stops at EA-0051" rule-20 premise**, noting both prior conclusions
-   survive but were not established by the check.
-3. **One batch decision, three dispositions** — the ECR-0060 shape, which is proven:
-   - **A (conformant via shipped owners):** EA-0055 → EA-0023, EA-0056 → EA-0024, EA-0057 → EA-0025.
-   - **B (open capability gaps):** EA-0052, EA-0053, EA-0054 — **disposition recorded, scheduling
-     reserved to the owner.**
-   - **C (non-capability):** EA-0058 … EA-0063. The EA-0058/0060/0061 standards-conformance read
-     is **discharged by ECR-0087**: all three are generator-template class 3 with no topic-specific
-     normative content.
-4. **Absence guards for the three new Disposition-B rows**, built to the three-branch standard,
-   each branch with a unique witness. This is the test-side deliverable of the ECR.
-5. **Record the no-socket boundary explicitly** as the thing EA-0052/0053/0054 would cross, with
-   the evidence in §3, so the scheduling decision is made with it in view rather than discovered
-   during implementation.
+1. 🔴 **The no-socket boundary is inbound too.** There is **no** `socket`, `http.client`, `requests`,
+   `httpx`, `aiohttp`, `ssl` or `dns` import anywhere in `src/aqelyn` — the only `urllib` uses are
+   `urlsplit`/`parse_qsl` for string parsing (`dspm/models.py:8`, `secrets/models.py:10`).
+   `pyproject.toml` declares **no web framework** (pydantic, pydantic-settings, uuid-utils, asyncpg,
+   SQLAlchemy, alembic, redis). **A server is therefore a genuinely new dependency and a genuinely
+   new risk surface** — the first port AQELYN ever listens on. ECR-0086 reserved *outbound* scanning
+   to the owner; **an inbound listener deserves the same explicitness**, and the spec should say
+   loopback-only unless the owner decides otherwise.
+2. **"Local, operator-only" is a recorded design property**, not an accident of implementation. If
+   the surface changes it, the ECR must say so in those words and record the owner's acceptance.
+3. **Scale is a known open item.** `render_findings_report` builds the page with
+   `"\n".join(_finding(item, index) for index, item in enumerate(analysis.findings))`
+   (`reporting/html.py:16`) — **no pagination, no limit, every finding inlined**. The real corpus is
+   **10,173 findings with 50,394 unknown factors disclosed** (`P-001_Task_Bundle.md:116`), and the
+   in-page search/filter is client-side over the already-rendered DOM. **A live surface is the
+   natural fix, and "make P-001 bigger" is not.**
+4. **Auth does not exist.** No authentication, authorization, session or RBAC primitive ships. A
+   multi-user surface invents all of it; a loopback operator surface can defer all of it. **The spec
+   should choose deliberately and say which.**
+5. **Do not weaken:** ECR-0034's inventory budget/`degraded` contract · ECR-0061 `sweep_unreported`
+   exhaust-or-refuse · rule 33 (maintenance ≠ use) · **GC-004's persisted-field census** (a surface
+   that persists anything joins it: 670 fields, 520 consumed, 149 exempt, 1 dormant, 0 unconsumed) ·
+   GC-002 event-namespace closure · GC-003 registry coverage · EA-0002 D8 pagination under a budget ·
+   EA-0004 integrity ≠ authenticity.
 
-**Do not** write module specs for EA-0052/0053/0054 in this pass. The batch decision is required
-first either way, and it is required before any scheduling question can be answered.
+---
+
+## 5. False friends
+
+- **No prefix exists for a surface/portal/session/user.** `conventions/ids.py::PREFIXES` has **61**
+  allocated; `svc` = `service` and `src` = `source` are **taken and mean something else**.
+- **Event names:** shipped convention is dotted lowercase `aqelyn.<domain>.<verb>`
+  (`aqelyn.kernel.runtime_started`, `aqelyn.object.created`, `aqelyn.relationship.created`), and
+  **GC-002 closes the namespace.** A surface emitting events needs its prefix registered, not invented.
+- **`Runtime` is a real dataclass** in `kernel/factory.py` with 28 `*_service` attributes; GC-003
+  derives its expected registry from them. **Do not use "runtime" as a loose noun in FR text.**
+- **EA-0062's endpoint list is not a starting point.** `/api/v1/archives`,
+  `/api/v1/implementation/status`, `/api/v1/agents/codex/task` are build-portal routes. Reusing that
+  shape would specify the wrong product.
+
+---
+
+## 6. What I recommend ECR-0088 decide
+
+1. **Record the finding of §1** — the archive contains no product surface; EA-0059 is class 3,
+   EA-0062 is real but is an engineering portal whose UI/API halves cite empty documents. Note
+   EA-0059 as the **fourth** member of the class-3 family (ECR-0087 recorded three).
+2. **Name the surface's purpose in one sentence**, and let it exclude things: *a way to see and drive
+   the shipped engines* — **not** a build tracker, not a marketing site.
+3. **Decide the shape, and the ECR should recommend one.** My recommendation, on the evidence:
+   **(a) a loopback-only read API over `kernel.get_service()` + `health()`, plus a thin UI**, because
+   `health()` already exists across 30 services, the domain reads are already narrow and
+   tenant-scoped, and loopback keeps the "local, operator-only" property intact.
+   **(b)** rendering live data through the existing report path is smaller but inherits the
+   no-pagination limit. **(c)** a full multi-user web app invents auth, sessions and RBAC that no
+   shipped code has — recommend against as a first step.
+4. **Scope it to reads first.** Every write path (`ingest`, `raise_vulnerability`, `propose`,
+   `decommission`) is an *action* with existing gating semantics; a read-only v1 avoids reopening
+   any of them.
+5. **State the listening-port decision explicitly** and reserve it to the owner if it is anything
+   other than loopback.
+
+**Do not** specify UI visuals from EA-0059 — there are none to specify from.
 
 ---
 
 ## 7. Ball
 
-**Next: claude.ai authors ECR-0086** (the EA-0051 … EA-0063 batch conformance analysis) from this
-brief. Then Codex implements, and I review and merge.
-
-**Reserved to the owner, and only the owner:** whether the three genuine gaps
-(EA-0052 Endpoint Intelligence, EA-0053 Endpoint Security Assessment, EA-0054 Web Intelligence)
-get scheduled at all, given that building any of them opens AQELYN's first socket.
+**Next: claude.ai authors ECR-0088** from this brief. Then Codex implements, and I review and merge.
+**Reserved to the owner:** whether the surface may listen on anything other than loopback, on the
+same footing as ECR-0086's outbound-socket decision.
