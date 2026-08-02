@@ -8,13 +8,18 @@ from dataclasses import replace
 from decimal import Decimal
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from aqelyn.findings.memory import InMemoryFindingStore
 from aqelyn.findings.service import FindingReadService
-from aqelyn.reporting.analyze import ReportFinding, ReportInputError, analyze_collection
+from aqelyn.reporting.analyze import (
+    ReportFinding,
+    ReportInputError,
+    _read_all_findings,
+    analyze_collection,
+)
 from aqelyn.reporting.cli import main
 from aqelyn.reporting.html import render_findings_report
 from aqelyn.vuln.service import VulnerabilityIntelligenceService
@@ -451,6 +456,31 @@ async def test_ecr0089_runtime_path_matches_the_pre_unification_semantic_golden(
     }
 
     assert semantic == _PRE_ECR0089_SEMANTIC_GOLDEN
+
+
+async def test_ecr0089_finding_read_is_single_pass_at_acceptance_scale() -> None:
+    expected_count = 10_173
+
+    class _Reader:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str | None, int, str | None]] = []
+
+        async def query(
+            self,
+            *,
+            tenant_id: str | None,
+            limit: int,
+            cursor: str | None,
+        ) -> tuple[list[Any], str | None]:
+            self.calls.append((tenant_id, limit, cursor))
+            return [object()] * expected_count, None
+
+    reader = _Reader()
+
+    findings = await _read_all_findings(cast(Any, reader), expected_count=expected_count)
+
+    assert len(findings) == expected_count
+    assert reader.calls == [(None, expected_count, None)]
 
 
 @pytest.mark.asyncio

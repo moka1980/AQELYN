@@ -452,16 +452,39 @@ async def test_widened_detail_routes_use_the_owner_detail_contract(
     assert services[service_name].calls == [(method_name, None, None, "record_detail")]
 
 
-async def test_widened_routes_apply_the_enterprise_tenant_rule_before_owner_read() -> None:
+@pytest.mark.parametrize(
+    ("route", "service_name", "method_name"),
+    [
+        ("ispm", "ispm_read", "list_postures"),
+        ("exposure", "exposure_read", "list_exposures"),
+        ("secrets", "secrets_read", "list_assets"),
+        ("supplychain", "supplychain_read", "list_components"),
+    ],
+)
+async def test_widened_routes_apply_the_enterprise_tenant_rule_before_owner_read(
+    route: str,
+    service_name: str,
+    method_name: str,
+) -> None:
     tenant_id = str(uuid4())
     app, services = _domain_app(tenant_mode="enterprise")
 
-    missing = await app.handle("GET", "/api/v1/secrets")
-    selected = await app.handle("GET", f"/api/v1/secrets?tenant_id={tenant_id}")
+    missing = await app.handle("GET", f"/api/v1/{route}")
+    selected = await app.handle("GET", f"/api/v1/{route}?tenant_id={tenant_id}")
 
     assert missing.status == 400
     assert selected.status == 200
-    assert services["secrets_read"].calls == [("list_assets", tenant_id, 50, None)]
+    assert services[service_name].calls == [(method_name, tenant_id, 50, None)]
+
+
+@pytest.mark.parametrize("route", ["ispm", "exposure", "secrets", "supplychain"])
+async def test_widened_detail_routes_refuse_nested_paths(route: str) -> None:
+    app, services = _domain_app()
+
+    response = await app.handle("GET", f"/api/v1/{route}/record/extra")
+
+    assert response.status == 404
+    assert not [call for service in services.values() for call in service.calls]
 
 
 async def test_surface_route_table_is_closed_and_read_only() -> None:

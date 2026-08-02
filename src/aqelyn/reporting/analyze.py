@@ -234,7 +234,10 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
         finding = await vulnerability_service.raise_vulnerability(priority, by=by)
         generated[finding.id] = priority, vulnerability
 
-    read_findings = await _read_all_findings(finding_reader)
+    read_findings = await _read_all_findings(
+        finding_reader,
+        expected_count=len(generated),
+    )
     if set(generated) != {finding.id for finding in read_findings}:
         raise ReportInputError("registered finding read did not return the findings just published")
     findings = [
@@ -284,23 +287,19 @@ def _apply_reporting_vulnerability_profile(
     engine.trend_provider = None
 
 
-async def _read_all_findings(reader: _FindingReader) -> list[Finding]:
-    findings: list[Finding] = []
-    cursor: str | None = None
-    seen_cursors: set[str] = set()
-    while True:
-        page, next_cursor = await reader.query(
-            tenant_id=None,
-            limit=100,
-            cursor=cursor,
-        )
-        findings.extend(page)
-        if next_cursor is None:
-            return findings
-        if next_cursor == cursor or next_cursor in seen_cursors:
-            raise ReportInputError("registered finding read returned a non-advancing cursor")
-        seen_cursors.add(next_cursor)
-        cursor = next_cursor
+async def _read_all_findings(
+    reader: _FindingReader,
+    *,
+    expected_count: int,
+) -> list[Finding]:
+    findings, next_cursor = await reader.query(
+        tenant_id=None,
+        limit=max(expected_count, 1),
+        cursor=None,
+    )
+    if next_cursor is not None or len(findings) != expected_count:
+        raise ReportInputError("registered finding read did not return the generated cardinality")
+    return findings
 
 
 def _read_json_object(path: Path, *, label: str) -> tuple[dict[str, Any], str]:

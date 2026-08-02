@@ -94,7 +94,9 @@ findings into a live server.
 unknown factors) is semantically identical before and after — same findings, same counts,
 same disclosed unknowns — verified by golden comparison at the analysis layer (not
 byte-identical HTML, which would pin incidentals). The report gains no socket, no server, no
-new dependency; it remains one-shot and offline.
+new dependency; it remains one-shot and offline. Publishing through the real in-memory owners
+does emit their in-process events (one per finding plus the ingestion event); none is persisted,
+sent over a socket, or exposed by the surface.
 
 ## 6. Functional requirements
 
@@ -152,3 +154,5 @@ Codex implemented the four owner-provided read services, registered the delibera
 GC-003 delta in both tenant modes, widened the fixed surface routes, and moved P-001 analysis onto
 the registered vulnerability publish and finding-read path. Mutation controls prove owner/tenant
 cursor binding, explanation transport, degraded-state transport, and Runtime registration.
+The reporting path deliberately gains the real owners' in-process events while remaining
+one-shot, offline, non-persisting, and socketless.

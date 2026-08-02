@@ -34,6 +34,7 @@ from aqelyn.ispm import (
     IdentityPostureScore,
     InMemoryISPMStore,
     ISPMEngine,
+    ISPMReadService,
     ISPMStore,
     NormalizedIdentity,
     PostgresISPMStore,
@@ -360,6 +361,39 @@ async def test_ispm_score_replay(kind: str) -> None:
             await store.put_score(
                 score.model_copy(update={"derivation": tampered_derivation}, deep=True)
             )
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_ispm_read_keyset_and_owner_explanation(kind: str) -> None:
+    async with _store(kind) as store:
+        stored: list[IdentityPostureScore] = []
+        engines: list[ISPMEngine] = []
+        for _index in range(5):
+            engine, _, account_id, _, _ = await _engine_with_identity(store, mfa="present")
+            engines.append(engine)
+            stored.append(await engine.score_identity(account_id, tenant_id=TENANT))
+        expected = [
+            score.id for score in sorted(stored, key=lambda item: (item.subject_ref, item.id))
+        ]
+
+        for limit in (1, 2, 3, 4, 5):
+            after: tuple[str, str] | None = None
+            seen: list[str] = []
+            while True:
+                store_page, after = await store.query_scores_for_read(
+                    tenant_id=TENANT,
+                    after=after,
+                    limit=limit,
+                )
+                seen.extend(score.id for score in store_page)
+                if after is None:
+                    break
+            assert seen == expected
+            assert len(seen) == len(set(seen))
+
+        read_service = ISPMReadService(store, engines[0], tenant_mode="enterprise")
+        read_page = await read_service.list_postures(tenant_id=TENANT, limit=5, cursor=None)
+        assert all(item.explain is not None for item in read_page.items)
 
 
 async def test_ispm_score_composed(monkeypatch: pytest.MonkeyPatch) -> None:

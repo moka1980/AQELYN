@@ -6690,6 +6690,8 @@ P-001 now constructs the in-memory Runtime, publishes through the registered vul
 service, and reads findings through `finding_read`. The CLI, handed-in input, static HTML output,
 and prior provider semantics are unchanged. A stable analysis-layer golden pins the same findings,
 counts, scores, priorities and disclosed unknown reasons without pinning HTML incidentals.
+This real-owner path deliberately emits in-process owner events (one per finding plus ingestion);
+the events are not persisted, sent over a socket, or exposed by the surface.
 
 ### 4. Scope
 
