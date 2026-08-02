@@ -28,6 +28,8 @@ from pathlib import Path
 
 import pytest
 
+from .absence_guard import CapabilityAbsenceSpec, discover_capability_signals
+
 ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src" / "aqelyn"
 
@@ -56,6 +58,13 @@ EA0048_OWNERSHIP_TOKEN_SETS = (
     frozenset(("training", "data")),
     frozenset(("ml", "model")),
     frozenset(("ai", "system")),
+)
+
+EA0048_ABSENCE_SPEC = CapabilityAbsenceSpec(
+    ea_number="EA-0048",
+    label="AI Security & Model Governance",
+    raw_terms=EA0048_OWNERSHIP_TERMS,
+    token_sets=EA0048_OWNERSHIP_TOKEN_SETS,
 )
 
 # Disposition A. Each row: archive master -> the shipped package(s) that realize it,
@@ -120,52 +129,6 @@ def _package_docstring(package: str) -> str:
     return ast.get_docstring(ast.parse(source), clean=False) or ""
 
 
-def _declared_owners(root: Path, ea_number: str) -> list[Path]:
-    """Discover owner declarations semantically, independent of package vocabulary."""
-    owners: list[Path] = []
-    for package_init in root.rglob("__init__.py"):
-        source = package_init.read_text(encoding="utf-8")
-        docstring = ast.get_docstring(ast.parse(source), clean=False) or ""
-        declarations = set(re.findall(r"\bEA-\d{4}\b", docstring))
-        if ea_number in declarations:
-            owners.append(package_init)
-    return sorted(owners)
-
-
-def _identifier_tokens(identifier: str) -> frozenset[str]:
-    """Normalize snake_case and CamelCase without substring false positives."""
-    separated = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", identifier)
-    separated = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", "_", separated)
-    return frozenset(part.lower() for part in re.findall(r"[A-Za-z0-9]+", separated))
-
-
-def _ownership_vocabulary_hits(root: Path) -> list[str]:
-    """Union the legacy keyword net with normalized source identifiers."""
-    hits: set[str] = set()
-    for path in root.rglob("*.py"):
-        source = path.read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        relative_path = path.relative_to(root)
-        for term in EA0048_OWNERSHIP_TERMS:
-            if term in source.lower():
-                hits.add(f"{relative_path.as_posix()}: {term}")
-        identifiers = {path.stem, *relative_path.parts}
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                identifiers.add(node.name)
-            elif isinstance(node, ast.Name):
-                identifiers.add(node.id)
-            elif isinstance(node, ast.Attribute):
-                identifiers.add(node.attr)
-            elif isinstance(node, ast.alias):
-                identifiers.add(node.asname or node.name.rsplit(".", 1)[-1])
-        for identifier in sorted(identifiers):
-            tokens = _identifier_tokens(identifier)
-            if any(required <= tokens for required in EA0048_OWNERSHIP_TOKEN_SETS):
-                hits.add(f"{relative_path.as_posix()}: {identifier}")
-    return sorted(hits)
-
-
 def test_batch_disposition_a_owners_present() -> None:
     """Every Disposition-A row points at a package that declares the claimed EA.
 
@@ -206,16 +169,15 @@ def test_batch_ea0048_no_owner() -> None:
     decisions over cases and claims. EA-0048 would be governance *of* customer AI/ML
     systems. Opposite directions; the question was asked and answered.
     """
-    declared_owners = _declared_owners(SRC, "EA-0048")
-    vocabulary_hits = _ownership_vocabulary_hits(SRC)
-    assert declared_owners == [], (
+    signals = discover_capability_signals(SRC, EA0048_ABSENCE_SPEC)
+    assert signals.declared_owners == (), (
         "EA-0048 is recorded as an open capability gap, but packages now declare "
         "ownership: "
-        f"{[path.relative_to(ROOT) for path in declared_owners]}. Reclassify the row."
+        f"{[path.relative_to(ROOT) for path in signals.declared_owners]}. Reclassify the row."
     )
-    assert vocabulary_hits == [], (
+    assert signals.vocabulary_hits == (), (
         "EA-0048 is recorded as an open capability gap, but source identifiers now "
-        f"name its capability: {vocabulary_hits}. Reclassify the row."
+        f"name its capability: {signals.vocabulary_hits}. Reclassify the row."
     )
 
 
@@ -228,8 +190,9 @@ def test_batch_ea0048_owner_discovery_is_name_independent(tmp_path: Path) -> Non
         encoding="utf-8",
     )
 
-    assert _declared_owners(tmp_path, "EA-0048") == [package / "__init__.py"]
-    assert _ownership_vocabulary_hits(tmp_path) == []
+    signals = discover_capability_signals(tmp_path, EA0048_ABSENCE_SPEC)
+    assert signals.declared_owners == (package / "__init__.py",)
+    assert signals.vocabulary_hits == ()
 
 
 @pytest.mark.parametrize(
@@ -251,10 +214,9 @@ def test_batch_ea0048_vocabulary_discovery_handles_identifier_styles(
     package_init = package / "__init__.py"
     package_init.write_text(source, encoding="utf-8")
 
-    assert _declared_owners(tmp_path, "EA-0048") == []
-    assert _ownership_vocabulary_hits(tmp_path) == [
-        f"opaque_assurance/__init__.py: {expected_indicator}"
-    ]
+    signals = discover_capability_signals(tmp_path, EA0048_ABSENCE_SPEC)
+    assert signals.declared_owners == ()
+    assert signals.vocabulary_hits == (f"opaque_assurance/__init__.py: {expected_indicator}",)
 
 
 def test_batch_ea0020_is_not_the_ea0048_owner() -> None:
