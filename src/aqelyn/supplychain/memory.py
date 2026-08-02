@@ -21,6 +21,8 @@ from aqelyn.supplychain.store import (
     validate_assessment_id,
     validate_component,
     validate_component_identity,
+    validate_component_object_id,
+    validate_component_read_cursor,
     validate_doc_id,
     validate_provenance_filter,
     validate_quarantine,
@@ -76,6 +78,19 @@ class InMemorySBOMStore:
         )
         return None if record is None else record.model_copy(deep=True)
 
+    async def get_component_by_object_id(
+        self,
+        object_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> SoftwareComponent | None:
+        selected_id = validate_component_object_id(object_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        key = self._component_ids.get(selected_id)
+        if key is None or key[0] != selected_tenant:
+            return None
+        return self._components[key].model_copy(deep=True)
+
     async def put_assessment(self, assessment: SupplyChainAssessment) -> SupplyChainAssessment:
         stored = validate_assessment(assessment)
         validate_write_tenant(stored.tenant_id, mode=self.mode)
@@ -125,6 +140,34 @@ class InMemorySBOMStore:
         page = rows[:selected_limit]
         next_cursor = page[-1].object_id if len(rows) > selected_limit else None
         return [record.model_copy(deep=True) for record in page], next_cursor
+
+    async def query_components_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[ProvenanceStatus, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[SoftwareComponent], tuple[ProvenanceStatus, str] | None]:
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        selected_after = validate_component_read_cursor(after)
+        selected_limit = validate_query_limit(limit)
+        rows = sorted(
+            (
+                record
+                for record in self._components.values()
+                if self._visible(record.tenant_id, selected_tenant)
+                and (
+                    selected_after is None
+                    or (record.provenance_status, record.object_id) > selected_after
+                )
+            ),
+            key=lambda record: (record.provenance_status, record.object_id),
+        )
+        page = rows[:selected_limit]
+        next_key = (
+            (page[-1].provenance_status, page[-1].object_id) if len(rows) > selected_limit else None
+        )
+        return [record.model_copy(deep=True) for record in page], next_key
 
     async def quarantine(self, item: QuarantinedSBOM) -> QuarantinedSBOM:
         stored = validate_quarantine(item)

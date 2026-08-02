@@ -15,6 +15,7 @@ from aqelyn.conventions.errors import OptimisticConcurrencyConflict
 from aqelyn.exposure import (
     AssetRef,
     ExposureBasis,
+    ExposureReadService,
     ExposureRecord,
     ExposureStore,
     InMemoryExposureStore,
@@ -119,6 +120,34 @@ async def test_exp_tenant_isolation(kind: str) -> None:
 
         assert await store.get(row.id, tenant_id=OTHER_TENANT) is None
         assert {item.tenant_id for item in await store.query(tenant_id=TENANT)} == {TENANT}
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_exp_read_keyset_is_exhaustive_with_tied_sort_keys(kind: str) -> None:
+    async for store in _store(kind):
+        stored = [await store.put(_record(ref_id=f"asset:read-{index}")) for index in range(5)]
+        expected = [
+            record.id for record in sorted(stored, key=lambda item: (item.discovered_at, item.id))
+        ]
+
+        for limit in (1, 2, 3, 4, 5):
+            after: tuple[datetime, str] | None = None
+            seen: list[str] = []
+            while True:
+                store_page, after = await store.query_for_read(
+                    tenant_id=TENANT,
+                    after=after,
+                    limit=limit,
+                )
+                seen.extend(record.id for record in store_page)
+                if after is None:
+                    break
+            assert seen == expected
+            assert len(seen) == len(set(seen))
+
+        read_service = ExposureReadService(store, tenant_mode="enterprise")
+        read_page = await read_service.list_exposures(tenant_id=TENANT, limit=5, cursor=None)
+        assert all(item.explain is None for item in read_page.items)
 
 
 async def test_exp_unknown_not_internal(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -31,6 +31,7 @@ from aqelyn.ispm.store import (
     validate_provider,
     validate_score,
     validate_score_id,
+    validate_score_read_cursor,
     validate_tenant_scope,
     validate_write_tenant,
 )
@@ -148,6 +149,29 @@ class InMemoryISPMStore:
         if stored is None or not self._visible(stored.tenant_id, selected_tenant):
             return None
         return validate_score(stored)
+
+    async def query_scores_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[str, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[IdentityPostureScore], tuple[str, str] | None]:
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        selected_after = validate_score_read_cursor(after)
+        selected_limit = validate_limit(limit)
+        rows = sorted(
+            (
+                score
+                for score in self._scores.values()
+                if self._visible(score.tenant_id, selected_tenant)
+                and (selected_after is None or (score.subject_ref, score.id) > selected_after)
+            ),
+            key=lambda item: (item.subject_ref, item.id),
+        )
+        page = rows[:selected_limit]
+        next_key = (page[-1].subject_ref, page[-1].id) if len(rows) > selected_limit else None
+        return [validate_score(item) for item in page], next_key
 
     async def put_baseline(self, baseline: IdentityBaseline) -> IdentityBaseline:
         stored = validate_baseline(baseline)

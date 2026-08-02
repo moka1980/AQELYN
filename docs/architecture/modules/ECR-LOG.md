@@ -93,6 +93,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0086 | EA-0052–0063 batch | Accepted (owner decisions recorded; absence guards shipped) | Archive **not** exhausted — 12 unassessed. 3 conformant, 3 gaps, 6 non-capability. EA-0054 remains an open gap, not scheduled; EA-0052-FR-004 is not authorized. |
 | ECR-0087 | EA-0058 + EA-0060 + EA-0061 | Accepted (record-only read complete) | **Third generator template, not standards.** The 703-line shape contains no topic-specific normative requirements; the ECR-0086 conformance-read debt is discharged. |
 | ECR-0088 | Local operator surface | Accepted (surface v1) | **The first user-facing path into the real kernel.** A stdlib read API and thin UI bind loopback only; outbound networking remains absent and non-loopback remains owner-gated. |
+| ECR-0089 | Local operator surface + reporting | Accepted (surface widening) | **Owner-provided read seams widen the surface without engine coupling.** ISPM, exposure, secrets and supply chain join the Runtime; P-001 uses the same registered publish/read path. |
 
 ---
 
@@ -6654,3 +6655,46 @@ ECR-0086 precondition 1, *a user-facing surface exists*, is satisfied by this im
 Precondition 2, the shipped EA-0052 to EA-0053 handed-in assessment path, and precondition 3,
 reviewed target-authorization semantics, remain open. EA-0054 remains unscheduled and can return
 only under its own new ECR.
+
+## ECR-0089 - Owner read seams and one user-facing data path
+
+**Raised by:** claude.ai from Claude Code's widening brief; implemented by Codex.
+**Status:** Accepted - surface widening shipped.
+**Number:** re-verified as the next contiguous number after ECR-0088.
+
+### 1. Decision
+
+The surface generalises the Finding owner's read-service precedent. ISPM, exposure, secrets and
+supply chain each own a dedicated `<domain>_read` `AQService`. Public capability methods are an
+enumerated read-only set, tenant scope is keyword-only, and engine coupling stays inside the owner
+package. The surface has no generic reflection seam and never traverses an owner's `.engine`.
+
+The four services join `Runtime` and the kernel registry in both tenant modes. The deliberate
+GC-003 registry delta is four services: `ispm_read`, `exposure_read`, `secrets_read`, and
+`supplychain_read`. Infrastructure receives no route or read service.
+
+### 2. Read contract
+
+Collection reads use complete, tenant-scoped owner keysets: `(subject_ref, id)` for posture,
+`(discovered_at, id)` for exposure, `(kind, id)` for cryptographic assets, and
+`(provenance_status, object_id)` for software components. Detail reads use owner identifiers.
+Every payload carries `explain`; owners without a record-level explanation return explicit null.
+Every collection payload carries `degraded` plus reasons, and the UI renders that state visibly.
+
+The routes remain under the fixed ECR-0088 allowlist, accept only GET/HEAD, and preserve loopback,
+no outbound networking, no dependency, no persistence, no event, raw `APP_JS`, and `[hidden]`.
+
+### 3. Reporting unification
+
+P-001 now constructs the in-memory Runtime, publishes through the registered vulnerability
+service, and reads findings through `finding_read`. The CLI, handed-in input, static HTML output,
+and prior provider semantics are unchanged. A stable analysis-layer golden pins the same findings,
+counts, scores, priorities and disclosed unknown reasons without pinning HTML incidentals.
+This real-owner path deliberately emits in-process owner events (one per finding plus ingestion);
+the events are not persisted, sent over a socket, or exposed by the surface.
+
+### 4. Scope
+
+This ECR decides the read-service seam once for future widening. It does not authorize writes,
+authentication deferral beyond loopback/read-only, non-loopback binding, frameworks, surface
+events, or routes for infrastructure and remaining domains.

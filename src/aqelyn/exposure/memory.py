@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime
 
 from aqelyn.conventions.errors import OptimisticConcurrencyConflict
 from aqelyn.exposure.models import ExposureRecord, Reachability
@@ -12,6 +13,7 @@ from aqelyn.exposure.store import (
     validate_flagged_filter,
     validate_query_limit,
     validate_reachability_filter,
+    validate_read_cursor,
     validate_tenant,
 )
 
@@ -57,6 +59,29 @@ class InMemoryExposureStore:
         ]
         rows.sort(key=lambda record: (record.discovered_at, record.id))
         return rows[:selected_limit]
+
+    async def query_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[datetime, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[ExposureRecord], tuple[datetime, str] | None]:
+        selected_tenant = validate_tenant(tenant_id)
+        selected_after = validate_read_cursor(after)
+        selected_limit = validate_query_limit(limit)
+        rows = sorted(
+            (
+                record
+                for record in self._records.values()
+                if self._visible(record.tenant_id, selected_tenant)
+                and (selected_after is None or (record.discovered_at, record.id) > selected_after)
+            ),
+            key=lambda record: (record.discovered_at, record.id),
+        )
+        page = rows[:selected_limit]
+        next_key = (page[-1].discovered_at, page[-1].id) if len(rows) > selected_limit else None
+        return [copy.deepcopy(record) for record in page], next_key
 
     def _visible(self, row_tenant_id: str | None, requested_tenant_id: str | None) -> bool:
         if self.mode == "local" and row_tenant_id is not None:

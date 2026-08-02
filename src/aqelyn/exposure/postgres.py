@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 import asyncpg
@@ -16,6 +17,7 @@ from aqelyn.exposure.store import (
     validate_flagged_filter,
     validate_query_limit,
     validate_reachability_filter,
+    validate_read_cursor,
     validate_tenant,
 )
 
@@ -120,6 +122,41 @@ class PostgresExposureStore:
                 *args,
             )
         return [_row_to_exposure(row) for row in rows]
+
+    async def query_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[datetime, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[ExposureRecord], tuple[datetime, str] | None]:
+        selected_tenant = validate_tenant(tenant_id)
+        selected_after = validate_read_cursor(after)
+        selected_limit = validate_query_limit(limit)
+        args: list[Any] = []
+        clauses: list[str] = []
+        if self.mode == "local":
+            clauses.append("tenant_id IS NULL")
+        if selected_tenant is not None:
+            args.append(selected_tenant)
+            clauses.append(f"tenant_id = ${len(args)}")
+        if selected_after is not None:
+            args.extend(selected_after)
+            clauses.append(f"(discovered_at, id) > (${len(args) - 1}, ${len(args)})")
+        args.append(selected_limit + 1)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        async with self._pool.acquire() as conn:
+            rows = list(
+                await conn.fetch(
+                    f"SELECT {_EXPOSURE_COLS} FROM aq_exposure_record "
+                    f"{where}ORDER BY discovered_at, id LIMIT ${len(args)}",
+                    *args,
+                )
+            )
+        has_more = len(rows) > selected_limit
+        page = rows[:selected_limit]
+        next_key = (page[-1]["discovered_at"], str(page[-1]["id"])) if has_more else None
+        return [_row_to_exposure(row) for row in page], next_key
 
 
 def _exposure_args(exposure: ExposureRecord) -> tuple[Any, ...]:

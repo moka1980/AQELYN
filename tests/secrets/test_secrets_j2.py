@@ -30,6 +30,7 @@ from aqelyn.risk.scoring import score_risk as real_score_risk
 from aqelyn.secrets import (
     ComposedCredentialGovernance,
     CredentialGovernanceScore,
+    CryptoAssetKind,
     CryptographicExposure,
     CryptographicKey,
     CryptographicKeyDescriptor,
@@ -38,6 +39,7 @@ from aqelyn.secrets import (
     InMemoryCryptoStore,
     Lifecycle,
     PostgresCryptoStore,
+    SecretsReadService,
     StorageSafetyClassification,
     compose_credential_governance,
     governance_operation_registry,
@@ -578,6 +580,52 @@ async def test_crypto_gov_store_contract(kind: str) -> None:
         changed = score.model_copy(update={"statement": f"{score.statement} changed"})
         with pytest.raises(OptimisticConcurrencyConflict):
             await store.put_score(changed)
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_crypto_asset_read_keyset_and_owner_explanation(kind: str) -> None:
+    async with _store(kind) as store:
+        stored: list[CryptographicKey] = []
+        for index in range(5):
+            object_id = new_id("obj")
+            asset = CryptographicKey.model_validate(
+                {
+                    **_asset().model_dump(mode="json"),
+                    "id": new_id("cky"),
+                    "object_id": object_id,
+                    "inventory_ref": f"ast_{object_id.split('_', 1)[1]}",
+                    "external_key_ref": f"urn:aqelyn:key:read-{index}",
+                    "fingerprint": f"hmac-sha256:{index + 700:064x}",
+                    "source_id": new_id("src"),
+                    "evidence_id": new_id("evd"),
+                }
+            )
+            stored.append(cast(CryptographicKey, await store.put_asset(asset)))
+        expected = sorted(record.id for record in stored)
+
+        for limit in (1, 2, 3, 4, 5):
+            after: tuple[CryptoAssetKind, str] | None = None
+            seen: list[str] = []
+            while True:
+                store_page, after = await store.query_assets_for_read(
+                    tenant_id=TENANT,
+                    after=after,
+                    limit=limit,
+                )
+                seen.extend(record.id for record in store_page)
+                if after is None:
+                    break
+            assert seen == expected
+            assert len(seen) == len(set(seen))
+
+        runtime = create_inmemory_runtime(AQELYNConfig(tenant_mode="enterprise"))
+        read_service = SecretsReadService(
+            store,
+            runtime.secrets_engine,
+            tenant_mode="enterprise",
+        )
+        read_page = await read_service.list_assets(tenant_id=TENANT, limit=5, cursor=None)
+        assert all(item.explain is not None for item in read_page.items)
 
 
 async def test_crypto_gov_factory_owner_handoff_and_assess_wiring() -> None:

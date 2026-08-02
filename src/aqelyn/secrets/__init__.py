@@ -50,6 +50,7 @@ from aqelyn.secrets.models import (
     StorageSafetyStatus,
 )
 from aqelyn.secrets.postgres import PostgresCryptoStore
+from aqelyn.secrets.read import SecretsReadService
 from aqelyn.secrets.scoring import (
     ComposedCredentialGovernance,
     compose_credential_governance,
@@ -115,6 +116,7 @@ __all__ = [
     "SecretScanDescriptor",
     "SecretsIntelligenceEngine",
     "SecretsIntelligenceService",
+    "SecretsReadService",
     "StorageLocationKind",
     "StorageSafetyClassification",
     "StorageSafetyStatus",

@@ -34,12 +34,14 @@ from aqelyn.supplychain import (
     ComponentIdentity,
     InMemorySBOMStore,
     PostgresSBOMStore,
+    ProvenanceStatus,
     QuarantinedSBOM,
     SBOMDocument,
     SBOMStore,
     SoftwareComponent,
     SupplyChainAssessment,
     SupplyChainEngine,
+    SupplyChainReadService,
     parse_sbom,
 )
 from aqelyn.trust import InMemorySourceReliabilityRegistry, SourceReliability
@@ -375,6 +377,38 @@ def _assessment(*, tenant_id: str | None = TENANT) -> SupplyChainAssessment:
         assessment_status="complete",
         evidence_id=new_id("evd"),
     )
+
+
+@pytest.mark.parametrize("kind", ["inmemory", "postgres"])
+async def test_component_read_keyset_is_exhaustive(kind: str) -> None:
+    async with _harness(kind) as harness:
+        stored = [
+            await harness.store.put_component(_component(purl=f"pkg:pypi/read-{index}@1.0.0"))
+            for index in range(5)
+        ]
+        expected = [
+            record.object_id
+            for record in sorted(stored, key=lambda item: (item.provenance_status, item.object_id))
+        ]
+
+        for limit in (1, 2, 3, 4, 5):
+            after: tuple[ProvenanceStatus, str] | None = None
+            seen: list[str] = []
+            while True:
+                store_page, after = await harness.store.query_components_for_read(
+                    tenant_id=TENANT,
+                    after=after,
+                    limit=limit,
+                )
+                seen.extend(record.object_id for record in store_page)
+                if after is None:
+                    break
+            assert seen == expected
+            assert len(seen) == len(set(seen))
+
+        read_service = SupplyChainReadService(harness.store, tenant_mode="enterprise")
+        read_page = await read_service.list_components(tenant_id=TENANT, limit=5, cursor=None)
+        assert all(item.explain is None for item in read_page.items)
 
 
 async def _set_reliability(

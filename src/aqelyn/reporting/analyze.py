@@ -4,22 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.conventions.errors import AQError
 from aqelyn.events import Subject
-from aqelyn.evidence import InMemoryEvidenceStore
 from aqelyn.evidence.models import EvidenceRecord
 from aqelyn.findings import Finding
-from aqelyn.findings.memory import InMemoryFindingStore
+from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime
 from aqelyn.threat.parse import KevExploitationProvider, parse_kev
-from aqelyn.vuln import VulnerabilityIntelligenceEngine
-from aqelyn.vuln.memory import InMemoryVulnerabilityStore
 from aqelyn.vuln.models import VulnerabilityRecord, VulnPriority
 from aqelyn.vuln.parse import RejectedMatch, parse_grype
 
@@ -32,6 +29,34 @@ _SCANNER_CONFIDENCE = 0.9
 
 class ReportInputError(RuntimeError):
     """A handed-in collection cannot be represented honestly."""
+
+
+class _VulnerabilityPublisher(Protocol):
+    async def ingest(
+        self,
+        *,
+        records: Sequence[VulnerabilityRecord],
+        tenant_id: str | None,
+    ) -> list[VulnerabilityRecord]: ...
+
+    async def prioritize(
+        self,
+        vulnerability_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> VulnPriority: ...
+
+    async def raise_vulnerability(self, priority: VulnPriority, *, by: ActorRef) -> Finding: ...
+
+
+class _FindingReader(Protocol):
+    async def query(
+        self,
+        *,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> tuple[list[Finding], str | None]: ...
 
 
 @dataclass(frozen=True)
@@ -149,7 +174,9 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
     except AQError as exc:
         raise ReportInputError(f"collection document was refused: {exc}") from exc
 
-    evidence_store = InMemoryEvidenceStore(mode="local")
+    runtime = create_inmemory_runtime(AQELYNConfig(tenant_mode="local"))
+    _apply_reporting_vulnerability_profile(runtime, threat_provider=threat_provider)
+    evidence_store = runtime.evidence_store
     subject_id = new_id("obj")
     vulnerability_source = next(
         source for source in sources if source.name == _VULNERABILITY_DOCUMENT
@@ -189,31 +216,38 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
         for record in parsed.records
     ]
 
-    vulnerability_store = InMemoryVulnerabilityStore(mode="local")
-    finding_store = InMemoryFindingStore(
-        mode="local",
-        evidence_exists=evidence_store.exists,
+    vulnerability_service = cast(
+        _VulnerabilityPublisher,
+        runtime.kernel.get_service("vuln_engine"),
     )
-    engine = VulnerabilityIntelligenceEngine(
-        vulnerability_store,
-        threat_provider=threat_provider,
-        finding_store=finding_store,
+    finding_reader = cast(
+        _FindingReader,
+        runtime.kernel.get_service("finding_read"),
     )
-    stored = await engine.ingest(records=evidenced_records, tenant_id=None)
+    stored = await vulnerability_service.ingest(records=evidenced_records, tenant_id=None)
     unique_records = {record.id: record for record in stored}
 
     by = ActorRef(actor_type="system", actor_id="aqelyn-report")
-    findings: list[ReportFinding] = []
+    generated: dict[str, tuple[VulnPriority, VulnerabilityRecord]] = {}
     for vulnerability in unique_records.values():
-        priority = await engine.prioritize(vulnerability.id, tenant_id=None)
-        finding = await engine.raise_vulnerability(priority, by=by)
-        findings.append(
-            ReportFinding(
-                finding=finding,
-                priority=priority,
-                vulnerability=vulnerability,
-            )
+        priority = await vulnerability_service.prioritize(vulnerability.id, tenant_id=None)
+        finding = await vulnerability_service.raise_vulnerability(priority, by=by)
+        generated[finding.id] = priority, vulnerability
+
+    read_findings = await _read_all_findings(
+        finding_reader,
+        expected_count=len(generated),
+    )
+    if set(generated) != {finding.id for finding in read_findings}:
+        raise ReportInputError("registered finding read did not return the findings just published")
+    findings = [
+        ReportFinding(
+            finding=finding,
+            priority=generated[finding.id][0],
+            vulnerability=generated[finding.id][1],
         )
+        for finding in read_findings
+    ]
     findings.sort(
         key=lambda item: (
             not item.has_known_exploitation,
@@ -235,6 +269,37 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
         rejected_matches=parsed.rejected,
         findings=tuple(findings),
     )
+
+
+def _apply_reporting_vulnerability_profile(
+    runtime: Runtime,
+    *,
+    threat_provider: KevExploitationProvider | None,
+) -> None:
+    """Preserve P-001's provider semantics while moving ownership into Runtime."""
+
+    engine = runtime.vuln_engine
+    engine.threat_provider = threat_provider
+    engine.exposure_provider = None
+    engine.mission_provider = None
+    engine.baseline_provider = None
+    engine.coverage_provider = None
+    engine.trend_provider = None
+
+
+async def _read_all_findings(
+    reader: _FindingReader,
+    *,
+    expected_count: int,
+) -> list[Finding]:
+    findings, next_cursor = await reader.query(
+        tenant_id=None,
+        limit=max(expected_count, 1),
+        cursor=None,
+    )
+    if next_cursor is not None or len(findings) != expected_count:
+        raise ReportInputError("registered finding read did not return the generated cardinality")
+    return findings
 
 
 def _read_json_object(path: Path, *, label: str) -> tuple[dict[str, Any], str]:

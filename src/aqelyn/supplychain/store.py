@@ -26,6 +26,13 @@ class SBOMStore(Protocol):
         tenant_id: str | None,
     ) -> SoftwareComponent | None: ...
 
+    async def get_component_by_object_id(
+        self,
+        object_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> SoftwareComponent | None: ...
+
     async def put_assessment(self, assessment: SupplyChainAssessment) -> SupplyChainAssessment: ...
 
     async def get_assessment(
@@ -44,6 +51,14 @@ class SBOMStore(Protocol):
         cursor: str | None = None,
     ) -> tuple[list[SoftwareComponent], str | None]: ...
 
+    async def query_components_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[ProvenanceStatus, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[SoftwareComponent], tuple[ProvenanceStatus, str] | None]: ...
+
     async def quarantine(self, item: QuarantinedSBOM) -> QuarantinedSBOM: ...
 
     async def get_quarantine(
@@ -58,6 +73,10 @@ def validate_component(component: SoftwareComponent) -> SoftwareComponent:
     stored = SoftwareComponent.model_validate(component.model_dump(mode="json"))
     require_typed_id(stored.object_id, "obj", field="object_id")
     return stored
+
+
+def validate_component_object_id(value: str) -> str:
+    return require_typed_id(value, "obj", field="component object_id")
 
 
 def validate_component_identity(value: ComponentIdentity | str) -> ComponentIdentity:
@@ -114,6 +133,17 @@ def validate_query_cursor(value: str | None) -> str | None:
     if value is None:
         return None
     return require_typed_id(value, "obj", field="cursor")
+
+
+def validate_component_read_cursor(
+    value: tuple[str, str] | None,
+) -> tuple[ProvenanceStatus, str] | None:
+    if value is None:
+        return None
+    provenance, object_id = value
+    selected_provenance = validate_provenance_filter(provenance)
+    assert selected_provenance is not None
+    return selected_provenance, require_typed_id(object_id, "obj", field="component cursor id")
 
 
 def validate_assessment_id(value: str) -> str:

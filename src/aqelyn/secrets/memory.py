@@ -20,6 +20,7 @@ from aqelyn.secrets.store import (
     validate_assessment_id,
     validate_asset,
     validate_asset_id,
+    validate_asset_read_cursor,
     validate_fingerprint,
     validate_kind,
     validate_query,
@@ -109,6 +110,32 @@ class InMemoryCryptoStore:
         page = rows[: selected.limit]
         next_cursor = page[-1].id if len(rows) > selected.limit else None
         return [item.model_copy(deep=True) for item in page], next_cursor
+
+    async def query_assets_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[CryptoAssetKind, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[CryptoAsset], tuple[CryptoAssetKind, str] | None]:
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        selected_after = validate_asset_read_cursor(after)
+        selected_limit = CryptoQuery(tenant_id=selected_tenant, limit=limit).limit
+        rows = sorted(
+            (
+                history[-1]
+                for history in self._asset_history.values()
+                if self._visible(history[-1].tenant_id, selected_tenant)
+                and (
+                    selected_after is None
+                    or (asset_kind(history[-1]), history[-1].id) > selected_after
+                )
+            ),
+            key=lambda item: (asset_kind(item), item.id),
+        )
+        page = rows[:selected_limit]
+        next_key = (asset_kind(page[-1]), page[-1].id) if len(rows) > selected_limit else None
+        return [item.model_copy(deep=True) for item in page], next_key
 
     async def put_assessment(self, assessment: CryptoAssessment) -> CryptoAssessment:
         stored = validate_assessment(assessment)

@@ -31,9 +31,19 @@ READ_ROUTES: tuple[str, ...] = (
     "/api/v1/inventory",
     "/api/v1/findings",
     "/api/v1/vulnerabilities",
+    "/api/v1/ispm",
+    "/api/v1/exposure",
+    "/api/v1/secrets",
+    "/api/v1/supplychain",
     "/assets/app.css",
     "/assets/app.js",
 )
+DETAIL_ROUTES: Mapping[str, str] = {
+    "/api/v1/ispm/": "ispm",
+    "/api/v1/exposure/": "exposure",
+    "/api/v1/secrets/": "crypto-assets",
+    "/api/v1/supplychain/": "supplychain",
+}
 READ_METHODS = frozenset(("GET", "HEAD"))
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
@@ -56,6 +66,90 @@ class _FindingReader(Protocol):
         limit: int,
         cursor: str | None,
     ) -> tuple[list[Finding], str | None]: ...
+
+
+class _SerializableRecord(Protocol):
+    def model_dump(self, *, mode: str) -> dict[str, Any]: ...
+
+
+class _DomainReadItem(Protocol):
+    record: _SerializableRecord
+    explain: dict[str, Any] | None
+
+
+class _DomainReadPage(Protocol):
+    items: Sequence[_DomainReadItem]
+    next_cursor: str | None
+    degraded: bool
+    degradation_reasons: Sequence[str]
+
+
+class _ISPMReader(Protocol):
+    async def list_postures(
+        self,
+        *,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> _DomainReadPage: ...
+
+    async def get_posture(
+        self,
+        score_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> _DomainReadItem | None: ...
+
+
+class _ExposureReader(Protocol):
+    async def list_exposures(
+        self,
+        *,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> _DomainReadPage: ...
+
+    async def get_exposure(
+        self,
+        exposure_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> _DomainReadItem | None: ...
+
+
+class _SecretsReader(Protocol):
+    async def list_assets(
+        self,
+        *,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> _DomainReadPage: ...
+
+    async def get_asset(
+        self,
+        asset_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> _DomainReadItem | None: ...
+
+
+class _SupplyChainReader(Protocol):
+    async def list_components(
+        self,
+        *,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> _DomainReadPage: ...
+
+    async def get_component(
+        self,
+        object_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> _DomainReadItem | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,7 +176,7 @@ class SurfaceApplication:
                     headers={"Allow": "GET, HEAD"},
                 )
             path, query = _target(target)
-            if path not in READ_ROUTES:
+            if not _route_allowed(path):
                 return _error(404, "route_not_found", "surface route not found")
 
             response = await self._dispatch(path, query)
@@ -155,6 +249,18 @@ class SurfaceApplication:
             return await self._findings(query)
         if path == "/api/v1/vulnerabilities":
             return await self._vulnerabilities(query)
+        if path == "/api/v1/ispm":
+            return await self._ispm(query)
+        if path == "/api/v1/exposure":
+            return await self._exposure(query)
+        if path == "/api/v1/secrets":
+            return await self._secrets(query)
+        if path == "/api/v1/supplychain":
+            return await self._supplychain(query)
+        detail = _detail_route(path)
+        if detail is not None:
+            domain, record_id = detail
+            return await self._domain_detail(query, domain=domain, record_id=record_id)
         raise SurfaceUnavailable("closed route table dispatched an unknown route")
 
     async def _inventory(self, query: Mapping[str, list[str]]) -> SurfaceResponse:
@@ -212,6 +318,83 @@ class SurfaceApplication:
         }
         return SurfaceResponse.json(200, payload)
 
+    async def _ispm(
+        self,
+        query: Mapping[str, list[str]],
+    ) -> SurfaceResponse:
+        tenant_id = self._tenant_id(query)
+        limit = _limit(query, allowed={"cursor", "limit", "tenant_id"})
+        cursor = _single(query, "cursor")
+        service = cast(_ISPMReader, self._kernel.get_service("ispm_read"))
+        page = await service.list_postures(
+            tenant_id=tenant_id,
+            limit=limit,
+            cursor=cursor,
+        )
+        return SurfaceResponse.json(200, _domain_page_payload(page, limit=limit))
+
+    async def _exposure(self, query: Mapping[str, list[str]]) -> SurfaceResponse:
+        tenant_id = self._tenant_id(query)
+        limit = _limit(query, allowed={"cursor", "limit", "tenant_id"})
+        service = cast(_ExposureReader, self._kernel.get_service("exposure_read"))
+        page = await service.list_exposures(
+            tenant_id=tenant_id,
+            limit=limit,
+            cursor=_single(query, "cursor"),
+        )
+        return SurfaceResponse.json(200, _domain_page_payload(page, limit=limit))
+
+    async def _secrets(self, query: Mapping[str, list[str]]) -> SurfaceResponse:
+        tenant_id = self._tenant_id(query)
+        limit = _limit(query, allowed={"cursor", "limit", "tenant_id"})
+        service = cast(_SecretsReader, self._kernel.get_service("secrets_read"))
+        page = await service.list_assets(
+            tenant_id=tenant_id,
+            limit=limit,
+            cursor=_single(query, "cursor"),
+        )
+        return SurfaceResponse.json(200, _domain_page_payload(page, limit=limit))
+
+    async def _supplychain(self, query: Mapping[str, list[str]]) -> SurfaceResponse:
+        tenant_id = self._tenant_id(query)
+        limit = _limit(query, allowed={"cursor", "limit", "tenant_id"})
+        service = cast(_SupplyChainReader, self._kernel.get_service("supplychain_read"))
+        page = await service.list_components(
+            tenant_id=tenant_id,
+            limit=limit,
+            cursor=_single(query, "cursor"),
+        )
+        return SurfaceResponse.json(200, _domain_page_payload(page, limit=limit))
+
+    async def _domain_detail(
+        self,
+        query: Mapping[str, list[str]],
+        *,
+        domain: str,
+        record_id: str,
+    ) -> SurfaceResponse:
+        _limit(query, allowed={"tenant_id"})
+        tenant_id = self._tenant_id(query)
+        item: _DomainReadItem | None
+        if domain == "ispm":
+            service = cast(_ISPMReader, self._kernel.get_service("ispm_read"))
+            item = await service.get_posture(record_id, tenant_id=tenant_id)
+        elif domain == "exposure":
+            exposure = cast(_ExposureReader, self._kernel.get_service("exposure_read"))
+            item = await exposure.get_exposure(record_id, tenant_id=tenant_id)
+        elif domain == "crypto-assets":
+            secret_reader = cast(_SecretsReader, self._kernel.get_service("secrets_read"))
+            item = await secret_reader.get_asset(record_id, tenant_id=tenant_id)
+        else:
+            supplychain = cast(
+                _SupplyChainReader,
+                self._kernel.get_service("supplychain_read"),
+            )
+            item = await supplychain.get_component(record_id, tenant_id=tenant_id)
+        if item is None:
+            return _error(404, "record_not_found", "domain record not found")
+        return SurfaceResponse.json(200, {"item": _domain_item_payload(item)})
+
     def _tenant_id(self, query: Mapping[str, list[str]]) -> str | None:
         raw = _single(query, "tenant_id")
         if self._config.tenant_mode == "enterprise":
@@ -244,6 +427,38 @@ def _target(target: str) -> tuple[str, Mapping[str, list[str]]]:
     except ValueError as exc:
         raise SurfaceRequestInvalid("request query is malformed") from exc
     return parsed.path, query
+
+
+def _route_allowed(path: str) -> bool:
+    return path in READ_ROUTES or _detail_route(path) is not None
+
+
+def _detail_route(path: str) -> tuple[str, str] | None:
+    for prefix, domain in DETAIL_ROUTES.items():
+        if path.startswith(prefix):
+            record_id = path.removeprefix(prefix)
+            if record_id and "/" not in record_id:
+                return domain, record_id
+    return None
+
+
+def _domain_item_payload(item: _DomainReadItem) -> dict[str, Any]:
+    return {
+        "record": item.record.model_dump(mode="json"),
+        "explain": item.explain,
+    }
+
+
+def _domain_page_payload(page: _DomainReadPage, *, limit: int) -> dict[str, Any]:
+    return {
+        "items": [_domain_item_payload(item) for item in page.items],
+        "limit": limit,
+        "next_cursor": page.next_cursor,
+        "returned": len(page.items),
+        "total": None,
+        "degraded": page.degraded,
+        "degradation_reasons": list(page.degradation_reasons),
+    }
 
 
 def _single(query: Mapping[str, list[str]], name: str) -> str | None:

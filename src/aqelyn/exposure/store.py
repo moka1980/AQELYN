@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from aqelyn.conventions import require_tenant_id, require_typed_id
@@ -24,6 +25,14 @@ class ExposureStore(Protocol):
         flagged: bool | None = None,
         limit: int = 100,
     ) -> list[ExposureRecord]: ...
+
+    async def query_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[datetime, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[ExposureRecord], tuple[datetime, str] | None]: ...
 
 
 def validate_exposure_id(value: str, *, field: str = "exposure_id") -> str:
@@ -59,6 +68,17 @@ def validate_flagged_filter(value: bool | None) -> bool | None:
 
 
 def validate_query_limit(value: int) -> int:
-    if isinstance(value, bool) or value < 1:
-        raise ExposureConfigInvalid("limit must be >= 1")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1 or value > 10_000:
+        raise ExposureConfigInvalid("limit must be in [1,10000]")
     return value
+
+
+def validate_read_cursor(
+    value: tuple[datetime, str] | None,
+) -> tuple[datetime, str] | None:
+    if value is None:
+        return None
+    discovered_at, exposure_id = value
+    if discovered_at.tzinfo is None or discovered_at.utcoffset() is None:
+        raise ExposureConfigInvalid("exposure cursor discovered_at must include a UTC offset")
+    return discovered_at, validate_exposure_id(exposure_id, field="cursor exposure_id")
