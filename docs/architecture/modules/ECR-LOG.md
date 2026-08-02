@@ -91,6 +91,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0084 | EA-0013 / `findings` | Accepted (shape 1; owner, 2026-07-30) | **`current_severity_score` is maintained and never read.** Shape 1 selected: P-001 annotates current severity beside the existing first-seen priority headline without changing ordering; dormant until persistence. |
 | ECR-0085 | GC-004 (cross-cutting) | Accepted (GC-004) | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
 | ECR-0086 | EA-0052–0063 batch | Accepted (owner decisions recorded; absence guards shipped) | Archive **not** exhausted — 12 unassessed. 3 conformant, 3 gaps, 6 non-capability. EA-0054 remains an open gap, not scheduled; EA-0052-FR-004 is not authorized. |
+| ECR-0087 | EA-0058 + EA-0060 + EA-0061 | Accepted (record-only read complete) | **Third generator template, not standards.** The 703-line shape contains no topic-specific normative requirements; the ECR-0086 conformance-read debt is discharged. |
 
 ---
 
@@ -6379,12 +6380,13 @@ has since realised elsewhere.
 
 **C - non-capability (6).** EA-0058 ... EA-0063.
 
-> **"Non-capability" must not collapse into "ignore."** EA-0058, EA-0060 and EA-0061 are
-> **normative standards documents** - 703 lines of real content, not the 485-line stub shape.
-> They plausibly contain coding and AI-engineering standards **this platform is supposed to
-> conform to**. Classified non-capability **for build purposes**, and recorded as **owing a
-> separate standards-conformance read.** One word must not close three documents nobody has
-> opened.
+> **Original acceptance premise:** EA-0058, EA-0060 and EA-0061 were treated as *"normative
+> standards documents"* because 703 lines appeared to be real content rather than the 485-line
+> stub shape. They were recorded as owing a separate standards-conformance read.
+>
+> ⚠️ **Superseded by ECR-0087:** the read was performed and found a third generator template,
+> not standards. The line count measured the generator rather than normative content. The debt is
+> discharged; these remain non-capabilities with no build or conformance work attached.
 
 ### 3. The correction that changes the decision: **B is not one group**
 
@@ -6486,3 +6488,72 @@ The three Disposition-B absences are now guarded in `tests/conformance/` by exac
 raw vocabulary and token-normalised identifier discovery. Each branch has a unique witness for
 each capability. The guarantee remains deliberately bounded: conventional vocabulary and exact
 declarations are detected; determined novel vocabulary can evade the net.
+
+## ECR-0087 - EA-0058 / EA-0060 / EA-0061 are a third generator template, not standards
+
+**Raised by:** claude.ai, 2026-08-02; mechanically re-verified by Codex against
+`main @fffbdb7`.
+**Status:** Accepted - record-only read complete; no implementation required.
+**Number:** verified free at `fffbdb7`; rule 20 re-derived against the archive through EA-0063.
+
+### 1. Finding
+
+The standards-conformance read owed by ECR-0086 is complete. **EA-0058, EA-0060 and EA-0061
+contain no topic-specific normative standards.** They are a third generator-template family:
+
+- each master is **703 lines** with twenty topic headings on a **31-line stride**;
+- all **300** requirement lines match one structural sentence, with only the section title and
+  generated identifier changing;
+- all **60** Implementation Rules blocks are byte-identical;
+- all **240** acceptance lines normalize to one template;
+- none of the three masters declares an IS number.
+
+The approximately 29 document-specific lines per master are an executive-summary sentence, eight
+scope bullets and twenty section titles. The Engineering Review approves file structure and PDF
+generation, not normative content.
+
+### 2. Correction to ECR-0086
+
+ECR-0086 correctly refused to collapse *non-capability* into *ignore* and correctly required the
+read. Its premise that 703 lines plausibly meant real standards was wrong. **The line count measured
+the generator, not the content.** This is the same proxy failure as a census reading as coverage or
+a fixed bound reading as a live measurement.
+
+The three rows are therefore reclassified as:
+
+> **Non-capability - no topic-specific normative content; generator template class 3 (703-line
+> shape). Read performed and closed.**
+
+EA-0059, EA-0062 and EA-0063 keep their ECR-0086 classification. Nothing here reopens them.
+
+### 3. Five shared principles, all already owned
+
+Only one five-sentence Implementation Rules block carries normative meaning, repeated twenty times
+in each master. Each sentence maps to an existing shipped rule or convention:
+
+| Archive sentence | Existing owner |
+|---|---|
+| Deterministic, reviewable and testable code/configuration | `CONVENTIONS.spec.md` §3 owns deterministic serialization; `START_HERE.md` §7 requires unit, integration and security tests plus updated documentation and traceability; ADR changes require review. |
+| Validate external inputs before processing | `CONVENTIONS.spec.md` §§1 and 5 require identifier and tenant-scope validation; handed-in models use typed Pydantic validation with forbidden extra fields. |
+| Outputs understandable by non-experts and expandable for experts | `START_HERE.md` §§2 and 6 and the Finding model require plain-language explanation with expert-depth evidence and derivation. |
+| Security decisions include evidence references and audit metadata | The Finding model D2/D4 requires evidence and audited lifecycle changes; `Consistency_and_Traceability.md` records append-only audit and evidence chains. |
+| Deviations require an ADR and engineering review | `docs/architecture/decisions/README.md` makes ADRs authoritative and requires reviewed, superseding records rather than silent divergence. |
+
+No new rule is imported from the archive. The five sentences restate owners already in force.
+
+### 4. Template-class-3 signature
+
+The signature is **703 lines, twenty sections at a 31-line stride, five generated requirements per
+section using one sentence, one repeated five-bullet rules block, and four generated acceptance
+lines per section.** A future archive document matching this signature is a template candidate,
+not evidence of standards by volume.
+
+EA-0058's topic headings may be a useful outline if the project later chooses to author a real
+standards document. That would be a new deliverable under change control; the archive supplies a
+table of contents, not the book.
+
+### 5. Resolution
+
+The ECR-0086 standards-read debt is **discharged**. No runtime, guard, module spec, schedule or owner
+decision follows from this read. Absence guards are for capabilities that could be built; these
+documents define none.
