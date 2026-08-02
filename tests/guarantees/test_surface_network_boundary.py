@@ -51,6 +51,16 @@ def test_surface_network_guard_branch_roster_pinned() -> None:
             "async def run(loop):\n    await loop.create_server(None, '127.0.0.1', 1)\n",
             "listeners_outside_surface",
         ),
+        (
+            "listener",
+            "from asyncio import start_unix_server\n",
+            "listeners_outside_surface",
+        ),
+        (
+            "listener",
+            "async def run(loop):\n    await loop.create_unix_server(None, '/tmp/aqelyn')\n",
+            "listeners_outside_surface",
+        ),
         ("literal", 'transport = "requests"\n', "network_literals"),
         ("literal", 'transport = "socketserver"\n', "network_literals"),
     ],

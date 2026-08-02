@@ -318,3 +318,54 @@ async def test_surface_html_is_local_and_dependency_free() -> None:
     assert "/assets/app.css" in html
     assert "/assets/app.js" in html
     assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+
+
+async def test_surface_serves_javascript_without_multiline_quote_strings() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app()
+
+    response = await app.handle("GET", "/assets/app.js")
+    script = response.body.decode("utf-8")
+    unmatched_lines = [
+        line_number
+        for line_number, line in enumerate(script.splitlines(), start=1)
+        if _unescaped_double_quote_count(line) % 2
+    ]
+
+    assert response.status == 200
+    assert unmatched_lines == []
+    assert '.join("\\n")' in script
+
+
+def test_surface_javascript_quote_guard_rejects_a_consumed_newline_escape() -> None:
+    broken = 'const summary = parts.join("\n");'
+
+    unmatched_lines = [
+        line_number
+        for line_number, line in enumerate(broken.splitlines(), start=1)
+        if _unescaped_double_quote_count(line) % 2
+    ]
+
+    assert unmatched_lines == [1, 2]
+
+
+async def test_surface_hidden_state_overrides_component_display_rules() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app()
+
+    response = await app.handle("GET", "/assets/app.css")
+    css = response.body.decode("utf-8")
+
+    assert response.status == 200
+    assert "[hidden] { display: none !important; }" in css
+
+
+def _unescaped_double_quote_count(line: str) -> int:
+    count = 0
+    escaped = False
+    for character in line:
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == '"':
+            count += 1
+    return count

@@ -71,6 +71,7 @@ APP_CSS = """
   letter-spacing: 0;
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body { margin: 0; min-width: 320px; background: #f4f6f3; }
 button, input { font: inherit; letter-spacing: 0; }
 button { cursor: pointer; }
@@ -126,7 +127,7 @@ td { font-size: 14px; }
 }
 """
 
-APP_JS = """
+APP_JS = r"""
 "use strict";
 
 const state = { view: "health", meta: null, cursor: null, history: [], page: 1 };
