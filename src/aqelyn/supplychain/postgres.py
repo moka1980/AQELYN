@@ -26,6 +26,8 @@ from aqelyn.supplychain.store import (
     validate_assessment_id,
     validate_component,
     validate_component_identity,
+    validate_component_object_id,
+    validate_component_read_cursor,
     validate_doc_id,
     validate_provenance_filter,
     validate_quarantine,
@@ -150,6 +152,25 @@ class PostgresSBOMStore:
             )
         return None if row is None else _row_to_component(row)
 
+    async def get_component_by_object_id(
+        self,
+        object_id: str,
+        *,
+        tenant_id: str | None,
+    ) -> SoftwareComponent | None:
+        selected_id = validate_component_object_id(object_id)
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        args: list[Any] = [selected_id]
+        clauses = ["object_id=$1"]
+        _add_tenant_clause(clauses, args, mode=self.mode, tenant_id=selected_tenant)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"SELECT {_COMPONENT_COLUMNS} FROM aq_supplychain_component "
+                f"WHERE {' AND '.join(clauses)}",
+                *args,
+            )
+        return None if row is None else _row_to_component(row)
+
     async def put_assessment(self, assessment: SupplyChainAssessment) -> SupplyChainAssessment:
         stored = validate_assessment(assessment)
         validate_write_tenant(stored.tenant_id, mode=self.mode)
@@ -227,6 +248,41 @@ class PostgresSBOMStore:
         page = rows[:selected_limit]
         next_cursor = str(page[-1]["object_id"]) if has_more else None
         return [_row_to_component(row) for row in page], next_cursor
+
+    async def query_components_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[ProvenanceStatus, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[SoftwareComponent], tuple[ProvenanceStatus, str] | None]:
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        selected_after = validate_component_read_cursor(after)
+        selected_limit = validate_query_limit(limit)
+        args: list[Any] = []
+        clauses: list[str] = []
+        _add_tenant_clause(clauses, args, mode=self.mode, tenant_id=selected_tenant)
+        if selected_after is not None:
+            args.extend(selected_after)
+            clauses.append(f"(provenance_status, object_id) > (${len(args) - 1}, ${len(args)})")
+        args.append(selected_limit + 1)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        async with self._pool.acquire() as conn:
+            rows = list(
+                await conn.fetch(
+                    f"SELECT {_COMPONENT_COLUMNS} FROM aq_supplychain_component "
+                    f"{where}ORDER BY provenance_status, object_id LIMIT ${len(args)}",
+                    *args,
+                )
+            )
+        has_more = len(rows) > selected_limit
+        page = rows[:selected_limit]
+        next_key: tuple[ProvenanceStatus, str] | None = None
+        if has_more:
+            provenance = validate_provenance_filter(str(page[-1]["provenance_status"]))
+            assert provenance is not None
+            next_key = provenance, str(page[-1]["object_id"])
+        return [_row_to_component(row) for row in page], next_key
 
     async def quarantine(self, item: QuarantinedSBOM) -> QuarantinedSBOM:
         stored = validate_quarantine(item)

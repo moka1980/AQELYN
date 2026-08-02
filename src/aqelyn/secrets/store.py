@@ -45,6 +45,14 @@ class CryptoStore(Protocol):
         query: CryptoQuery,
     ) -> tuple[list[CryptoAsset], str | None]: ...
 
+    async def query_assets_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[CryptoAssetKind, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[CryptoAsset], tuple[CryptoAssetKind, str] | None]: ...
+
     async def put_assessment(self, assessment: CryptoAssessment) -> CryptoAssessment: ...
 
     async def get_assessment(
@@ -151,3 +159,12 @@ def validate_query(query: CryptoQuery, *, mode: str) -> CryptoQuery:
     if selected.cursor is not None:
         validate_asset_id(selected.cursor, field="cursor")
     return selected
+
+
+def validate_asset_read_cursor(
+    value: tuple[str, str] | None,
+) -> tuple[CryptoAssetKind, str] | None:
+    if value is None:
+        return None
+    kind, asset_id = value
+    return validate_kind(kind), validate_asset_id(asset_id, field="asset cursor id")

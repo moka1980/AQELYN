@@ -9,6 +9,7 @@ import pytest
 
 from aqelyn.kernel import AQELYNConfig
 from aqelyn.surface import LOOPBACK_HOST, READ_ROUTES
+from aqelyn.surface.app import DETAIL_ROUTES
 from guarantees.surface_network_guard import discover_network_boundary
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -96,8 +97,9 @@ def test_surface_listener_is_loopback_without_a_configuration_knob() -> None:
 
 def test_surface_route_table_contains_no_write_command() -> None:
     forbidden = ("action", "approve", "decommission", "ingest", "propose", "write")
+    routes = (*READ_ROUTES, *DETAIL_ROUTES)
 
-    assert all(not any(word in route for word in forbidden) for route in READ_ROUTES)
+    assert all(not any(word in route for word in forbidden) for route in routes)
 
 
 def test_surface_imports_no_domain_engine_or_store() -> None:

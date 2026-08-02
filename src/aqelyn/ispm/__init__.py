@@ -45,6 +45,7 @@ from aqelyn.ispm.models import (
     PostureFactor,
 )
 from aqelyn.ispm.postgres import PostgresISPMStore
+from aqelyn.ispm.read import ISPMReadService
 from aqelyn.ispm.service import ISPMService, register_ispm_events
 from aqelyn.ispm.store import ISPMStore
 
@@ -65,6 +66,7 @@ __all__ = [
     "ISPMAssessment",
     "ISPMConfig",
     "ISPMEngine",
+    "ISPMReadService",
     "ISPMService",
     "ISPMStore",
     "IdentityAccessEdgeDescriptor",

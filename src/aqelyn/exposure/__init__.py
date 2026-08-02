@@ -39,6 +39,7 @@ from aqelyn.exposure.models import (
     refuse_active_reachability_collection,
 )
 from aqelyn.exposure.postgres import PostgresExposureStore
+from aqelyn.exposure.read import ExposureReadService
 from aqelyn.exposure.service import (
     EXPOSURE_EVENTS,
     ExposureManagementService,
@@ -68,6 +69,7 @@ __all__ = [
     "ExposureManagementService",
     "ExposureMissionProvider",
     "ExposurePathGraph",
+    "ExposureReadService",
     "ExposureRecord",
     "ExposureStatus",
     "ExposureStore",

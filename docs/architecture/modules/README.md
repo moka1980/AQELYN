@@ -108,6 +108,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | **P-001 — a way in and a way to see** | *(P track — product, new)* | *one command, one report; acceptance is a person — see ECR-0081* | [P-001](P-001_Task_Bundle.md) | Accepted |
 | **P-002 — annotate escalation** | *(P track)* | *ECR-0084 shape 1; one consumer, dormant until persistence* | [P-002](P-002_Task_Bundle.md) | Accepted |
 | **Surface v1 — local operator UI** | *(P track)* | *real kernel reads; loopback-only; no writes, auth, persistence or events* | [ECR-0088](ECR-LOG.md) | Accepted |
+| **Surface widening — first four owner read seams** | *(P track)* | *ISPM, exposure, secrets and supply chain; one runtime-backed reporting path* | [ECR-0089](ECR-0089_SURFACE_WIDENING.md) | Accepted |
 | **GC-004 — persisted-field consumers** | *(GC track)* | *census not clearance; dormancy declared, not computed — see ECR-0085* | [GC-004](GC-004_Task_Bundle.md) | Accepted |
 | **C-041 — ECR-0076 cross-cutting repair** | EA-0032/0013/0023/SOC | *absence is the fold's identity; enumerate the class, not the instances* | [C-041](C-041_Task_Bundle.md) | Accepted |
 | [IS-037 — conformant via EA-0023+0024+0025+0005](IS-037_Conformance_Analysis.md) | EA-0037 | *(no new module; no `Cyber*` namespace — see ECR-0059)* | [C-034](C-034_Task_Bundle.md) | Analysis |

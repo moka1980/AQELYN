@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
+
+import pytest
 
 from aqelyn.kernel import AQELYNConfig, HealthStatus, create_inmemory_runtime
 from aqelyn.surface.app import MAX_PAGE_SIZE, SURFACE_WORK_BUDGET, SurfaceApplication
@@ -79,6 +81,88 @@ class _Assessment:
     def __post_init__(self) -> None:
         if self.unavailable is None:
             object.__setattr__(self, "unavailable", [])
+
+
+@dataclass(frozen=True)
+class _DomainRecord:
+    id: str
+    label: str
+
+    def model_dump(self, *, mode: str) -> dict[str, Any]:
+        assert mode == "json"
+        return {"id": self.id, "label": self.label}
+
+
+@dataclass(frozen=True)
+class _DomainItem:
+    record: _DomainRecord
+    explain: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class _DomainPage:
+    items: tuple[_DomainItem, ...]
+    next_cursor: str | None
+    degraded: bool
+    degradation_reasons: tuple[str, ...]
+
+
+class _DomainReadService:
+    def __init__(self, name: str, *, explain: dict[str, Any] | None) -> None:
+        self._name = name
+        self._explain = explain
+        self.calls: list[tuple[str, str | None, int | None, str | None]] = []
+
+    async def list_postures(
+        self, *, tenant_id: str | None, limit: int, cursor: str | None
+    ) -> _DomainPage:
+        return self._page("list_postures", tenant_id, limit, cursor)
+
+    async def list_exposures(
+        self, *, tenant_id: str | None, limit: int, cursor: str | None
+    ) -> _DomainPage:
+        return self._page("list_exposures", tenant_id, limit, cursor)
+
+    async def list_assets(
+        self, *, tenant_id: str | None, limit: int, cursor: str | None
+    ) -> _DomainPage:
+        return self._page("list_assets", tenant_id, limit, cursor)
+
+    async def list_components(
+        self, *, tenant_id: str | None, limit: int, cursor: str | None
+    ) -> _DomainPage:
+        return self._page("list_components", tenant_id, limit, cursor)
+
+    async def get_posture(self, record_id: str, *, tenant_id: str | None) -> _DomainItem:
+        return self._detail("get_posture", record_id, tenant_id)
+
+    async def get_exposure(self, record_id: str, *, tenant_id: str | None) -> _DomainItem:
+        return self._detail("get_exposure", record_id, tenant_id)
+
+    async def get_asset(self, record_id: str, *, tenant_id: str | None) -> _DomainItem:
+        return self._detail("get_asset", record_id, tenant_id)
+
+    async def get_component(self, record_id: str, *, tenant_id: str | None) -> _DomainItem:
+        return self._detail("get_component", record_id, tenant_id)
+
+    def _page(
+        self,
+        method: str,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> _DomainPage:
+        self.calls.append((method, tenant_id, limit, cursor))
+        return _DomainPage(
+            items=(_DomainItem(_DomainRecord("record_one", "Visible record"), self._explain),),
+            next_cursor="owner-keyset-cursor",
+            degraded=True,
+            degradation_reasons=("owner read reports partial coverage",),
+        )
+
+    def _detail(self, method: str, record_id: str, tenant_id: str | None) -> _DomainItem:
+        self.calls.append((method, tenant_id, None, record_id))
+        return _DomainItem(_DomainRecord(record_id, "Visible detail"), self._explain)
 
 
 class _ReadService:
@@ -173,6 +257,28 @@ def _app(
     runtime.kernel._services["vuln_engine"] = vulnerability_service
     runtime.kernel._services["finding_read"] = finding_service
     return SurfaceApplication(runtime), inventory_service, finding_service, vulnerability_service
+
+
+def _domain_app(
+    *,
+    tenant_mode: str = "local",
+) -> tuple[SurfaceApplication, dict[str, _DomainReadService]]:
+    runtime = create_inmemory_runtime(AQELYNConfig(tenant_mode=tenant_mode))
+    services = {
+        "ispm_read": _DomainReadService(
+            "ispm_read",
+            explain={"statement": "Posture follows the recorded factors."},
+        ),
+        "exposure_read": _DomainReadService("exposure_read", explain=None),
+        "secrets_read": _DomainReadService(
+            "secrets_read",
+            explain={"lifecycle": {"rotation": {"status": "unknown"}}},
+        ),
+        "supplychain_read": _DomainReadService("supplychain_read", explain=None),
+    }
+    for name, service in services.items():
+        runtime.kernel._services[name] = cast(Any, service)
+    return SurfaceApplication(runtime), services
 
 
 async def test_surface_inventory_uses_real_kernel_service_and_local_scope() -> None:
@@ -292,6 +398,70 @@ async def test_surface_preserves_unknown_factor_reasons() -> None:
     assert payload["items"][0]["factors"]["mission"]["reason"] == (
         "no mission declaration supplied"
     )
+
+
+@pytest.mark.parametrize(
+    ("route", "service_name", "method_name", "has_explanation"),
+    [
+        ("ispm", "ispm_read", "list_postures", True),
+        ("exposure", "exposure_read", "list_exposures", False),
+        ("secrets", "secrets_read", "list_assets", True),
+        ("supplychain", "supplychain_read", "list_components", False),
+    ],
+)
+async def test_widened_routes_use_owner_reads_and_preserve_honesty_fields(
+    route: str,
+    service_name: str,
+    method_name: str,
+    has_explanation: bool,
+) -> None:
+    app, services = _domain_app()
+
+    response = await app.handle("GET", f"/api/v1/{route}?limit=17")
+    payload = _payload(response.body)
+
+    assert response.status == 200
+    assert services[service_name].calls == [(method_name, None, 17, None)]
+    assert (payload["items"][0]["explain"] is not None) is has_explanation
+    assert payload["degraded"] is True
+    assert payload["degradation_reasons"] == ["owner read reports partial coverage"]
+    assert payload["next_cursor"] == "owner-keyset-cursor"
+
+
+@pytest.mark.parametrize(
+    ("route", "service_name", "method_name"),
+    [
+        ("ispm", "ispm_read", "get_posture"),
+        ("exposure", "exposure_read", "get_exposure"),
+        ("secrets", "secrets_read", "get_asset"),
+        ("supplychain", "supplychain_read", "get_component"),
+    ],
+)
+async def test_widened_detail_routes_use_the_owner_detail_contract(
+    route: str,
+    service_name: str,
+    method_name: str,
+) -> None:
+    app, services = _domain_app()
+
+    response = await app.handle("GET", f"/api/v1/{route}/record_detail")
+    payload = _payload(response.body)
+
+    assert response.status == 200
+    assert payload["item"]["record"]["id"] == "record_detail"
+    assert services[service_name].calls == [(method_name, None, None, "record_detail")]
+
+
+async def test_widened_routes_apply_the_enterprise_tenant_rule_before_owner_read() -> None:
+    tenant_id = str(uuid4())
+    app, services = _domain_app(tenant_mode="enterprise")
+
+    missing = await app.handle("GET", "/api/v1/secrets")
+    selected = await app.handle("GET", f"/api/v1/secrets?tenant_id={tenant_id}")
+
+    assert missing.status == 400
+    assert selected.status == 200
+    assert services["secrets_read"].calls == [("list_assets", tenant_id, 50, None)]
 
 
 async def test_surface_route_table_is_closed_and_read_only() -> None:

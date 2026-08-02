@@ -27,6 +27,7 @@ from aqelyn.secrets.store import (
     validate_assessment_id,
     validate_asset,
     validate_asset_id,
+    validate_asset_read_cursor,
     validate_fingerprint,
     validate_kind,
     validate_query,
@@ -196,6 +197,46 @@ class PostgresCryptoStore:
         page = rows[: selected.limit]
         next_cursor = str(page[-1]["id"]) if has_more else None
         return [_row_to_asset(row["record"]) for row in page], next_cursor
+
+    async def query_assets_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[CryptoAssetKind, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[CryptoAsset], tuple[CryptoAssetKind, str] | None]:
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        selected_after = validate_asset_read_cursor(after)
+        selected_limit = CryptoQuery(tenant_id=selected_tenant, limit=limit).limit
+        args: list[Any] = []
+        clauses: list[str] = []
+        _add_tenant_clause(
+            clauses,
+            args,
+            mode=self.mode,
+            tenant_id=selected_tenant,
+            alias="latest",
+        )
+        if selected_after is not None:
+            args.extend(selected_after)
+            clauses.append(f"(latest.kind, latest.id) > (${len(args) - 1}, ${len(args)})")
+        args.append(selected_limit + 1)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        async with self._pool.acquire() as conn:
+            rows = list(
+                await conn.fetch(
+                    "WITH latest AS ("
+                    "SELECT DISTINCT ON (id) id, tenant_id, kind, record "
+                    "FROM aq_crypto_asset_revision ORDER BY id, revision DESC"
+                    ") SELECT kind, id, record FROM latest "
+                    f"{where}ORDER BY kind, id LIMIT ${len(args)}",
+                    *args,
+                )
+            )
+        has_more = len(rows) > selected_limit
+        page = rows[:selected_limit]
+        next_key = (validate_kind(str(page[-1]["kind"])), str(page[-1]["id"])) if has_more else None
+        return [_row_to_asset(row["record"]) for row in page], next_key
 
     async def put_assessment(self, assessment: CryptoAssessment) -> CryptoAssessment:
         stored = validate_assessment(assessment)

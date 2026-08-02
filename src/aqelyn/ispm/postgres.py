@@ -38,6 +38,7 @@ from aqelyn.ispm.store import (
     validate_provider,
     validate_score,
     validate_score_id,
+    validate_score_read_cursor,
     validate_tenant_scope,
     validate_write_tenant,
 )
@@ -272,6 +273,37 @@ class PostgresISPMStore:
                 *args,
             )
         return None if row is None else validate_score(_score_from_payload(row["record"]))
+
+    async def query_scores_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[str, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[IdentityPostureScore], tuple[str, str] | None]:
+        selected_tenant = validate_tenant_scope(tenant_id, mode=self.mode)
+        selected_after = validate_score_read_cursor(after)
+        selected_limit = validate_limit(limit)
+        args: list[Any] = []
+        clauses: list[str] = []
+        self._tenant_clauses(clauses, args, selected_tenant)
+        if selected_after is not None:
+            args.extend(selected_after)
+            clauses.append(f"(subject_ref, id) > (${len(args) - 1}, ${len(args)})")
+        args.append(selected_limit + 1)
+        where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
+        async with self._pool.acquire() as conn:
+            rows = list(
+                await conn.fetch(
+                    "SELECT subject_ref, id, record FROM aq_ispm_posture_score "
+                    f"{where}ORDER BY subject_ref, id LIMIT ${len(args)}",
+                    *args,
+                )
+            )
+        has_more = len(rows) > selected_limit
+        page = rows[:selected_limit]
+        next_key = (str(page[-1]["subject_ref"]), str(page[-1]["id"])) if has_more else None
+        return [validate_score(_score_from_payload(row["record"])) for row in page], next_key
 
     async def put_baseline(self, baseline: IdentityBaseline) -> IdentityBaseline:
         stored = validate_baseline(baseline)

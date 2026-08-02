@@ -31,6 +31,8 @@ ALTER TABLE aq_exposure_record
     ADD COLUMN IF NOT EXISTS mission_context jsonb NULL;
 CREATE INDEX IF NOT EXISTS ix_exposure_record_tenant_discovered
     ON aq_exposure_record (tenant_id, discovered_at DESC, id);
+CREATE INDEX IF NOT EXISTS ix_exposure_record_tenant_discovered_read
+    ON aq_exposure_record (tenant_id, discovered_at, id);
 CREATE INDEX IF NOT EXISTS ix_exposure_record_tenant_reachability
     ON aq_exposure_record (tenant_id, reachability, flagged, discovered_at DESC, id);
 """

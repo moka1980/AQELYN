@@ -32,6 +32,10 @@ _INDEX_HTML = """<!doctype html>
       <button class="tab" data-view="findings" type="button">Findings</button>
       <button class="tab" data-view="inventory" type="button">Inventory</button>
       <button class="tab" data-view="vulnerabilities" type="button">Vulnerabilities</button>
+      <button class="tab" data-view="ispm" type="button">Identity posture</button>
+      <button class="tab" data-view="exposure" type="button">Exposure</button>
+      <button class="tab" data-view="secrets" type="button">Secrets</button>
+      <button class="tab" data-view="supplychain" type="button">Supply chain</button>
     </nav>
     <section class="tenant-bar" id="tenant-bar" hidden>
       <label for="tenant-id">Tenant ID</label>
@@ -198,7 +202,64 @@ function unknownSummary(factors) {
     .join("\n");
 }
 
+function explainSummary(explain) {
+  if (explain == null) return "Explanation unavailable";
+  const preferred = ["statement", "reason", "confidence", "lifecycle", "conflicts"];
+  const parts = preferred
+    .filter((name) => Object.prototype.hasOwnProperty.call(explain, name))
+    .map((name) => {
+      const value = explain[name];
+      if (typeof value === "object") return `${name}: ${JSON.stringify(value)}`;
+      return `${name}: ${value}`;
+    });
+  return parts.length ? parts.join("\n") : "Owner derivation available";
+}
+
+function renderDomain(payload) {
+  const body = document.createDocumentFragment();
+  const headingSets = {
+    ispm: ["Subject", "Posture", "Confidence", "Derivation"],
+    exposure: ["Asset", "Reachability", "Score", "Derivation"],
+    secrets: ["Asset", "Kind", "Confidence", "Derivation"],
+    supplychain: ["Component", "Version", "Provenance", "Derivation"],
+  };
+  headings(headingSets[state.view]);
+  payload.items.forEach((item) => {
+    const record = item.record;
+    const row = document.createElement("tr");
+    if (state.view === "ispm") {
+      cell(row, record.subject_ref);
+      cell(row, Number(record.score).toFixed(1));
+      cell(row, Number(record.confidence).toFixed(2));
+    } else if (state.view === "exposure") {
+      cell(row, record.asset_ref?.ref_id || record.id);
+      badge(row, record.reachability);
+      cell(row, record.score == null ? "Unknown" : Number(record.score).toFixed(1));
+    } else if (state.view === "secrets") {
+      cell(row, record.id);
+      cell(row, item.explain?.asset_kind || record.classification || record.kind || "Unknown");
+      cell(row, Number(record.claim_confidence).toFixed(2));
+    } else {
+      cell(row, record.name);
+      cell(row, record.version);
+      badge(row, record.provenance_status);
+    }
+    cell(row, explainSummary(item.explain), "detail");
+    body.appendChild(row);
+  });
+  $("data-body").replaceChildren(body);
+  $("empty").hidden = payload.items.length !== 0;
+  $("view-status").textContent = `${payload.returned} returned`;
+  const reasons = (payload.degradation_reasons || []).join(" / ");
+  setNotice(reasons || (payload.degraded ? "This read is degraded and may be incomplete." : ""));
+  pager(payload.next_cursor);
+}
+
 function renderCollection(payload) {
+  if (["ispm", "exposure", "secrets", "supplychain"].includes(state.view)) {
+    renderDomain(payload);
+    return;
+  }
   const body = document.createDocumentFragment();
   if (state.view === "findings") {
     headings(["Finding", "Severity", "Status", "Why it matters"]);
@@ -268,7 +329,16 @@ async function load() {
     const params = new URLSearchParams(tenant);
     params.set("limit", "50");
     if (state.cursor) params.set("cursor", state.cursor);
-    const path = state.view === "findings" ? "/api/v1/findings" : state.view === "inventory" ? "/api/v1/inventory" : "/api/v1/vulnerabilities";
+    const paths = {
+      findings: "/api/v1/findings",
+      inventory: "/api/v1/inventory",
+      vulnerabilities: "/api/v1/vulnerabilities",
+      ispm: "/api/v1/ispm",
+      exposure: "/api/v1/exposure",
+      secrets: "/api/v1/secrets",
+      supplychain: "/api/v1/supplychain",
+    };
+    const path = paths[state.view];
     renderCollection(await request(`${path}?${params.toString()}`));
   } catch (error) {
     $("data-head").replaceChildren();
@@ -288,7 +358,17 @@ function selectView(view) {
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.view === view);
   });
-  $("view-title").textContent = view === "health" ? "Health" : view === "findings" ? "Findings" : view === "inventory" ? "Inventory" : "Vulnerabilities";
+  const titles = {
+    health: "Health",
+    findings: "Findings",
+    inventory: "Inventory",
+    vulnerabilities: "Vulnerabilities",
+    ispm: "Identity posture",
+    exposure: "Exposure",
+    secrets: "Secrets",
+    supplychain: "Supply chain",
+  };
+  $("view-title").textContent = titles[view];
   load();
 }
 

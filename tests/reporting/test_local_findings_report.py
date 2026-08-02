@@ -13,9 +13,87 @@ from typing import Any
 import pytest
 
 from aqelyn.findings.memory import InMemoryFindingStore
+from aqelyn.findings.service import FindingReadService
 from aqelyn.reporting.analyze import ReportFinding, ReportInputError, analyze_collection
 from aqelyn.reporting.cli import main
 from aqelyn.reporting.html import render_findings_report
+from aqelyn.vuln.service import VulnerabilityIntelligenceService
+
+_PRE_ECR0089_SEMANTIC_GOLDEN: dict[str, Any] = {
+    "scanner_matches": 3,
+    "represented_records": 2,
+    "rejected": 1,
+    "unknown_factor_count": 9,
+    "findings": [
+        {
+            "cve": "CVE-2026-1000",
+            "asset": "pkg:pypi/web@1",
+            "score": 63.35,
+            "priority": "medium",
+            "severity": "medium",
+            "unknowns": [
+                (
+                    "baseline",
+                    "provider_unconfigured",
+                    "EA-0012 blocking factor 0.000 reduces priority; "
+                    "No EA-0012 blocking provider supplied.",
+                ),
+                (
+                    "exposure",
+                    "provider_unconfigured",
+                    "No EA-0023 exposure provider supplied.",
+                ),
+                (
+                    "mission",
+                    "provider_unconfigured",
+                    "No EA-0007 mission provider supplied.",
+                ),
+            ],
+        },
+        {
+            "cve": "CVE-2026-2000",
+            "asset": "pkg:pypi/worker@2",
+            "score": 28.25,
+            "priority": "low",
+            "severity": "low",
+            "unknowns": [
+                (
+                    "baseline",
+                    "provider_unconfigured",
+                    "EA-0012 blocking factor 0.000 reduces priority; "
+                    "No EA-0012 blocking provider supplied.",
+                ),
+                (
+                    "cvss",
+                    "input_missing",
+                    "No CVSS was supplied by the source; severity is undetermined, not zero.",
+                ),
+                (
+                    "epss",
+                    "input_missing",
+                    "No EPSS carried score was supplied by the source.",
+                ),
+                (
+                    "exposure",
+                    "provider_unconfigured",
+                    "No EA-0023 exposure provider supplied.",
+                ),
+                (
+                    "mission",
+                    "provider_unconfigured",
+                    "No EA-0007 mission provider supplied.",
+                ),
+                (
+                    "threat",
+                    "source_cannot_assert",
+                    "CISA KEV does not list this CVE. KEV is a positive-only catalog of "
+                    "known-exploited vulnerabilities, so absence is not evidence that the "
+                    "vulnerability is unexploited -- the source cannot assert for this record.",
+                ),
+            ],
+        },
+    ],
+}
 
 
 class _RenderedArithmeticParser(HTMLParser):
@@ -294,6 +372,85 @@ async def test_report_drives_real_owners_and_keeps_unknowns_beside_findings(
         assert sum(contributions[:-1], start=Decimal()) == rendered_known_points
         assert contributions[-1] == uncertainty_points
         assert sum(contributions, start=Decimal()) == total_points
+
+
+@pytest.mark.asyncio
+async def test_ecr0089_report_uses_registered_publish_and_read_services(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_collection(tmp_path)
+    calls = {"ingest": 0, "read": 0}
+    original_ingest = VulnerabilityIntelligenceService.ingest
+    original_query = FindingReadService.query
+
+    async def observed_ingest(
+        self: VulnerabilityIntelligenceService,
+        *,
+        records: list[Any],
+        tenant_id: str | None,
+    ) -> list[Any]:
+        calls["ingest"] += 1
+        return await original_ingest(self, records=records, tenant_id=tenant_id)
+
+    async def observed_query(
+        self: FindingReadService,
+        *,
+        tenant_id: str | None,
+        limit: int,
+        cursor: str | None,
+    ) -> tuple[list[Any], str | None]:
+        calls["read"] += 1
+        return await original_query(
+            self,
+            tenant_id=tenant_id,
+            limit=limit,
+            cursor=cursor,
+        )
+
+    monkeypatch.setattr(VulnerabilityIntelligenceService, "ingest", observed_ingest)
+    monkeypatch.setattr(FindingReadService, "query", observed_query)
+
+    analysis = await analyze_collection(tmp_path)
+
+    assert len(analysis.findings) == 2
+    assert calls == {"ingest": 1, "read": 1}
+
+
+@pytest.mark.asyncio
+async def test_ecr0089_runtime_path_matches_the_pre_unification_semantic_golden(
+    tmp_path: Path,
+) -> None:
+    _write_collection(tmp_path)
+
+    analysis = await analyze_collection(tmp_path)
+    semantic = {
+        "scanner_matches": analysis.scanner_matches,
+        "represented_records": analysis.represented_records,
+        "rejected": len(analysis.rejected_matches),
+        "unknown_factor_count": analysis.unknown_factor_count,
+        "findings": [
+            {
+                "cve": item.vulnerability.cve_id,
+                "asset": item.vulnerability.asset_ref.ref_id,
+                "score": item.priority.score,
+                "priority": item.priority.priority,
+                "severity": item.finding.severity,
+                "unknowns": sorted(
+                    (
+                        name,
+                        factor.get("unknown_cause"),
+                        factor.get("reason"),
+                    )
+                    for name, factor in item.priority.factors.items()
+                    if factor.get("status") == "unknown"
+                ),
+            }
+            for item in analysis.findings
+        ],
+    }
+
+    assert semantic == _PRE_ECR0089_SEMANTIC_GOLDEN
 
 
 @pytest.mark.asyncio

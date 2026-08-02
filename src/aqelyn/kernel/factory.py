@@ -88,7 +88,12 @@ if TYPE_CHECKING:
         KPIDefinitionStore,
         ReportStore,
     )
-    from aqelyn.exposure import ExposureManagementService, ExposureStore, KnownDataExposureEngine
+    from aqelyn.exposure import (
+        ExposureManagementService,
+        ExposureReadService,
+        ExposureStore,
+        KnownDataExposureEngine,
+    )
     from aqelyn.findings.service import FindingReadService
     from aqelyn.forecast.engine import ForecastingEngine
     from aqelyn.forecast.service import ForecastingService
@@ -108,6 +113,7 @@ if TYPE_CHECKING:
     from aqelyn.ispm import (
         IdentityKnownSurfaceSource,
         ISPMEngine,
+        ISPMReadService,
         ISPMService,
         ISPMStore,
     )
@@ -126,6 +132,7 @@ if TYPE_CHECKING:
         CryptoStore,
         SecretsIntelligenceEngine,
         SecretsIntelligenceService,
+        SecretsReadService,
     )
     from aqelyn.soc.engine import SecurityOperationsEngine
     from aqelyn.soc.service import SecurityOperationsService
@@ -136,7 +143,12 @@ if TYPE_CHECKING:
         SaaSPostureEngine,
         SaaSPostureService,
     )
-    from aqelyn.supplychain import SBOMStore, SupplyChainEngine, SupplyChainService
+    from aqelyn.supplychain import (
+        SBOMStore,
+        SupplyChainEngine,
+        SupplyChainReadService,
+        SupplyChainService,
+    )
     from aqelyn.threat.engine import ThreatFusionEngine
     from aqelyn.threat.registry import ThreatSourceRegistry
     from aqelyn.threat.service import ThreatFusionService
@@ -230,6 +242,7 @@ class Runtime:
     exposure_store: ExposureStore
     exposure_engine: KnownDataExposureEngine
     exposure_engine_service: ExposureManagementService
+    exposure_read_service: ExposureReadService
     vuln_store: VulnerabilityStore
     vuln_engine: VulnerabilityIntelligenceEngine
     vuln_engine_service: VulnerabilityIntelligenceService
@@ -242,12 +255,15 @@ class Runtime:
     supplychain_store: SBOMStore
     supplychain_engine: SupplyChainEngine
     supplychain_engine_service: SupplyChainService
+    supplychain_read_service: SupplyChainReadService
     secrets_store: CryptoStore
     secrets_engine: SecretsIntelligenceEngine
     secrets_engine_service: SecretsIntelligenceService
+    secrets_read_service: SecretsReadService
     ispm_store: ISPMStore
     ispm_engine: ISPMEngine
     ispm_engine_service: ISPMService
+    ispm_read_service: ISPMReadService
 
 
 class _RuntimeService:
@@ -548,6 +564,10 @@ def _register_runtime_services(
     SupplyChainService,
     SecretsIntelligenceService,
     ISPMService,
+    ExposureReadService,
+    SupplyChainReadService,
+    SecretsReadService,
+    ISPMReadService,
 ]:
     from aqelyn.assetconfig.service import AssetConfigGovernanceService
     from aqelyn.cspm.service import CloudPostureService
@@ -555,6 +575,7 @@ def _register_runtime_services(
     from aqelyn.detection.service import ThreatDetectionService
     from aqelyn.dspm.service import DSPMService
     from aqelyn.executive.service import ExecutiveIntelligenceService
+    from aqelyn.exposure.read import ExposureReadService
     from aqelyn.exposure.service import ExposureManagementService
     from aqelyn.findings.service import FindingReadService
     from aqelyn.forecast.service import ForecastingService
@@ -563,13 +584,16 @@ def _register_runtime_services(
     from aqelyn.iag.service import IdentityAccessGovernanceService
     from aqelyn.idthreat.service import IdentityThreatService
     from aqelyn.inventory.service import InventoryIntelligenceService
+    from aqelyn.ispm.read import ISPMReadService
     from aqelyn.ispm.service import ISPMService
     from aqelyn.lake.service import DataLakeService
     from aqelyn.response.service import ResponseOrchestrationService
     from aqelyn.risk.service import RiskIntelligenceService
+    from aqelyn.secrets.read import SecretsReadService
     from aqelyn.secrets.service import SecretsIntelligenceService
     from aqelyn.soc.service import SecurityOperationsService
     from aqelyn.sspm.service import SaaSPostureService
+    from aqelyn.supplychain.read import SupplyChainReadService
     from aqelyn.supplychain.service import SupplyChainService
     from aqelyn.threat.service import ThreatFusionService
     from aqelyn.vuln.service import VulnerabilityIntelligenceService
@@ -847,6 +871,28 @@ def _register_runtime_services(
         close_store=close_ispm_store,
     )
     kernel.register(ispm_service)
+    exposure_read_service = ExposureReadService(
+        exposure_store,
+        tenant_mode=kernel.config.tenant_mode,
+    )
+    kernel.register(exposure_read_service)
+    supplychain_read_service = SupplyChainReadService(
+        supplychain_store,
+        tenant_mode=kernel.config.tenant_mode,
+    )
+    kernel.register(supplychain_read_service)
+    secrets_read_service = SecretsReadService(
+        secrets_store,
+        secrets_engine,
+        tenant_mode=kernel.config.tenant_mode,
+    )
+    kernel.register(secrets_read_service)
+    ispm_read_service = ISPMReadService(
+        ispm_store,
+        ispm_engine,
+        tenant_mode=kernel.config.tenant_mode,
+    )
+    kernel.register(ispm_read_service)
     return (
         graph_service,
         trust_service,
@@ -877,6 +923,10 @@ def _register_runtime_services(
         supplychain_service,
         secrets_service,
         ispm_service,
+        exposure_read_service,
+        supplychain_read_service,
+        secrets_read_service,
+        ispm_read_service,
     )
 
 
@@ -1408,6 +1458,10 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         supplychain_engine_service,
         secrets_engine_service,
         ispm_engine_service,
+        exposure_read_service,
+        supplychain_read_service,
+        secrets_read_service,
+        ispm_read_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -1559,6 +1613,7 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,
+        exposure_read_service=exposure_read_service,
         vuln_store=vuln_store,
         vuln_engine=vuln_engine,
         vuln_engine_service=vuln_engine_service,
@@ -1571,12 +1626,15 @@ def create_inmemory_runtime(config: AQELYNConfig | None = None) -> Runtime:
         supplychain_store=supplychain_store,
         supplychain_engine=supplychain_engine,
         supplychain_engine_service=supplychain_engine_service,
+        supplychain_read_service=supplychain_read_service,
         secrets_store=secrets_store,
         secrets_engine=secrets_engine,
         secrets_engine_service=secrets_engine_service,
+        secrets_read_service=secrets_read_service,
         ispm_store=ispm_store,
         ispm_engine=ispm_engine,
         ispm_engine_service=ispm_engine_service,
+        ispm_read_service=ispm_read_service,
     )
 
 
@@ -2181,6 +2239,10 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         supplychain_engine_service,
         secrets_engine_service,
         ispm_engine_service,
+        exposure_read_service,
+        supplychain_read_service,
+        secrets_read_service,
+        ispm_read_service,
     ) = _register_runtime_services(
         kernel,
         object_store=object_store,
@@ -2365,6 +2427,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         exposure_store=exposure_store,
         exposure_engine=exposure_engine,
         exposure_engine_service=exposure_engine_service,
+        exposure_read_service=exposure_read_service,
         vuln_store=vuln_store,
         vuln_engine=vuln_engine,
         vuln_engine_service=vuln_engine_service,
@@ -2377,10 +2440,13 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         supplychain_store=supplychain_store,
         supplychain_engine=supplychain_engine,
         supplychain_engine_service=supplychain_engine_service,
+        supplychain_read_service=supplychain_read_service,
         secrets_store=secrets_store,
         secrets_engine=secrets_engine,
         secrets_engine_service=secrets_engine_service,
+        secrets_read_service=secrets_read_service,
         ispm_store=ispm_store,
         ispm_engine=ispm_engine,
         ispm_engine_service=ispm_engine_service,
+        ispm_read_service=ispm_read_service,
     )

@@ -55,6 +55,14 @@ class ISPMStore(Protocol):
         tenant_id: str | None,
     ) -> IdentityPostureScore | None: ...
 
+    async def query_scores_for_read(
+        self,
+        *,
+        tenant_id: str | None,
+        after: tuple[str, str] | None = None,
+        limit: int = 100,
+    ) -> tuple[list[IdentityPostureScore], tuple[str, str] | None]: ...
+
     async def put_baseline(self, baseline: IdentityBaseline) -> IdentityBaseline: ...
 
     async def get_baseline(
@@ -109,6 +117,17 @@ def validate_object_id(value: str, *, field: str = "object_id") -> str:
 
 def validate_score_id(value: str) -> str:
     return require_typed_id(value, "ips", field="score_id")
+
+
+def validate_score_read_cursor(
+    value: tuple[str, str] | None,
+) -> tuple[str, str] | None:
+    if value is None:
+        return None
+    subject_ref, score_id = value
+    return validate_object_id(subject_ref, field="score cursor subject_ref"), validate_score_id(
+        score_id
+    )
 
 
 def validate_baseline_id(value: str) -> str:
