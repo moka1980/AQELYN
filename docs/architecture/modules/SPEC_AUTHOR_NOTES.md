@@ -420,225 +420,200 @@ fresh per-run store cannot produce the re-emission state that makes the branch f
 shipped path can supply the state that reader consumes. If not, record the consumer as dormant
 rather than claiming the feature exists.
 
-## Part 2 - Current handover: the surface (proposed ECR-0088)
+## Part 2 - Current handover: widening the surface (proposed ECR-0089)
 
 **From:** Claude Code (reviewer; the only actor that reads shipped code)
 **To:** claude.ai (spec author)
 **Date:** 2026-08-02
-**Verified against:** `main @ce10936`, clean, no open PRs
+**Verified against:** `main @f601c69`, clean, no open PRs
 
-Every count, signature and grep below was run against shipped `src/` at that SHA. Nothing here is
-inferred from titles or line counts — that error is itself one of this brief's findings.
+Every count and signature below was produced by importing the shipped runtime and inspecting it at
+that SHA. Nothing is inferred from titles.
 
 ---
 
 ## 0. State
 
-- **`main @ce10936`**, clean, no open PRs. Nothing queued with Codex, claude.ai, or the owner.
-- **Shipped since the last brief:** PR #285 (ECR-0086 recorded), #286 (ECR-0086 **Accepted** — owner
-  decisions + three-branch absence guards), #287 (ECR-0087 — the standards read).
-- **Next free ECR: `0088`.** Read from `ECR-LOG.md` at `ce10936`; highest allocated is **ECR-0087**.
-  **Rule 1 discharged — re-check before merging.**
-- **Next free GC: `005`.** SPEC_AUTHOR_NOTES **rules 1–33** current.
-- **Owner decisions of record (ECR-0086):** EA-0054 **not built**; EA-0052-FR-004 resident agent
-  **not authorized**. Neither is reopened by this brief.
+- **`main @f601c69`**, clean, **no open PRs**, nothing queued with Codex or the owner.
+- **Shipped since the last brief:** PR #288 (this brief's predecessor), #289 (ECR-0088 — the
+  loopback operator surface), #290 (fixed a fatal `app.js` parse error and a broken `[hidden]` rule
+  that I had merged; **the owner confirmed the UI responds in a real browser**).
+- **Next free ECR: `0089`.** Highest allocated is **ECR-0088**. **Rule 1 discharged — re-check
+  before merging.**
+- **Next free GC: `005`.** Rules 1–33 current.
+- **Owner decisions unchanged:** EA-0054 not built; EA-0052-FR-004 resident agent not authorized;
+  non-loopback binding remains owner-gated.
 
 ---
 
-## 1. Why this ECR exists — **the archive does not contain the surface**
+## 1. What ECR-0088 actually shipped, and what it did not
 
-The owner asked whether the platform can soon be produced in a dashboard and tested. The answer
-required checking, and the checking is now complete: **no archive master specifies a product
-surface.** That is a finding, not an absence of effort.
+**Shipped:** a loopback-only, read-only surface — `python -m aqelyn surface --port 8765` — with
+`/`, `/health`, `/api/v1/meta`, `/api/v1/inventory`, `/api/v1/findings`, `/api/v1/vulnerabilities`,
+and two assets. Stdlib `asyncio` only; **no new dependency**. Verified live: binds `127.0.0.1`,
+rejects writes with 405, rejects bodies with 400, rejects `tenant_id` in local mode with 400.
 
-| candidate | verdict | how it was established |
+**Not shipped:** everything else. **The surface exposes 3 domain reads out of 30 registered
+services.** That is the gap this ECR addresses.
+
+---
+
+## 2. 🔴 The finding that governs this spec: **there is no uniform read seam**
+
+I inspected all 30 registered services. They split into **two incompatible shapes**, and a spec that
+assumes either one will be wrong for roughly half the platform.
+
+| shape | count | services |
 |---|---|---|
-| **EA-0059** AQELYN Design System | **generator-template class 3** — no design system | 703 lines; REQ **100 → 1** distinct after topic normalization; AC **80 → 1**; 20 "Implementation Rules" blocks → **1 SHA-256**. Its *"Dashboard components / Risk cards and findings"* are scope **bullets** at `EA-0059_Master.md:19-20`, inside ~29 unique lines |
-| **EA-0062** Engineering Portal & Mission Control | **real content, wrong subject** | singleton at 592 lines (no family); **425 of 455** non-blank lines distinct; only 3 repeat, one being `---` (29×); **all 29 section bodies distinct hashes** |
+| **Methods on the service** | **15** | `cspm_engine`, `detection_engine`, `dspm_engine`, `executive_engine`, `exposure_engine`, `finding_read`, `forensics_engine`, `idthreat_engine`, `inventory_engine`, `ispm_engine`, `policy_engine`, `secrets_engine`, `sspm_engine`, `supplychain_engine`, `vuln_engine` |
+| **Engine-only** — service exposes *nothing* public; the API is on a `.engine` (or `.graph`) attribute | **13** | `acg_engine`, `compliance_engine`, `decision_engine`, `forecast_engine`, `iag_engine`, `knowledge_graph`, `mission_engine`, `response_engine`, `risk_engine`, `soc_engine`, `threat_fusion_engine`, `trust_engine`, `workflow_engine` |
+| **Neither** (infrastructure / no read API) | **3** | `datalake_engine`, `event_bus`, `object_store` |
 
-**EA-0062 passes the content test and fails the usefulness test.** Its domain vocabulary:
-`finding 0 · risk 0 · threat 0 · tenant 0 · asset 1 · vulnerability 1`. Its 17 data-model entities
-are `EngineeringArchive`, `Requirement`, `TraceabilityLink`, `ImplementationTask`, `TestRun`,
-`BuildRun`, `PullRequest`, `ArchitectureDecisionRecord`, `ReleaseCandidate`…; its APIs are
-`/api/v1/archives`, `/api/v1/implementation/status`, `/api/v1/agents/codex/task`, `/api/v1/ci/status`.
-Mission Control's own worked example reads *"Architecture: 100% / Implementation: 0% / Current task:
-EA-0001 AQELYN Kernel."* **It is a project-management view of building AQELYN, not a view onto what
-AQELYN produces.** Its 13 "evidence" hits are build traceability (`:77`, `:81`, `:522`), not EA-0004
-security evidence.
+Concretely — `kernel.get_service("risk_engine")` returns a `RiskIntelligenceService` whose only
+public methods are `start`/`stop`/`health`. Its real API lives at `.engine`:
 
-🔴 **And EA-0062's two most surface-relevant sections delegate to documents ECR-0087 proved empty.**
-Six normative references: `:403` *"All APIs shall follow **EA-0058** naming, error handling, logging,
-authentication, and observability rules"* · `:430` *"UI must follow **EA-0059**"* · `:121` · `:122` ·
-`:266` · `:516` (*"shall integrate EA-0058 through EA-0061 standards"*). **EA-0058/0059/0060/0061 are
-all class-3 templates.** So even as a portal spec, its API-conventions and UI halves rest on nothing.
+```
+RiskIntelligenceEngine   -> assess, correlate, explain, score, treat, trend
+SecurityOperationsEngine -> assign, correlate, explain, hunt, investigate, propose_response, transition
+ThreatFusionEngine       -> correlate, explain, ingest, matches_to_findings, score_confidence
+```
 
-> **Consequence for this ECR: the surface is a fresh specification, not a read.** Nothing in the
-> archive can be conformed to, restated, or mined for it.
+> **The surface cannot widen uniformly until this is settled.** Reaching through `service.engine`
+> from the surface would make the surface depend on engine internals — precisely the coupling
+> ECR-0088 avoided by importing only models plus `Runtime`.
 
-🧠 **Method note the ECR should carry, because I got it wrong twice:** ECR-0086 called EA-0058/0060/
-0061 *"703 lines … real content"* — a **line-count** inference. Reviewing the correction I then ran a
-normalized structural diff, saw **542 of 703 lines differ** (77%), and read *that* as content — also
-wrong, because those lines differ only where a section title is substituted into shared boilerplate.
-**Line count measures the generator; line *difference* measures the generator too.** Only normalizing
-the substitution and counting distinct survivors reaches content. **"Real content" and "useful
-content" are then still separate tests** — EA-0062 passes the first and fails the second.
+**This is a genuine architectural decision and it belongs in this ECR, not in an implementation.**
 
 ---
 
-## 2. The single most important shipped fact: **there are two disconnected worlds**
+## 3. The precedent ECR-0088 already set — and my recommendation
 
-This is the thing a surface spec must be built around, and it is not visible from any document.
-
-**World A — the platform.** `create_inmemory_runtime()` / `await create_runtime()`
-(`kernel/factory.py:873` and `:1571`) wire **30 registered services** (28 domain + `event_bus` +
-`object_store`):
-
-```
-acg_engine, compliance_engine, cspm_engine, datalake_engine, decision_engine, detection_engine,
-dspm_engine, event_bus, executive_engine, exposure_engine, forecast_engine, forensics_engine,
-iag_engine, idthreat_engine, inventory_engine, ispm_engine, knowledge_graph, mission_engine,
-object_store, policy_engine, response_engine, risk_engine, secrets_engine, soc_engine, sspm_engine,
-supplychain_engine, threat_fusion_engine, trust_engine, vuln_engine, workflow_engine
-```
-
-**World B — the only user-facing surface.** `python -m aqelyn <collection_dir>` →
-`reporting.cli` → one static HTML file. Its docstring is the design property, verbatim:
-*"Local, operator-only findings report (P-001)."*
-
-🔴 **World B never enters World A.** `reporting/analyze.py` imports
-`VulnerabilityIntelligenceEngine`, `InMemoryVulnerabilityStore`, `InMemoryFindingStore`,
-`InMemoryEvidenceStore` **directly** and constructs them per run. A grep of `src/aqelyn/reporting/`
-for `kernel`, `Runtime` or `get_service` returns **one hit, and it is `RuntimeError`.**
-
-⇒ **The shipped report exercises one domain engine (EA-0024) out of 28, and reaches the kernel
-never.** Twenty-seven domain engines have no user-facing path of any kind. **This is what "no way in,
-no way to see" means concretely** — and it is EA-0054's precondition #1, so this ECR unblocks the
-owner's own deferred decision as a side effect.
-
----
-
-## 3. Real delegation seams — quoted from shipped code
-
-A surface has exactly three seams available. **These are the real names; do not invent others.**
-
-**3.1 The kernel.** `AQKernel` public methods: `register`, `get_service`, `start`, `stop`,
-`signal_stop`, `health`. Every registered service satisfies `AQService`
-(`kernel/service.py:24`, `@runtime_checkable`):
+ECR-0088 did not reach into `FindingStore`. It added a **dedicated read service**:
 
 ```python
-class AQService(Protocol):
-    @property
-    def name(self) -> str: ...
-    @property
-    def dependencies(self) -> Sequence[str]: ...
-    @property
-    def critical(self) -> bool: ...
-    async def start(self) -> None: ...
-    async def stop(self) -> None: ...
-    async def health(self) -> HealthStatus: ...
+class FindingReadService:
+    """Expose the owner's existing keyset query without adding a write path."""
+    def query(self, *, tenant_id: str | None, ...) -> ...
 ```
 
-**A surface gets `/health` almost free** — `kernel.health()` over 30 services already exists and is
-guaranteed by GC-003 in both tenant modes. **That is the one endpoint that needs no new contract.**
+registered as `finding_read`. **That is the shape to generalise**, and I recommend it:
 
-**3.2 Domain services.** Public methods are narrow and **every domain call is keyword-only and
-carries tenant identity**:
+- it puts the read contract in the domain package that owns the data, not in the surface;
+- it is **read-only by construction** — the type has no write method to call by accident;
+- it keeps the surface importing only models and `Runtime`, which is what makes the
+  no-engine-import guarantee testable (`test_surface_imports_no_domain_engine_or_store`);
+- it needs no change to the 13 engine-only services — a read service can wrap `.engine` inside the
+  owning package, where that coupling is legitimate.
+
+**Recommendation: widen by adding `*ReadService` classes in the owning packages, one per exposed
+capability, and register them.** Do **not** teach the surface to traverse `.engine`.
+
+---
+
+## 4. Delegation seams, quoted from shipped code
+
+**Tenant scope is on the signature of every domain read** — 9 of `inventory`'s methods, 11 of
+`secrets`', 9 of `ispm`'s take `tenant_id`:
 
 ```python
 InventoryIntelligenceService.inventory(*, tenant_id: str | None) -> InventoryReport
-InventoryIntelligenceService.sweep_unreported(*, source: DiscoverySource, tenant_id: str | None) -> list[AssetRecord]
-# also: classify, decommission, infer_relationships, ingest, mark_unreported, ownership, reconcile
-VulnerabilityIntelligenceService.assess / ingest / prioritize / raise_vulnerability / recommend / trend
+VulnerabilityIntelligenceService.assess(*, tenant_id: str | None) -> VulnerabilityAssessment
+FindingReadService.query(*, tenant_id: str | None, ...)
 ```
 
-⇒ **`tenant_id` is not optional plumbing — it is on the signature of every read.** A surface that
-cannot supply it cannot call the platform, and `tenant_id=None` is the *local* mode value, not a
-"all tenants" wildcard. Get this into the spec's FR text explicitly.
+`tenant_id=None` means **this local estate**, not "all tenants" — the surface already enforces that
+in both directions (`400` if supplied in local mode, `400` if omitted in enterprise mode). **Any new
+route inherits that rule; state it in the FR text rather than leaving it to the implementer.**
 
-**3.3 The report.** `analyze_collection(directory: Path) -> CollectionAnalysis` and
-`render_findings_report(analysis: CollectionAnalysis) -> str`. Note the input is a **directory**,
-not a runtime — this is the seam that would have to change for a surface to render live data.
+**Kernel:** `AQKernel.{register, get_service, start, stop, signal_stop, health}`; every service
+satisfies `AQService` (`kernel/service.py:24`). `kernel.health()` already covers all 30 and is
+GC-003-guaranteed in both tenant modes.
 
-**Config the surface must respect** (`kernel/config.py:70-71`):
-`tenant_mode: Literal["local","enterprise"] = "local"` · `backend: Literal["memory","postgres"] = "memory"`,
-and `backend=postgres` **requires** `AQELYN_DATABASE_URL` or raises `ConfigError`.
-
----
-
-## 4. Constraints the surface spec must not break
-
-1. 🔴 **The no-socket boundary is inbound too.** There is **no** `socket`, `http.client`, `requests`,
-   `httpx`, `aiohttp`, `ssl` or `dns` import anywhere in `src/aqelyn` — the only `urllib` uses are
-   `urlsplit`/`parse_qsl` for string parsing (`dspm/models.py:8`, `secrets/models.py:10`).
-   `pyproject.toml` declares **no web framework** (pydantic, pydantic-settings, uuid-utils, asyncpg,
-   SQLAlchemy, alembic, redis). **A server is therefore a genuinely new dependency and a genuinely
-   new risk surface** — the first port AQELYN ever listens on. ECR-0086 reserved *outbound* scanning
-   to the owner; **an inbound listener deserves the same explicitness**, and the spec should say
-   loopback-only unless the owner decides otherwise.
-
-   **Status update (ECR-0088):** the inbound decision is now scoped and shipped. Outbound clients
-   remain absent; the sole inbound listener lives under `aqelyn.surface`, binds `127.0.0.1`, and
-   exposes reads only. Non-loopback remains owner-gated.
-2. **"Local, operator-only" is a recorded design property**, not an accident of implementation. If
-   the surface changes it, the ECR must say so in those words and record the owner's acceptance.
-3. **Scale is a known open item.** `render_findings_report` builds the page with
-   `"\n".join(_finding(item, index) for index, item in enumerate(analysis.findings))`
-   (`reporting/html.py:16`) — **no pagination, no limit, every finding inlined**. The real corpus is
-   **10,173 findings with 50,394 unknown factors disclosed** (`P-001_Task_Bundle.md:116`), and the
-   in-page search/filter is client-side over the already-rendered DOM. **A live surface is the
-   natural fix, and "make P-001 bigger" is not.**
-4. **Auth does not exist.** No authentication, authorization, session or RBAC primitive ships. A
-   multi-user surface invents all of it; a loopback operator surface can defer all of it. **The spec
-   should choose deliberately and say which.**
-5. **Do not weaken:** ECR-0034's inventory budget/`degraded` contract · ECR-0061 `sweep_unreported`
-   exhaust-or-refuse · rule 33 (maintenance ≠ use) · **GC-004's persisted-field census** (a surface
-   that persists anything joins it: 670 fields, 520 consumed, 149 exempt, 1 dormant, 0 unconsumed) ·
-   GC-002 event-namespace closure · GC-003 registry coverage · EA-0002 D8 pagination under a budget ·
-   EA-0004 integrity ≠ authenticity.
+**Pagination:** only `findings` currently pages (composite keyset on `(severity_score, id)` per
+ECR-0062). `inventory` returns a whole `InventoryReport` under `page_budget` with a `degraded` flag
+(ECR-0034/0061). **A widened surface must not paper over `degraded`** — ECR-0034's flag is the
+honest-truncation contract and three consumers are guarded against ignoring it.
 
 ---
 
-## 5. False friends
+## 5. The second gap this ECR should decide: `reporting/` still bypasses the kernel
 
-- **No prefix exists for a surface/portal/session/user.** `conventions/ids.py::PREFIXES` has **61**
-  allocated; `svc` = `service` and `src` = `source` are **taken and mean something else**.
-- **Event names:** shipped convention is dotted lowercase `aqelyn.<domain>.<verb>`
-  (`aqelyn.kernel.runtime_started`, `aqelyn.object.created`, `aqelyn.relationship.created`), and
-  **GC-002 closes the namespace.** A surface emitting events needs its prefix registered, not invented.
-- **`Runtime` is a real dataclass** in `kernel/factory.py` with 28 `*_service` attributes; GC-003
-  derives its expected registry from them. **Do not use "runtime" as a loose noun in FR text.**
-- **EA-0062's endpoint list is not a starting point.** `/api/v1/archives`,
-  `/api/v1/implementation/status`, `/api/v1/agents/codex/task` are build-portal routes. Reusing that
-  shape would specify the wrong product.
+`grep -c "kernel\|get_service" src/aqelyn/reporting/*.py` → **0, 0, 0, 0.** The P-001 report still
+imports `VulnerabilityIntelligenceEngine` and the in-memory stores directly and builds them per run.
+So the platform now has **two** user-facing paths that do not share a data path:
 
----
+- `python -m aqelyn <dir>` → static HTML, one engine, no kernel;
+- `python -m aqelyn surface` → live read API, real kernel, three engines.
 
-## 6. What I recommend ECR-0088 decide
+Left alone this becomes two products. **Options, with my recommendation:**
 
-1. **Record the finding of §1** — the archive contains no product surface; EA-0059 is class 3,
-   EA-0062 is real but is an engineering portal whose UI/API halves cite empty documents. Note
-   EA-0059 as the **fourth** member of the class-3 family (ECR-0087 recorded three).
-2. **Name the surface's purpose in one sentence**, and let it exclude things: *a way to see and drive
-   the shipped engines* — **not** a build tracker, not a marketing site.
-3. **Decide the shape, and the ECR should recommend one.** My recommendation, on the evidence:
-   **(a) a loopback-only read API over `kernel.get_service()` + `health()`, plus a thin UI**, because
-   `health()` already exists across 30 services, the domain reads are already narrow and
-   tenant-scoped, and loopback keeps the "local, operator-only" property intact.
-   **(b)** rendering live data through the existing report path is smaller but inherits the
-   no-pagination limit. **(c)** a full multi-user web app invents auth, sessions and RBAC that no
-   shipped code has — recommend against as a first step.
-4. **Scope it to reads first.** Every write path (`ingest`, `raise_vulnerability`, `propose`,
-   `decommission`) is an *action* with existing gating semantics; a read-only v1 avoids reopening
-   any of them.
-5. **State the listening-port decision explicitly** and reserve it to the owner if it is anything
-   other than loopback.
+- **(a) Leave both, record the split as deliberate.** Cheapest, honest, but the divergence compounds.
+- **(b) ⭐ Point the report at the kernel** — `analyze_collection` keeps its handed-in-document input
+  but publishes through the same read services the surface uses. One data path, two renderers.
+- **(c) Serve the report from the surface.** Tempting and wrong as a first step: it inherits P-001's
+  no-pagination limit (`html.py:16` inlines all 10,173 findings) into a live server.
 
-**Do not** specify UI visuals from EA-0059 — there are none to specify from.
+**Recommend (b), scoped to reads only.**
 
 ---
 
-## 7. Ball
+## 6. Constraints the widening must not break
 
-**Next: claude.ai authors ECR-0088** from this brief. Then Codex implements, and I review and merge.
-**Reserved to the owner:** whether the surface may listen on anything other than loopback, on the
-same footing as ECR-0086's outbound-socket decision.
+1. **Loopback stays.** `LOOPBACK_HOST = "127.0.0.1"` with no bind seam; the network guard now catches
+   `http.server`/`socketserver`/`asyncio.start_server`/`start_unix_server`/`create_server`/
+   `create_unix_server`/`socket.socket` **outside `surface/`**, in both import forms, plus dynamic
+   module strings. **Non-loopback binding remains an owner decision.**
+2. **Reads only.** `READ_METHODS = frozenset(("GET","HEAD"))` and a fixed route allowlist. Every write
+   path (`ingest`, `raise_*`, `propose_*`, `decommission`, `transition`) is an *action* with existing
+   gating; **a read-only v2 avoids reopening any of it.**
+3. **No new dependency.** The surface is stdlib `asyncio`. Adding a framework would be a new supply
+   chain surface and should be its own decision.
+4. **Client assets are generated Python strings** — `APP_JS` must stay `r"""` and the served-asset
+   quote guard plus `[hidden] { display: none !important; }` must survive. **PR #290 exists because
+   a non-raw literal ate a `\n` and killed the entire UI while every gate stayed green.**
+5. **Do not weaken:** ECR-0034 `degraded` · ECR-0061 exhaust-or-refuse · ECR-0062 keyset ·
+   rule 33 · GC-002 event namespace · GC-003 registry coverage · GC-004 persisted-field census (any
+   new persisted field joins it) · EA-0004 integrity ≠ authenticity.
+6. **No auth exists.** Widening the read surface widens what an operator with loopback access sees.
+   That is acceptable *because* it is loopback and read-only — **and it is the reason both properties
+   must hold together.** If either is relaxed, authentication becomes a prerequisite, not a nicety.
+
+---
+
+## 7. False friends
+
+- **No prefix for a surface/session/user** — `conventions/ids.py::PREFIXES` has 61 allocated; `svc`
+  and `src` are taken and mean `service`/`source`.
+- **Event names** are dotted lowercase `aqelyn.<domain>.<verb>` and **GC-002 closes the namespace**.
+  A read surface should emit **no** events; if it must, the prefix needs registering.
+- **`finding_read` is a service name, not a package.** The registry key and the package differ
+  across the platform (`vuln_engine` → `src/aqelyn/vuln/`), which is what broke my first GC-003
+  analysis. **Diff by class identity, never by name similarity.**
+- **`/api/v1/` is already claimed** by the surface's own routes; EA-0062's `/api/v1/archives`,
+  `/api/v1/agents/codex/task` are **build-portal** routes from an unrelated document — not a
+  starting point (ECR-0086/0087).
+
+---
+
+## 8. What I recommend ECR-0089 decide
+
+1. **The seam question (§2)** — read services in owning packages, generalising `FindingReadService`.
+   This is the decision; everything else follows from it.
+2. **Which capabilities go first.** Recommend the four with the clearest operator value and existing
+   tenant-scoped reads: **ISPM posture**, **exposure**, **secrets/crypto**, **supply chain** — each
+   already has `assess`/`explain` and 7–11 tenant-scoped methods.
+3. **`explain` is the platform's differentiator and it is nearly universal** — 11 services expose it.
+   A surface that shows a score without its derivation contradicts the product principle
+   (*"Explain Before You Recommend"*). **Recommend every widened route carry its `explain` payload.**
+4. **The `reporting/` split (§5)** — recommend (b).
+5. **Pagination for any collection route**, on ECR-0062's keyset precedent, never offset.
+
+**Do not** add writes, auth, a framework, or a non-loopback bind in this pass.
+
+---
+
+## 9. Ball
+
+**Next: claude.ai authors ECR-0089** from this brief. Then Codex implements, and I review and merge.
+**Reserved to the owner:** nothing new. The existing reservations (non-loopback bind, EA-0054,
+EA-0052-FR-004) are untouched by this work.
