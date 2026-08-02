@@ -92,6 +92,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0085 | GC-004 (cross-cutting) | Accepted (GC-004) | **Persisted fields must have consumers, and dormancy must be declared.** The guard reports a census, not a clearance. |
 | ECR-0086 | EA-0052–0063 batch | Accepted (owner decisions recorded; absence guards shipped) | Archive **not** exhausted — 12 unassessed. 3 conformant, 3 gaps, 6 non-capability. EA-0054 remains an open gap, not scheduled; EA-0052-FR-004 is not authorized. |
 | ECR-0087 | EA-0058 + EA-0060 + EA-0061 | Accepted (record-only read complete) | **Third generator template, not standards.** The 703-line shape contains no topic-specific normative requirements; the ECR-0086 conformance-read debt is discharged. |
+| ECR-0088 | Local operator surface | Accepted (surface v1) | **The first user-facing path into the real kernel.** A stdlib read API and thin UI bind loopback only; outbound networking remains absent and non-loopback remains owner-gated. |
 
 ---
 
@@ -6421,6 +6422,10 @@ path** and EA-0053 are buildable within the shipped boundary - which makes those
 decision, not a safety one. **EA-0052-FR-004 is not covered by that conclusion** and must not
 inherit it merely because it sits in the same master.
 
+> **Scoped by ECR-0088:** *first socket* in this decision means the first **outbound** connection
+> to a remote target that handed nothing in. ECR-0088 later introduced AQELYN's first inbound
+> listener: one read-only package, bound to `127.0.0.1`. The EA-0054 decision is unchanged.
+
 **This does not weaken the boundary; it locates it.** EA-0054 remains exactly as consequential
 as the brief says - and stating it precisely is what keeps the boundary meaningful rather than
 making it a general reluctance.
@@ -6431,7 +6436,7 @@ making it a general reluctance.
 capability gap, not scheduled.*
 
 **Reserved to the owner:** whether **EA-0054** is built at all, given that it opens AQELYN's
-first socket. The evidence is in §3 so the decision is made **with it in view rather than
+first outbound socket to a remote target. The evidence is in §3 so the decision is made **with it in view rather than
 discovered during implementation.**
 
 **EA-0052-FR-004 is also unscheduled.** It is not the first-socket decision, but it is a distinct
@@ -6557,3 +6562,95 @@ table of contents, not the book.
 The ECR-0086 standards-read debt is **discharged**. No runtime, guard, module spec, schedule or owner
 decision follows from this read. Absence guards are for capabilities that could be built; these
 documents define none.
+
+## ECR-0088 - The surface: read-only, loopback, operator-only
+
+**Raised by:** claude.ai from Claude Code's surface brief; implemented by Codex from
+`main @28d41c1`.
+**Status:** Accepted - surface v1 shipped.
+**Number:** re-verified free at `28d41c1`; the archive remains read through EA-0063.
+
+### 1. Findings of record
+
+The archive contains no product surface. EA-0059 is the fourth generator-template-class-3
+document; EA-0062 is real content about building AQELYN, not using its security intelligence.
+The surface is therefore a fresh product decision, not archive conformance.
+
+Before this ECR, the platform and its only user-facing path were disconnected. The factory-built
+`Runtime` registered thirty services, while the P-001 report directly constructed one domain
+engine and in-memory stores. No shipped user path entered the kernel.
+
+### 2. Decision and exclusions
+
+The surface is a way to see the shipped engines. V1 is a **loopback-only read API over the real
+kernel plus a thin UI**. It is not a build tracker, marketing site, write surface or multi-user
+web application.
+
+Loopback is the no-new-risk choice and is decided here. The listener binds `127.0.0.1` as a design
+property. There is no bind-address configuration key or command-line option. Any non-loopback
+listener requires a future owner-authorized ECR and must specify authentication before
+implementation. Nothing here reopens EA-0054 or EA-0052-FR-004.
+
+### 3. Shipped read surface
+
+The package is `src/aqelyn/surface/`; its docstring retains **Local, operator-only** verbatim.
+It uses the standard library and adds no dependency or frontend build chain.
+
+| Route | Projection |
+|---|---|
+| `GET /health` | `kernel.health()` across the registered runtime |
+| `GET /api/v1/meta` | shipped backend and tenant-mode configuration |
+| `GET /api/v1/findings` | `kernel.get_service("finding_read").query(...)` using the Finding owner's keyset cursor |
+| `GET /api/v1/inventory` | `kernel.get_service("inventory_engine").inventory(...)` |
+| `GET /api/v1/vulnerabilities` | `kernel.get_service("vuln_engine").assess(...)` |
+| `GET /` and `/assets/*` | dependency-free operator UI |
+
+`HEAD` is the only additional method. Other methods receive 405; unknown routes receive 404.
+The route table contains no write operation. The CLI is `aqelyn surface --port <port>`; only the
+port is configurable.
+
+Every domain read passes tenant identity explicitly. Enterprise mode refuses a missing tenant UUID.
+Local mode passes `tenant_id=None` and states that it means the local estate, never an all-tenants
+wildcard.
+
+### 4. Pagination and uncertainty
+
+Surface-owned collection cursors are scoped to route and tenant. Findings retain the owner's
+existing `(severity_score, id)` keyset cursor and apply it inside the explicit tenant query. A page
+contains at most 100 items, and a projection that materializes a collection refuses above a
+50,000-item work budget rather than truncating silently. The **10,173-finding** acceptance-scale
+test traverses the full finding service without an oversized response.
+
+Inventory `degraded` state and vulnerability `unavailable` entries are preserved. Vulnerability
+factor status and reason are returned intact, so the UI cannot turn unknown into an empty or clean
+result.
+
+### 5. Boundary relocation
+
+The former unscoped statement *no socket anywhere in `src/aqelyn`* ends here and is replaced by:
+
+> **Outbound:** no outbound network client anywhere in `src/aqelyn`; the ECR-0086 EA-0054
+> decision stands.
+>
+> **Inbound:** one listener exists in `src/aqelyn/surface/`, binds loopback only and exposes reads
+> only.
+
+The guarantee discovers outbound clients, listeners outside the surface package, and network
+module literals as three independent branches. Each branch has a unique witness and each witness
+goes quiet when only its branch is disabled. Separate controls pin loopback, the absence of a bind
+configuration seam, and the read-only route roster.
+
+### 6. Namespace and lifecycle
+
+V1 persists nothing and emits no event. It therefore joins neither GC-004's persisted-field census
+nor GC-002's event-prefix registry. The Finding owner gains one read-only AQService, so the kernel
+now registers 31 services and GC-003 covers it in both tenant modes. The CLI creates the runtime
+through `create_runtime()`, starts the real kernel before listening, and closes the listener and
+kernel together.
+
+### 7. Consequence for EA-0054
+
+ECR-0086 precondition 1, *a user-facing surface exists*, is satisfied by this implementation.
+Precondition 2, the shipped EA-0052 to EA-0053 handed-in assessment path, and precondition 3,
+reviewed target-authorization semantics, remain open. EA-0054 remains unscheduled and can return
+only under its own new ECR.

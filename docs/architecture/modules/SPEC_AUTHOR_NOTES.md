@@ -575,6 +575,10 @@ and `backend=postgres` **requires** `AQELYN_DATABASE_URL` or raises `ConfigError
    new risk surface** — the first port AQELYN ever listens on. ECR-0086 reserved *outbound* scanning
    to the owner; **an inbound listener deserves the same explicitness**, and the spec should say
    loopback-only unless the owner decides otherwise.
+
+   **Status update (ECR-0088):** the inbound decision is now scoped and shipped. Outbound clients
+   remain absent; the sole inbound listener lives under `aqelyn.surface`, binds `127.0.0.1`, and
+   exposes reads only. Non-loopback remains owner-gated.
 2. **"Local, operator-only" is a recorded design property**, not an accident of implementation. If
    the surface changes it, the ECR must say so in those words and record the owner's acceptance.
 3. **Scale is a known open item.** `render_findings_report` builds the page with

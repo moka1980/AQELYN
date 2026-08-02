@@ -23,7 +23,7 @@ or anyone after — can audit or reverse it as a decision of record, not archaeo
 **Disposition: open capability gap, not scheduled** — the EA-0048 precedent, verbatim.
 This is a deferral with preconditions, not a rejection.
 
-EA-0054 is the only genuine first-socket crossing in the batch: it reaches across a
+EA-0054 is the only genuine first-**outbound**-socket crossing in the batch: it reaches across a
 network to hosts that have handed nothing in. Building it before the platform has
 authorization semantics would turn "scan only what you are permitted to scan" from an
 enforced obligation into a comment. It stays unbuilt until **all three** of the
@@ -32,6 +32,8 @@ following hold:
 1. **A surface exists.** The roadmap's honest column no longer reads "no way in, no
    way to see." Assessment engines without a surface repeat the ordering failure the
    S-track exposed.
+   **Satisfied by ECR-0088:** the shipped loopback-only operator surface enters the
+   factory-built kernel. This does not satisfy either remaining precondition.
 2. **The handed-in pattern is proven in shipped code.** EA-0052 → EA-0053 (as bounded
    by Decision 2) have shipped and demonstrated the platform's assessment shape on
    endpoint data end to end.
