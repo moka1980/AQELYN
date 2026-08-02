@@ -23,11 +23,16 @@ or anyone after — can audit or reverse it as a decision of record, not archaeo
 **Disposition: open capability gap, not scheduled** — the EA-0048 precedent, verbatim.
 This is a deferral with preconditions, not a rejection.
 
-EA-0054 is the only genuine first-**outbound**-socket crossing in the batch: it reaches across a
+EA-0054 is the only genuine first-socket crossing in the batch: it reaches across a
 network to hosts that have handed nothing in. Building it before the platform has
 authorization semantics would turn "scan only what you are permitted to scan" from an
 enforced obligation into a comment. It stays unbuilt until **all three** of the
 following hold:
+
+> **Clarification (ECR-0088):** *first-socket crossing* here means the first outbound
+> connection to a remote target that handed nothing in. ECR-0088 later introduced the
+> first inbound listener as a loopback-only, read-only surface. The EA-0054 decision is
+> unchanged.
 
 1. **A surface exists.** The roadmap's honest column no longer reads "no way in, no
    way to see." Assessment engines without a surface repeat the ordering failure the

@@ -40,7 +40,19 @@ def test_surface_network_guard_branch_roster_pinned() -> None:
             ),
             "listeners_outside_surface",
         ),
+        (
+            "listener",
+            "from http.server import HTTPServer\n",
+            "listeners_outside_surface",
+        ),
+        ("listener", "import socketserver\n", "listeners_outside_surface"),
+        (
+            "listener",
+            "async def run(loop):\n    await loop.create_server(None, '127.0.0.1', 1)\n",
+            "listeners_outside_surface",
+        ),
         ("literal", 'transport = "requests"\n', "network_literals"),
+        ("literal", 'transport = "socketserver"\n', "network_literals"),
     ],
 )
 def test_surface_network_guard_each_branch_has_a_unique_witness(

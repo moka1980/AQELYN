@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 
 OUTBOUND_MODULES = frozenset(("aiohttp", "http.client", "httpx", "requests", "urllib.request"))
-NETWORK_LITERALS = OUTBOUND_MODULES | frozenset(("socket",))
+LISTENER_MODULES = frozenset(("http.server", "socket", "socketserver"))
+LISTENER_CALLS = frozenset(
+    (
+        "asyncio.start_server",
+        "asyncio.start_unix_server",
+        "socket.socket",
+    )
+)
+NETWORK_LITERALS = OUTBOUND_MODULES | LISTENER_MODULES
 
 
 @dataclass(frozen=True)
@@ -70,18 +78,21 @@ def _listener_hits(node: ast.AST, relative: str) -> list[str]:
     hits: list[str] = []
     if isinstance(node, ast.Import):
         for alias in node.names:
-            if alias.name in {"http.server", "socket"}:
+            if alias.name in LISTENER_MODULES:
                 hits.append(f"{relative}:{node.lineno}: {alias.name}")
     elif isinstance(node, ast.ImportFrom):
         module = node.module or ""
         imported = {alias.name for alias in node.names}
-        if module == "http" and "server" in imported:
+        if module in LISTENER_MODULES:
+            hits.append(f"{relative}:{node.lineno}: {module}")
+        elif module == "http" and "server" in imported:
             hits.append(f"{relative}:{node.lineno}: http.server")
-        if module == "asyncio" and "start_server" in imported:
-            hits.append(f"{relative}:{node.lineno}: asyncio.start_server")
+        elif module == "asyncio" and imported & {"start_server", "start_unix_server"}:
+            selected = sorted(imported & {"start_server", "start_unix_server"})[0]
+            hits.append(f"{relative}:{node.lineno}: asyncio.{selected}")
     elif isinstance(node, ast.Call):
         name = _qualified_name(node.func)
-        if name in {"asyncio.start_server", "socket.socket"}:
+        if name in LISTENER_CALLS or name.endswith((".create_server", ".create_unix_server")):
             hits.append(f"{relative}:{node.lineno}: {name}")
     return hits
 
