@@ -94,7 +94,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0087 | EA-0058 + EA-0060 + EA-0061 | Accepted (record-only read complete) | **Third generator template, not standards.** The 703-line shape contains no topic-specific normative requirements; the ECR-0086 conformance-read debt is discharged. |
 | ECR-0088 | Local operator surface | Accepted (surface v1) | **The first user-facing path into the real kernel.** A stdlib read API and thin UI bind loopback only; outbound networking remains absent and non-loopback remains owner-gated. |
 | ECR-0089 | Local operator surface + reporting | Accepted (surface widening) | **Owner-provided read seams widen the surface without engine coupling.** ISPM, exposure, secrets and supply chain join the Runtime; P-001 uses the same registered publish/read path. |
-| ECR-0090 | ECR-0089 read seams | Accepted (tiebreak witnesses) | **Correct keyset reads lacked witnesses for their trailing tiebreaks.** Decorrelated fixtures and forced Postgres plans make silent skips observable; a static guard pins query table, order, index name and direction. |
+| ECR-0090 | ECR-0089 read seams | Accepted (tiebreak witnesses; R4 amended by ECR-0091) | **Correct keyset reads lacked witnesses for their trailing tiebreaks.** Decorrelated fixtures and forced Postgres plans make silent skips observable; a static guard pins query table, order, index name and direction. |
+| ECR-0091 | ECR-0089 read seams | Accepted (leading-key witnesses) | **The mirror of a guard is not guarded by the guard.** Reverse-inserted leading values and deliberately conflicting tiebreak order make each in-memory leading key load-bearing. |
 
 ---
 
@@ -6729,3 +6730,57 @@ claim: its read orders a `DISTINCT ON` CTE result and no covering index backs th
 Tests and one static guarantee only; no production code, dependency, pagination contract or
 surface boundary changes. The older offset cursors on findings and inventory remain a separately
 recorded consistency question.
+
+### 4. Amendment by ECR-0091
+
+R4's original statement that each Postgres deletion turns "exactly its own witness" red was
+stronger than the evidence and conflicts with the intended static defence in depth. The amended
+standard is: each deletion turns its own witness red; the static guarantee may additionally fire
+on Postgres cases. No witness may be silently covered only by another witness of the same kind.
+
+## ECR-0091 - Leading-key witnesses
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0090 leading-key review; implemented by Codex.
+**Status:** Accepted - leading-key witnesses shipped.
+**Number:** re-verified as the next contiguous number after ECR-0090.
+
+### 1. Finding
+
+ECR-0090 made each composite keyset's trailing tiebreak observable by holding its leading value
+constant. That fixture shape necessarily made the leading value unobservable. Deleting the leading
+column from any of the four in-memory sort keys left the full ECR-0090 witness family green.
+
+The gap predates ECR-0090. An older ISPM fixture used five distinct UUIDv7 `subject_ref` values but
+still passed after leading-key deletion because generation order, insertion order and identifier
+order were correlated. Distinct values are not a decorrelated ordering witness.
+
+### 2. Resolution
+
+Exposure, ISPM, secrets and supply chain now carry a second, memory-only mirror witness. Leading
+values are generated first and reverse-inserted; unique tiebreaks are assigned so their standalone
+ordering cannot reproduce the required leading-key order. Each fixture walks limits `1..N`, proves
+exhaustion and uniqueness, and fails when its leading sort column is removed.
+
+Secrets enumerates the complete legal kind set before constructing the fixture. Its type-specific
+ID prefixes prevent a perfect reverse tiebreak ordering, so the witness asserts the load-bearing
+property directly: ID-only order differs from legal kind-first order. No asset kind is invented.
+
+### 3. Postgres scope
+
+No new Postgres runtime witness is added. ECR-0090's static guard already pins each covered query's
+table, ordered column list, named index and direction; removing a leading SQL order column turns
+that guard red. Postgres leading-key behaviour re-enters scope if a future change unpins one of
+those index contracts.
+
+### 4. ECR-0090 amendment
+
+ECR-0090 R4 is amended to permit the static guarantee to fire alongside the domain Postgres
+witness. The surviving isolation rule is that no witness may be silently covered only by another
+witness of the same kind.
+
+### 5. Scope
+
+Tests and records only. Production reads, persistence, dependencies, loopback boundaries and
+GC-002/GC-003/GC-004 remain unchanged. The findings and inventory offset-versus-keyset split stays
+out of scope and is recorded as the spec author's next drafting intent unless superseded by more
+urgent work.

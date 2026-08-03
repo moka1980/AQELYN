@@ -407,6 +407,42 @@ async def test_ispm_read_keyset_tiebreak_witness_and_owner_explanation(
         assert all(item.explain is not None for item in read_page.items)
 
 
+async def test_ispm_read_keyset_leading_key_witness() -> None:
+    async with _store("inmemory") as source_store:
+        engine, _, account_id, _, _ = await _engine_with_identity(source_store, mfa="present")
+        base = await engine.score_identity(account_id, tenant_id=TENANT)
+
+    store = InMemoryISPMStore(mode="enterprise")
+    subject_refs = sorted(new_id("obj") for _ in range(6))
+    score_ids = sorted(new_id("ips") for _ in subject_refs)
+
+    # UUIDv7 subject refs are generated before insertion and reverse-assigned.
+    # Score ids run the other way, so an id-only sort reverses the correct order.
+    for subject_ref, score_id in zip(reversed(subject_refs), score_ids, strict=True):
+        await store.put_score(
+            base.model_copy(
+                update={"id": score_id, "subject_ref": subject_ref},
+                deep=True,
+            )
+        )
+
+    expected = list(reversed(score_ids))
+    for limit in range(1, len(expected) + 1):
+        after: tuple[str, str] | None = None
+        seen: list[str] = []
+        while True:
+            store_page, after = await store.query_scores_for_read(
+                tenant_id=TENANT,
+                after=after,
+                limit=limit,
+            )
+            seen.extend(score.id for score in store_page)
+            if after is None:
+                break
+        assert seen == expected
+        assert len(seen) == len(set(seen))
+
+
 async def test_ispm_score_composed(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[tuple[Risk, RiskConfig | None, RiskMissionContext | None]] = []
 

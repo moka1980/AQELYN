@@ -6,7 +6,7 @@ import os
 import socket
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import NoReturn, Protocol, cast
 
 import pytest
@@ -66,6 +66,7 @@ def _record(
     reachability: str = "external",
     flagged: bool = False,
     ref_id: str = "asset:web-1",
+    discovered_at: datetime = NOW,
 ) -> ExposureRecord:
     data: dict[str, object] = {
         "tenant_id": tenant_id,
@@ -76,7 +77,7 @@ def _record(
         "confidence": 0.76,
         "rationale": "Reachability is derived from known inventory, not probing.",
         "flagged": flagged,
-        "discovered_at": NOW,
+        "discovered_at": discovered_at,
     }
     if exposure_id is not None:
         data["id"] = exposure_id
@@ -159,6 +160,29 @@ async def test_exp_read_keyset_tiebreak_witness(
         read_service = ExposureReadService(store, tenant_mode="enterprise")
         read_page = await read_service.list_exposures(tenant_id=TENANT, limit=5, cursor=None)
         assert all(item.explain is None for item in read_page.items)
+
+
+async def test_exp_read_keyset_leading_key_witness() -> None:
+    store = InMemoryExposureStore(mode="enterprise")
+    discovered_values = sorted(NOW + timedelta(minutes=index) for index in range(5))
+    ids = sorted(new_id("exp") for _ in discovered_values)
+
+    # Leading values are reverse-inserted while ids run the other way. An id-only
+    # sort therefore yields the exact reverse of the required discovered-at order.
+    for index, (discovered_at, exposure_id) in enumerate(
+        zip(reversed(discovered_values), ids, strict=True)
+    ):
+        await store.put(
+            _record(
+                exposure_id=exposure_id,
+                discovered_at=discovered_at,
+                ref_id=f"asset:leading-{index}",
+            )
+        )
+
+    expected = list(reversed(ids))
+    assert sorted(ids) == list(reversed(expected))
+    await _assert_read_walk(store, expected)
 
 
 async def test_exp_unknown_not_internal(monkeypatch: pytest.MonkeyPatch) -> None:

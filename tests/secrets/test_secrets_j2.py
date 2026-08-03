@@ -28,8 +28,11 @@ from aqelyn.objects import AQObject, SourceRef
 from aqelyn.risk import Risk, RiskConfig, RiskMissionContext
 from aqelyn.risk.scoring import score_risk as real_score_risk
 from aqelyn.secrets import (
+    VALID_CRYPTO_ASSET_KINDS,
+    CertificateAsset,
     ComposedCredentialGovernance,
     CredentialGovernanceScore,
+    CryptoAsset,
     CryptoAssetKind,
     CryptographicExposure,
     CryptographicKey,
@@ -39,6 +42,8 @@ from aqelyn.secrets import (
     InMemoryCryptoStore,
     Lifecycle,
     PostgresCryptoStore,
+    SecretAsset,
+    SecretLocation,
     SecretsReadService,
     StorageSafetyClassification,
     compose_credential_governance,
@@ -115,6 +120,55 @@ def _asset() -> CryptographicKey:
         source_id=SOURCE_ID,
         observed_at=NOW,
         evidence_id=EVIDENCE_ID,
+    )
+
+
+def _read_asset(kind: CryptoAssetKind, index: int) -> CryptoAsset:
+    object_id = new_id("obj")
+    common = {
+        "tenant_id": TENANT,
+        "object_id": object_id,
+        "inventory_ref": f"ast_{object_id.split('_', 1)[1]}",
+        "fingerprint": f"hmac-sha256:{index + 800:064x}",
+        "claim_confidence": 1.0,
+        "source_id": new_id("src"),
+        "evidence_id": new_id("evd"),
+    }
+    if kind == "secret":
+        return SecretAsset(
+            **common,
+            kind="api_key",
+            location=SecretLocation(
+                kind="repository",
+                resource_ref=f"repo://read-leading/{index}",
+            ),
+            rotation=_valid_lifecycle("Rotation is known for the read witness."),
+            detected_at=NOW,
+        )
+    if kind == "key":
+        return CryptographicKey(
+            **common,
+            external_key_ref=f"urn:aqelyn:key:read-leading-{index}",
+            algorithm="rsa",
+            key_size=4096,
+            usages=["signing"],
+            last_rotated_at=NOW,
+            strength=_valid_lifecycle("Strength is known for the read witness."),
+            rotation=_valid_lifecycle("Rotation is known for the read witness."),
+            observed_at=NOW,
+        )
+    return CertificateAsset(
+        **common,
+        serial=f"read-{index}",
+        subject=f"CN=read-{index}.example.test",
+        issuer="CN=AQELYN Test Issuer",
+        not_after=None,
+        expiry=_valid_lifecycle("Expiry is known for the read witness."),
+        chain=_valid_lifecycle("Chain is known for the read witness."),
+        revocation=_valid_lifecycle("Revocation is known for the read witness."),
+        integrity=_valid_lifecycle("Integrity is known for the read witness."),
+        authenticity=_valid_lifecycle("Authenticity is known for the read witness."),
+        observed_at=NOW,
     )
 
 
@@ -639,6 +693,41 @@ async def test_crypto_asset_read_keyset_tiebreak_witness_and_owner_explanation(
             cursor=None,
         )
         assert all(item.explain is not None for item in read_page.items)
+
+
+async def test_crypto_asset_read_keyset_leading_key_witness() -> None:
+    store = InMemoryCryptoStore(mode="enterprise")
+    legal_kinds: list[CryptoAssetKind] = ["certificate", "key", "secret"]
+    assert set(legal_kinds) == VALID_CRYPTO_ASSET_KINDS
+
+    # Use every legal kind and reverse-insert them. Kind-specific id prefixes make
+    # a perfect reverse id order impossible, so the fixture proves the necessary
+    # property directly: sorting by id alone cannot reproduce kind-first order.
+    assets_by_kind = {
+        kind: _read_asset(kind, index) for index, kind in enumerate(reversed(legal_kinds))
+    }
+    assets = list(assets_by_kind.values())
+    for asset in assets:
+        await store.put_asset(asset)
+
+    expected = [assets_by_kind[kind].id for kind in legal_kinds]
+    id_only = [asset.id for asset in sorted(assets, key=lambda item: item.id)]
+    assert id_only != expected
+
+    for limit in range(1, len(expected) + 1):
+        after: tuple[CryptoAssetKind, str] | None = None
+        seen: list[str] = []
+        while True:
+            store_page, after = await store.query_assets_for_read(
+                tenant_id=TENANT,
+                after=after,
+                limit=limit,
+            )
+            seen.extend(record.id for record in store_page)
+            if after is None:
+                break
+        assert seen == expected
+        assert len(seen) == len(set(seen))
 
 
 async def test_crypto_gov_factory_owner_handoff_and_assess_wiring() -> None:

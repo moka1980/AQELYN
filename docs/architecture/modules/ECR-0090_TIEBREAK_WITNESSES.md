@@ -110,11 +110,11 @@ guarded by R1/R2 alone, and this paragraph is the recorded reason.
 R3 is adopted **alongside** R1/R2, not instead: R3 pins the design agreement, R1/R2 prove
 the runtime property on each store.
 
-**R4 — Witness verification standard.** Every R1/R2 witness is proven **both directions** in
-the implementing PR: green on clean `main`, RED under its specific mutation — and
-**isolated**: each tiebreak deletion turns exactly its own witness RED, no cross-coverage
-(the PR #286 isolation discipline applied to this family). The PR description lists the
-mutation matrix and results.
+**R4 — Witness verification standard (amended by ECR-0091).** Every R1/R2 witness is proven
+**both directions** in the implementing PR: green on clean `main`, RED under its specific
+mutation. Each deletion turns its own witness RED; the static guarantee may additionally
+fire on the Postgres cases, which is intended. No witness may be silently covered only by
+another witness of the same kind. The PR description lists the mutation matrix and results.
 
 ## 4. Out of scope — the offset coexistence question, flagged for its own ruling
 
