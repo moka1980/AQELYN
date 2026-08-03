@@ -50,17 +50,14 @@ three reads it covers, as ECR-0091's R4 amendment records.
 It now computes `id_only = sorted(ids)` and asserts `id_only != expected`, matching the
 falsifiable shape used by secrets.
 
-## 3. Offset ruling — decided here
+## 3. Offset ruling — decided here, applicable set corrected by ECR-0093
 
 ECR-0089 FR-003's "never offset" is the surface-wide pagination rule for collection routes.
-The two ECR-0088 routes (`/api/v1/findings` and `/api/v1/inventory`) are grandfathered
-non-conformances with a scheduled end, not accepted divergence. Offset pagination under
-concurrent writes can skip or repeat rows, the same failure family guarded by this witness arc.
-
-Implementation is ECR-0093. Findings already has the ECR-0062 composite keyset at the store
-level. Inventory returns a budget-governed `InventoryReport` with ECR-0034 degraded semantics;
-ECR-0093 must either fit a stable keyset to that shape or record a named exemption with grounds.
-The ruling holds either way: no collection route keeps offset silently.
+The original text incorrectly named findings and inventory. **ECR-0093 corrects the applicable
+set to inventory and vulnerabilities; findings was already keyset-paged and needed no
+migration.** Both actual offset routes page per-request, budget-governed reports rather than
+durable row streams. ECR-0093 therefore names and guards their snapshot exemptions. The ruling
+survives in substance: no collection route keeps offset silently.
 
 ## 4. Carried constraints
 

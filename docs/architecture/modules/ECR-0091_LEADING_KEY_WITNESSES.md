@@ -77,12 +77,12 @@ The surviving isolation discipline is precise: no witness may be silently covere
 another witness of the same kind. The amendment appears here, in ECR-0090 itself and in the
 ECR-0090 log body.
 
-## 5. Out of scope — recorded state, not folded in
+## 5. Out of scope — recorded state (corrected by ECR-0093)
 
-The offset-versus-keyset split (`/api/v1/findings` and `/api/v1/inventory` against ECR-0089
-FR-003) was out of scope here. **ECR-0092 has now ruled:** FR-003 is surface-wide; those two
-routes are grandfathered non-conformances with a scheduled end in ECR-0093, not accepted
-divergence.
+The original text named findings and inventory as the offset pair. **ECR-0093 corrects the
+applicable set to inventory and vulnerabilities.** Findings was already keyset-paged. The
+surface-wide FR-003 ruling survives; ECR-0093 names and guards the snapshot exemption for the
+two actual offset routes rather than leaving either one silent.
 
 ## 6. Carried constraints
 

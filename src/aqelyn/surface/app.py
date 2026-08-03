@@ -282,13 +282,28 @@ class SurfaceApplication:
 
     async def _findings(self, query: Mapping[str, list[str]]) -> SurfaceResponse:
         tenant_id = self._tenant_id(query)
+        path = "/api/v1/findings"
         limit = _limit(query, allowed={"cursor", "limit", "tenant_id"})
-        cursor = _single(query, "cursor")
+        raw_cursor = _single(query, "cursor")
+        cursor = (
+            None
+            if raw_cursor is None
+            else _decode_inner_cursor(raw_cursor, path=path, tenant_id=tenant_id)
+        )
         service = cast(_FindingReader, self._kernel.get_service("finding_read"))
-        findings, next_cursor = await service.query(
+        findings, next_inner_cursor = await service.query(
             tenant_id=tenant_id,
             limit=limit,
             cursor=cursor,
+        )
+        next_cursor = (
+            None
+            if next_inner_cursor is None
+            else _encode_inner_cursor(
+                path=path,
+                tenant_id=tenant_id,
+                inner=next_inner_cursor,
+            )
         )
         return SurfaceResponse.json(
             200,
@@ -521,8 +536,29 @@ def _page(
 
 
 def _encode_cursor(*, path: str, tenant_id: str | None, offset: int) -> str:
+    return _encode_scoped_cursor(
+        path=path,
+        tenant_id=tenant_id,
+        value={"offset": offset},
+    )
+
+
+def _encode_inner_cursor(*, path: str, tenant_id: str | None, inner: str) -> str:
+    return _encode_scoped_cursor(
+        path=path,
+        tenant_id=tenant_id,
+        value={"inner": inner},
+    )
+
+
+def _encode_scoped_cursor(
+    *,
+    path: str,
+    tenant_id: str | None,
+    value: Mapping[str, object],
+) -> str:
     raw = json.dumps(
-        {"offset": offset, "path": path, "tenant_id": tenant_id},
+        {"path": path, "tenant_id": tenant_id, **value},
         ensure_ascii=True,
         separators=(",", ":"),
         sort_keys=True,
@@ -531,19 +567,53 @@ def _encode_cursor(*, path: str, tenant_id: str | None, offset: int) -> str:
 
 
 def _decode_cursor(value: str, *, path: str, tenant_id: str | None) -> int:
-    try:
-        padded = value + "=" * (-len(value) % 4)
-        payload = json.loads(base64.b64decode(padded, altchars=b"-_", validate=True))
-    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SurfaceRequestInvalid("cursor is malformed") from exc
-    if not isinstance(payload, dict) or set(payload) != {"offset", "path", "tenant_id"}:
-        raise SurfaceRequestInvalid("cursor has an unknown shape")
-    if payload["path"] != path or payload["tenant_id"] != tenant_id:
-        raise SurfaceRequestInvalid("cursor does not belong to this collection scope")
+    payload = _decode_scoped_cursor(
+        value,
+        path=path,
+        tenant_id=tenant_id,
+        value_keys=frozenset(("offset",)),
+    )
     offset = payload["offset"]
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         raise SurfaceRequestInvalid("cursor offset is invalid")
     return offset
+
+
+def _decode_inner_cursor(value: str, *, path: str, tenant_id: str | None) -> str:
+    payload = _decode_scoped_cursor(
+        value,
+        path=path,
+        tenant_id=tenant_id,
+        value_keys=frozenset(("inner",)),
+    )
+    inner = payload["inner"]
+    if not isinstance(inner, str) or not inner:
+        raise SurfaceRequestInvalid("cursor inner value is invalid")
+    return inner
+
+
+def _decode_scoped_cursor(
+    value: str,
+    *,
+    path: str,
+    tenant_id: str | None,
+    value_keys: frozenset[str],
+) -> dict[str, object]:
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        decoded: object = json.loads(base64.b64decode(padded, altchars=b"-_", validate=True))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SurfaceRequestInvalid("cursor is malformed") from exc
+    if not isinstance(decoded, dict):
+        raise SurfaceRequestInvalid("cursor has an unknown shape")
+    payload = cast(dict[str, object], decoded)
+    if not {"path", "tenant_id"}.issubset(payload):
+        raise SurfaceRequestInvalid("cursor has an unknown shape")
+    if payload["path"] != path or payload["tenant_id"] != tenant_id:
+        raise SurfaceRequestInvalid("cursor does not belong to this collection scope")
+    if set(payload) != {"path", "tenant_id"} | value_keys:
+        raise SurfaceRequestInvalid("cursor has an unknown shape")
+    return payload
 
 
 def _error(

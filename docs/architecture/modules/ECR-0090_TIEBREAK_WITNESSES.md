@@ -116,15 +116,12 @@ mutation. Each deletion turns its own witness RED; the static guarantee may addi
 fire on the Postgres cases, which is intended. No witness may be silently covered only by
 another witness of the same kind. The PR description lists the mutation matrix and results.
 
-## 4. Out of scope — the offset coexistence question, flagged for its own ruling
+## 4. Out of scope — the offset coexistence question (corrected by ECR-0093)
 
-The surface now runs two pagination disciplines: keyset on the four widened routes, **offset**
-cursors on `/api/v1/findings` and `/api/v1/inventory` (`surface/app.py:473`, `:523`) — shipped
-by ECR-0088 before FR-003 existed. The reviewer read FR-003 as scoped to ECR-0089's routes;
-this ECR concurs: **not a defect**, and not folded in here. It is recorded as an open
-consistency question deserving its own ECR (natural shape: migrate the two ECR-0088 routes to
-keyset — findings already has the ECR-0062 composite at the store level — or record the split
-as deliberate with grounds). No owner decision is requested by this ECR.
+The original text named findings and inventory as the offset pair. **ECR-0093 corrects the
+applicable set to inventory and vulnerabilities.** Findings was already keyset-paged and needed
+no migration. ECR-0093 records named snapshot exemptions for the two actual offset routes,
+preserves their replay guard, and gives findings the same path/tenant cursor binding.
 
 ## 5. Carried constraints
 

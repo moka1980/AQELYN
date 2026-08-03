@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
+import textwrap
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -347,6 +350,111 @@ async def test_surface_cursor_is_bound_to_route_and_tenant_scope() -> None:
 
     assert response.status == 400
     assert "does not belong" in _payload(response.body)["error"]["message"]
+
+
+async def test_findings_and_offset_cursors_refuse_cross_route_replay_both_directions() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app(
+        inventory=_InventoryReport(assets=["ast_one", "ast_two"], total=2),
+        findings=[_Finding(id="fnd_one", title="One"), _Finding(id="fnd_two", title="Two")],
+    )
+    inventory_page = _payload((await app.handle("GET", "/api/v1/inventory?limit=1")).body)
+    findings_page = _payload((await app.handle("GET", "/api/v1/findings?limit=1")).body)
+
+    findings_with_inventory_cursor = await app.handle(
+        "GET",
+        f"/api/v1/findings?limit=1&cursor={inventory_page['next_cursor']}",
+    )
+    inventory_with_findings_cursor = await app.handle(
+        "GET",
+        f"/api/v1/inventory?limit=1&cursor={findings_page['next_cursor']}",
+    )
+
+    assert findings_with_inventory_cursor.status == 400
+    assert inventory_with_findings_cursor.status == 400
+    assert "does not belong" in _payload(findings_with_inventory_cursor.body)["error"]["message"]
+    assert "does not belong" in _payload(inventory_with_findings_cursor.body)["error"]["message"]
+
+
+@pytest.mark.parametrize("route", ["inventory", "findings"])
+async def test_surface_cursor_refuses_cross_tenant_replay(route: str) -> None:
+    first_tenant = str(uuid4())
+    second_tenant = str(uuid4())
+    app, _inventory, _findings, _vulnerabilities = _app(
+        tenant_mode="enterprise",
+        inventory=_InventoryReport(assets=["ast_one", "ast_two"], total=2),
+        findings=[_Finding(id="fnd_one", title="One"), _Finding(id="fnd_two", title="Two")],
+    )
+    first_page = _payload(
+        (
+            await app.handle(
+                "GET",
+                f"/api/v1/{route}?tenant_id={first_tenant}&limit=1",
+            )
+        ).body
+    )
+
+    response = await app.handle(
+        "GET",
+        f"/api/v1/{route}?tenant_id={second_tenant}&limit=1&cursor={first_page['next_cursor']}",
+    )
+
+    assert response.status == 400
+    assert "does not belong" in _payload(response.body)["error"]["message"]
+
+
+async def test_surface_refuses_pre_ecr0093_unscoped_finding_cursor_cleanly() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app(
+        findings=[_Finding(id="fnd_one", title="One"), _Finding(id="fnd_two", title="Two")]
+    )
+
+    response = await app.handle("GET", "/api/v1/findings?limit=1&cursor=1")
+
+    assert response.status == 400
+    assert _payload(response.body)["error"]["code"] == "SurfaceRequestInvalid"
+
+
+def test_only_named_snapshot_routes_use_offset_pagination() -> None:
+    tree = ast.parse(textwrap.dedent(inspect.getsource(SurfaceApplication)))
+    callers: set[str] = set()
+    for function in (node for node in ast.walk(tree) if isinstance(node, ast.AsyncFunctionDef)):
+        if any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_page_request"
+            for node in ast.walk(function)
+        ):
+            callers.add(function.name)
+
+    assert callers == {"_inventory", "_vulnerabilities"}
+
+
+async def test_named_snapshot_exemptions_keep_honesty_metadata_visible() -> None:
+    app, _inventory, _findings, _vulnerabilities = _app(
+        inventory=_InventoryReport(
+            assets=["ast_one"],
+            total=1,
+            degraded=True,
+            source_freshness={"asset_store": NOW},
+        ),
+        assessment=_Assessment(priorities=[], degraded=True),
+    )
+
+    inventory = _payload((await app.handle("GET", "/api/v1/inventory")).body)["inventory"]
+    assessment = _payload((await app.handle("GET", "/api/v1/vulnerabilities")).body)["assessment"]
+
+    assert inventory == {
+        "as_of": NOW.isoformat(),
+        "degraded": True,
+        "source_freshness": {"asset_store": NOW.isoformat()},
+        "total": 1,
+    }
+    assert assessment == {
+        "coverage": {"scanned": [], "unscanned": [], "stale": [], "unassessable": []},
+        "degraded": True,
+        "generated_at": NOW.isoformat(),
+        "suppressed_count": 0,
+        "unavailable": [],
+    }
 
 
 async def test_surface_requires_explicit_enterprise_tenant() -> None:
