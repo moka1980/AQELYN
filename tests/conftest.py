@@ -3,15 +3,70 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
+from types import TracebackType
+from typing import Protocol, cast
 
+import asyncpg
 import pytest
 
 from aqelyn.graph import InMemoryKnowledgeGraph, KnowledgeGraph, PostgresKnowledgeGraph
 from aqelyn.objects import InMemoryObjectStore, ObjectStore
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
+
+
+class _PinnedAcquire:
+    def __init__(self, connection: asyncpg.Connection) -> None:
+        self._connection = connection
+
+    async def __aenter__(self) -> asyncpg.Connection:
+        return self._connection
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        del exc_type, exc, traceback
+
+
+class _PinnedPool:
+    def __init__(self, connection: asyncpg.Connection) -> None:
+        self._connection = connection
+
+    def acquire(self) -> _PinnedAcquire:
+        return _PinnedAcquire(self._connection)
+
+
+class _PoolOwner(Protocol):
+    _pool: asyncpg.Pool
+
+
+@asynccontextmanager
+async def _forced_keyset_plan(store: object) -> AsyncIterator[None]:
+    owner = cast(_PoolOwner, store)
+    pool = owner._pool
+    if not isinstance(pool, asyncpg.Pool):
+        raise AssertionError("forced keyset plans require a Postgres-backed store")
+    async with pool.acquire() as connection:
+        await connection.execute("SET enable_indexscan = off")
+        await connection.execute("SET enable_bitmapscan = off")
+        owner._pool = cast(asyncpg.Pool, _PinnedPool(connection))
+        try:
+            yield
+        finally:
+            owner._pool = pool
+            await connection.execute("RESET enable_bitmapscan")
+            await connection.execute("RESET enable_indexscan")
+
+
+@pytest.fixture
+def forced_keyset_plan() -> Callable[[object], AbstractAsyncContextManager[None]]:
+    return _forced_keyset_plan
 
 
 @dataclass

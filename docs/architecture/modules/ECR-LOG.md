@@ -94,6 +94,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0087 | EA-0058 + EA-0060 + EA-0061 | Accepted (record-only read complete) | **Third generator template, not standards.** The 703-line shape contains no topic-specific normative requirements; the ECR-0086 conformance-read debt is discharged. |
 | ECR-0088 | Local operator surface | Accepted (surface v1) | **The first user-facing path into the real kernel.** A stdlib read API and thin UI bind loopback only; outbound networking remains absent and non-loopback remains owner-gated. |
 | ECR-0089 | Local operator surface + reporting | Accepted (surface widening) | **Owner-provided read seams widen the surface without engine coupling.** ISPM, exposure, secrets and supply chain join the Runtime; P-001 uses the same registered publish/read path. |
+| ECR-0090 | ECR-0089 read seams | Accepted (tiebreak witnesses) | **Correct keyset reads lacked witnesses for their trailing tiebreaks.** Decorrelated fixtures and forced Postgres plans make silent skips observable; a static guard pins query table, order, index name and direction. |
 
 ---
 
@@ -6698,3 +6699,33 @@ the events are not persisted, sent over a socket, or exposed by the surface.
 This ECR decides the read-service seam once for future widening. It does not authorize writes,
 authentication deferral beyond loopback/read-only, non-loopback binding, frameworks, surface
 events, or routes for infrastructure and remaining domains.
+
+## ECR-0090 - Keyset tiebreak witnesses
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0089 review; implemented by Codex.
+**Status:** Accepted - tiebreak witnesses shipped.
+**Number:** re-verified as the next contiguous number after ECR-0089.
+
+### 1. Finding
+
+The four ECR-0089 reads carried correct composite keysets, but their tests did not prove the
+trailing tiebreak. Time-ordered identifiers correlated the expected order with insertion order,
+and Postgres covering indexes supplied the omitted order under the default plan. In the measured
+ISPM case, deleting the tiebreak returned two of six rows and silently skipped four.
+
+### 2. Resolution
+
+Exposure, ISPM, secrets and supply-chain fixtures now pre-mint each read's own tiebreak values and
+insert them in reverse while tying the leading key. Memory and Postgres variants walk limits
+`1..N` to exhaustion; Postgres runs on the exact session with index and bitmap scans disabled and
+resets both settings afterward.
+
+A static guarantee separately pins the query table and ordered columns to the named ASC covering
+index for exposure, ISPM and supply chain. Secrets is deliberately excluded from that static
+claim: its read orders a `DISTINCT ON` CTE result and no covering index backs that outer query.
+
+### 3. Scope
+
+Tests and one static guarantee only; no production code, dependency, pagination contract or
+surface boundary changes. The older offset cursors on findings and inventory remain a separately
+recorded consistency question.

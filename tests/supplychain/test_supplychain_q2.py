@@ -5,8 +5,8 @@ from __future__ import annotations
 import inspect
 import os
 import socket
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import NoReturn, Protocol, cast
@@ -380,34 +380,48 @@ def _assessment(*, tenant_id: str | None = TENANT) -> SupplyChainAssessment:
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
-async def test_component_read_keyset_is_exhaustive(kind: str) -> None:
+async def test_component_read_keyset_tiebreak_witness(
+    kind: str,
+    forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
+) -> None:
     async with _harness(kind) as harness:
-        stored = [
-            await harness.store.put_component(_component(purl=f"pkg:pypi/read-{index}@1.0.0"))
-            for index in range(5)
-        ]
-        expected = [
-            record.object_id
-            for record in sorted(stored, key=lambda item: (item.provenance_status, item.object_id))
-        ]
-
-        for limit in (1, 2, 3, 4, 5):
-            after: tuple[ProvenanceStatus, str] | None = None
-            seen: list[str] = []
-            while True:
-                store_page, after = await harness.store.query_components_for_read(
-                    tenant_id=TENANT,
-                    after=after,
-                    limit=limit,
+        object_ids = sorted(new_id("obj") for _ in range(5))
+        for index, object_id in enumerate(reversed(object_ids)):
+            await harness.store.put_component(
+                _component(
+                    purl=f"pkg:pypi/read-{index}@1.0.0",
+                    object_id=object_id,
                 )
-                seen.extend(record.object_id for record in store_page)
-                if after is None:
-                    break
-            assert seen == expected
-            assert len(seen) == len(set(seen))
+            )
+
+        async def assert_walk() -> None:
+            for limit in range(1, len(object_ids) + 1):
+                after: tuple[ProvenanceStatus, str] | None = None
+                seen: list[str] = []
+                while True:
+                    store_page, after = await harness.store.query_components_for_read(
+                        tenant_id=TENANT,
+                        after=after,
+                        limit=limit,
+                    )
+                    seen.extend(record.object_id for record in store_page)
+                    if after is None:
+                        break
+                assert seen == object_ids
+                assert len(seen) == len(set(seen))
+
+        if kind == "postgres":
+            async with forced_keyset_plan(harness.store):
+                await assert_walk()
+        else:
+            await assert_walk()
 
         read_service = SupplyChainReadService(harness.store, tenant_mode="enterprise")
-        read_page = await read_service.list_components(tenant_id=TENANT, limit=5, cursor=None)
+        read_page = await read_service.list_components(
+            tenant_id=TENANT,
+            limit=len(object_ids),
+            cursor=None,
+        )
         assert all(item.explain is None for item in read_page.items)
 
 
