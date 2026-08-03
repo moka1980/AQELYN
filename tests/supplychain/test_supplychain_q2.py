@@ -425,6 +425,41 @@ async def test_component_read_keyset_tiebreak_witness(
         assert all(item.explain is None for item in read_page.items)
 
 
+async def test_component_read_keyset_leading_key_witness() -> None:
+    async with _harness("inmemory") as harness:
+        provenance_values: list[ProvenanceStatus] = sorted(["verified", "unverified", "failed"])
+        object_ids = sorted(new_id("obj") for _ in provenance_values)
+
+        # Provenance values are reverse-inserted while object ids run the other
+        # way, so an object-id-only sort is the reverse of the required order.
+        for index, (provenance_status, object_id) in enumerate(
+            zip(reversed(provenance_values), object_ids, strict=True)
+        ):
+            await harness.store.put_component(
+                _component(
+                    purl=f"pkg:pypi/leading-{index}@1.0.0",
+                    provenance_status=provenance_status,
+                    object_id=object_id,
+                )
+            )
+
+        expected = list(reversed(object_ids))
+        for limit in range(1, len(expected) + 1):
+            after: tuple[ProvenanceStatus, str] | None = None
+            seen: list[str] = []
+            while True:
+                store_page, after = await harness.store.query_components_for_read(
+                    tenant_id=TENANT,
+                    after=after,
+                    limit=limit,
+                )
+                seen.extend(record.object_id for record in store_page)
+                if after is None:
+                    break
+            assert seen == expected
+            assert len(seen) == len(set(seen))
+
+
 async def _set_reliability(
     registry: InMemorySourceReliabilityRegistry,
     source_id: str,
