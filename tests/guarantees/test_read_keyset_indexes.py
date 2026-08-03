@@ -13,6 +13,8 @@ import pytest
 
 from aqelyn.exposure.ddl import DDL as EXPOSURE_DDL
 from aqelyn.exposure.postgres import PostgresExposureStore
+from aqelyn.findings.ddl import DDL as FINDINGS_DDL
+from aqelyn.findings.postgres import PostgresFindingStore
 from aqelyn.ispm.ddl import DDL as ISPM_DDL
 from aqelyn.ispm.postgres import PostgresISPMStore
 from aqelyn.supplychain.ddl import DDL as SUPPLYCHAIN_DDL
@@ -39,6 +41,14 @@ class _Contract:
 
 
 _CONTRACTS = (
+    _Contract(
+        name="findings",
+        table="aq_finding",
+        index_name="ix_finding_tenant_severity_id",
+        order_by=(("severity_score", "DESC"), ("id", "ASC")),
+        ddl=FINDINGS_DDL,
+        method=PostgresFindingStore.query,
+    ),
     _Contract(
         name="exposure",
         table="aq_exposure_record",
@@ -84,13 +94,25 @@ def _sql_shape(node: ast.expr) -> str | None:
 
 def _read_query(method: Callable[..., object]) -> str:
     tree = ast.parse(textwrap.dedent(inspect.getsource(method)))
+    assigned: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        target = node.targets[0]
+        sql = _sql_shape(node.value)
+        if isinstance(target, ast.Name) and sql is not None:
+            assigned[target.id] = sql
+
     candidates: list[str] = []
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not node.args:
             continue
         if not isinstance(node.func, ast.Attribute) or node.func.attr != "fetch":
             continue
-        sql = _sql_shape(node.args[0])
+        argument = node.args[0]
+        sql = _sql_shape(argument)
+        if sql is None and isinstance(argument, ast.Name):
+            sql = assigned.get(argument.id)
         if sql is not None and "ORDER BY" in sql:
             candidates.append(sql)
     if len(candidates) != 1:

@@ -48,6 +48,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_finding_dedup
 DROP INDEX IF EXISTS ix_finding_status_sev;
 CREATE INDEX IF NOT EXISTS ix_finding_status_sev_id
     ON aq_finding (tenant_id, status, severity_score DESC, id);
+-- ECR-0093: the surface read has no status predicate, so it needs the same
+-- keyset order without `status` interrupting the usable index prefix.
+CREATE INDEX IF NOT EXISTS ix_finding_tenant_severity_id
+    ON aq_finding (tenant_id, severity_score DESC, id);
 CREATE TABLE IF NOT EXISTS aq_finding_evidence (
     finding_id  text NOT NULL REFERENCES aq_finding(id),
     evidence_id text NOT NULL,

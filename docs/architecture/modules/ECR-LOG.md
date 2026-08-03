@@ -94,9 +94,10 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0087 | EA-0058 + EA-0060 + EA-0061 | Accepted (record-only read complete) | **Third generator template, not standards.** The 703-line shape contains no topic-specific normative requirements; the ECR-0086 conformance-read debt is discharged. |
 | ECR-0088 | Local operator surface | Accepted (surface v1) | **The first user-facing path into the real kernel.** A stdlib read API and thin UI bind loopback only; outbound networking remains absent and non-loopback remains owner-gated. |
 | ECR-0089 | Local operator surface + reporting | Accepted (surface widening) | **Owner-provided read seams widen the surface without engine coupling.** ISPM, exposure, secrets and supply chain join the Runtime; P-001 uses the same registered publish/read path. |
-| ECR-0090 | ECR-0089 read seams | Accepted (tiebreak witnesses; R4 amended by ECR-0091) | **Correct keyset reads lacked witnesses for their trailing tiebreaks.** Decorrelated fixtures and forced Postgres plans make silent skips observable; a static guard pins query table, order, index name and direction. |
-| ECR-0091 | ECR-0089 read seams | Accepted (leading-key witnesses; Postgres exception closed by ECR-0092) | **The mirror of a guard is not guarded by the guard.** Reverse-inserted leading values and deliberately conflicting tiebreak order make each in-memory leading key load-bearing. |
-| ECR-0092 | Secrets Postgres read + surface pagination | Accepted (final keyset witness; offset ruling) | **The exception to a guard needs its own owner.** A forced-plan witness closes secrets' Postgres leading key; FR-003 becomes surface-wide and ECR-0093 ends or explicitly exempts the two legacy offset routes. |
+| ECR-0090 | ECR-0089 read seams | Accepted (tiebreak witnesses; amended by ECR-0091/0093) | **Correct keyset reads lacked witnesses for their trailing tiebreaks.** Decorrelated fixtures and forced Postgres plans make silent skips observable; a static guard pins query table, order, index name and direction. ECR-0093 corrects the named offset pair. |
+| ECR-0091 | ECR-0089 read seams | Accepted (leading-key witnesses; amended by ECR-0092/0093) | **The mirror of a guard is not guarded by the guard.** Reverse-inserted leading values and deliberately conflicting tiebreak order make each in-memory leading key load-bearing. ECR-0093 corrects the named offset pair. |
+| ECR-0092 | Secrets Postgres read + surface pagination | Accepted (final keyset witness; applicable routes corrected by ECR-0093) | **The exception to a guard needs its own owner.** A forced-plan witness closes secrets' Postgres leading key; FR-003 becomes surface-wide and ECR-0093 names and guards the two snapshot exemptions. |
+| ECR-0093 | Surface pagination | Accepted (named snapshot exemptions; one cursor contract) | **A citation can be precisely right and still point at the wrong thing.** The actual offset routes are inventory and vulnerabilities; findings was already keyset-paged. Snapshot exemptions stay visible, and findings gains scope binding plus its covering index. |
 
 ---
 
@@ -6729,8 +6730,7 @@ claim: its read orders a `DISTINCT ON` CTE result and no covering index backs th
 ### 3. Scope
 
 Tests and one static guarantee only; no production code, dependency, pagination contract or
-surface boundary changes. The older offset cursors on findings and inventory remain a separately
-recorded consistency question.
+surface boundary changes.
 
 ### 4. Amendment by ECR-0091
 
@@ -6738,6 +6738,12 @@ R4's original statement that each Postgres deletion turns "exactly its own witne
 stronger than the evidence and conflicts with the intended static defence in depth. The amended
 standard is: each deletion turns its own witness red; the static guarantee may additionally fire
 on Postgres cases. No witness may be silently covered only by another witness of the same kind.
+
+### 5. Amendment by ECR-0093
+
+The original scope text named findings and inventory as the offset pair. ECR-0093 corrects the
+applicable set to inventory and vulnerabilities. Findings was already keyset-paged and needed no
+migration.
 
 ## ECR-0091 - Leading-key witnesses
 
@@ -6783,8 +6789,8 @@ witness of the same kind.
 
 Tests and records only. Production reads, persistence, dependencies, loopback boundaries and
 GC-002/GC-003/GC-004 remain unchanged. ECR-0092 subsequently made ECR-0089 FR-003 surface-wide;
-the findings and inventory offset routes are grandfathered non-conformances scheduled for
-resolution by ECR-0093.
+ECR-0093 corrects the offset pair to inventory and vulnerabilities, then names and guards their
+snapshot exemptions. Findings was already keyset-paged.
 
 ## ECR-0092 - The last unguarded keyset property and the offset ruling
 
@@ -6814,18 +6820,60 @@ The existing memory witness and the new Postgres witness share the same legal-ki
 walk helper. ECR-0091's exposure witness also replaces its tautological ID assertion with the
 falsifiable `id_only != expected` shape.
 
-### 3. Offset ruling
+### 3. Offset ruling - applicable set corrected by ECR-0093
 
-ECR-0089 FR-003's "never offset" requirement is surface-wide for collection routes. The two
-ECR-0088 routes, `/api/v1/findings` and `/api/v1/inventory`, are grandfathered non-conformances
-with a scheduled end, not acceptable divergence.
-
-ECR-0093 implements the ruling. Findings should use its existing ECR-0062 composite keyset.
-Inventory's budget-governed, degraded-aware report shape must either receive a stable keyset or a
-named exemption with grounds. No collection route may retain offset pagination silently.
+ECR-0089 FR-003's "never offset" requirement is surface-wide for collection routes. The original
+text incorrectly named findings and inventory. ECR-0093 corrects the applicable set to inventory
+and vulnerabilities; findings was already keyset-paged and needed no migration. Both actual
+offset routes page per-request reports rather than durable row streams, so ECR-0093 names and
+guards their snapshot exemptions. The ruling survives: no collection route retains offset
+silently.
 
 ### 4. Scope
 
 Tests and records only; no production source, dependency, persistence, loopback or GC posture
 changes. ECR-0034 degraded, ECR-0061 exhaust-or-refuse, ECR-0062 keyset, rule 33 and the
 ECR-0090/ECR-0091 method notes remain binding.
+
+## ECR-0093 - The offset routes: correction, named exemptions and one cursor contract
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0092 review; implemented by Codex.
+**Status:** Accepted - snapshot exemptions and cursor contract shipped.
+**Number:** re-verified as the next contiguous number after ECR-0092.
+
+### 1. Correction of record
+
+ECR-0090, ECR-0091 and ECR-0092 named findings and inventory as the two surface offset routes.
+The actual `_page_request` callers are inventory and vulnerabilities. Findings has always called
+the owner's ECR-0062 keyset query. The prior three bodies and index rows are visibly amended; the
+surface-wide ruling survives with its applicable set corrected.
+
+### 2. Named snapshot exemptions
+
+Inventory and vulnerabilities page per-request, budget-governed reports rather than durable row
+streams. A cursor from snapshot N has no defined position in snapshot N+1 under either offset or
+keyset. Both routes therefore retain offset as named exemptions. A static census permits exactly
+those two callers, and behavioural controls pin each report's `degraded`, capture time and
+freshness or coverage metadata. If either route is re-pointed at a durable row stream, its
+exemption lapses and the redesign requires its own ECR.
+
+### 3. One surface cursor contract
+
+The existing offset envelope keeps its `path` and `tenant_id` binding. Findings now wraps the
+store's unchanged opaque keyset cursor in the same scoped envelope. Cross-route and cross-tenant
+replay fails with `SurfaceRequestInvalid` and a clean HTTP 400 in both directions. Previously
+minted unscoped findings cursors are intentionally incompatible; no shim or silent reset exists.
+
+### 4. Findings index
+
+The findings DDL adds `ix_finding_tenant_severity_id` on
+`(tenant_id, severity_score DESC, id ASC)`. The existing ECR-0090 static guard now pins the
+query table, index name and per-column direction. This is one index and no table-shape change;
+it adds no GC-004 census field. Behavioural leading/tiebreak deletion probes remain a reviewer
+obligation and are not silently claimed by the static check.
+
+### 5. Scope and method
+
+Reads-only, loopback, no new dependency, GC-002/GC-003 unchanged. A citation can be precisely
+right and still point at the wrong thing: when naming callers of a mechanism, inspect the call
+sites rather than inferring them from nearby line numbers.
