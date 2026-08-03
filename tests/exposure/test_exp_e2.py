@@ -181,7 +181,8 @@ async def test_exp_read_keyset_leading_key_witness() -> None:
         )
 
     expected = list(reversed(ids))
-    assert sorted(ids) == list(reversed(expected))
+    id_only = sorted(ids)
+    assert id_only != expected
     await _assert_read_walk(store, expected)
 
 

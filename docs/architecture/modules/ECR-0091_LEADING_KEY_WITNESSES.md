@@ -58,10 +58,11 @@ Secrets' legal set is `certificate`, `key`, `secret`; the fixture asserts exact 
 three legal kinds, so the test states and proves the actual discriminating property rather than
 claiming an impossible fixture shape.
 
-**R2 — Postgres scoped out, with grounds recorded.** ECR-0090's static guard already pins each
-covered Postgres query's `ORDER BY` column list by name, table and direction, and a leading-column
-deletion makes it fail. A forced-plan witness would add run cost for coverage that exists. If a
-future change unpins an index from R3's table, the Postgres leading key re-enters scope with it.
+**R2 — Postgres scoped out, with grounds recorded (amended by ECR-0092).** ECR-0090's static
+guard already pins each covered Postgres query's `ORDER BY` column list by name, table and
+direction, and a leading-column deletion makes it fail. ECR-0092 records and closes the exception:
+secrets is outside that static guard because its `DISTINCT ON` CTE has no covering index, so its
+Postgres leading key now has a dedicated forced-plan witness.
 
 ## 4. Correction to ECR-0090 R4 — amendment of record
 
@@ -79,9 +80,9 @@ ECR-0090 log body.
 ## 5. Out of scope — recorded state, not folded in
 
 The offset-versus-keyset split (`/api/v1/findings` and `/api/v1/inventory` against ECR-0089
-FR-003) remains out of scope. It has been recorded twice as deserving its own ruling. The spec
-author intends to draft it next after ECR-0091 lands unless the owner objects or a more urgent
-review finding supersedes it.
+FR-003) was out of scope here. **ECR-0092 has now ruled:** FR-003 is surface-wide; those two
+routes are grandfathered non-conformances with a scheduled end in ECR-0093, not accepted
+divergence.
 
 ## 6. Carried constraints
 
