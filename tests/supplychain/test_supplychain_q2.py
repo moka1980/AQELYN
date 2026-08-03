@@ -398,7 +398,7 @@ async def test_component_read_keyset_tiebreak_witness(
             for limit in range(1, len(object_ids) + 1):
                 after: tuple[ProvenanceStatus, str] | None = None
                 seen: list[str] = []
-                while True:
+                for _page_number in range(len(object_ids) + 2):
                     store_page, after = await harness.store.query_components_for_read(
                         tenant_id=TENANT,
                         after=after,
@@ -407,6 +407,8 @@ async def test_component_read_keyset_tiebreak_witness(
                     seen.extend(record.object_id for record in store_page)
                     if after is None:
                         break
+                else:
+                    raise AssertionError("supply-chain read tiebreak walk did not terminate")
                 assert seen == object_ids
                 assert len(seen) == len(set(seen))
 
@@ -447,7 +449,7 @@ async def test_component_read_keyset_leading_key_witness() -> None:
         for limit in range(1, len(expected) + 1):
             after: tuple[ProvenanceStatus, str] | None = None
             seen: list[str] = []
-            while True:
+            for _page_number in range(len(expected) + 2):
                 store_page, after = await harness.store.query_components_for_read(
                     tenant_id=TENANT,
                     after=after,
@@ -456,6 +458,8 @@ async def test_component_read_keyset_leading_key_witness() -> None:
                 seen.extend(record.object_id for record in store_page)
                 if after is None:
                     break
+            else:
+                raise AssertionError("supply-chain read leading-key walk did not terminate")
             assert seen == expected
             assert len(seen) == len(set(seen))
 

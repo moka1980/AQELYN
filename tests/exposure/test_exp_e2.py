@@ -88,7 +88,7 @@ async def _assert_read_walk(store: ExposureStore, expected: list[str]) -> None:
     for limit in range(1, len(expected) + 1):
         after: tuple[datetime, str] | None = None
         seen: list[str] = []
-        while True:
+        for _page_number in range(len(expected) + 2):
             store_page, after = await store.query_for_read(
                 tenant_id=TENANT,
                 after=after,
@@ -97,6 +97,8 @@ async def _assert_read_walk(store: ExposureStore, expected: list[str]) -> None:
             seen.extend(record.id for record in store_page)
             if after is None:
                 break
+        else:
+            raise AssertionError("exposure read keyset walk did not terminate")
         assert seen == expected
         assert len(seen) == len(set(seen))
 

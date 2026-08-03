@@ -49,6 +49,7 @@ PG_URL = os.getenv("AQELYN_DATABASE_URL")
 ROOT = Path(__file__).resolve().parents[2]
 TENANT = "018f0000-0000-7000-8000-000000370100"
 _ACTOR = ActorRef(actor_type="user", actor_id="c037-reviewer")
+MAX_WALK_PAGES = 100
 
 MATRIX = [
     pytest.param("memory", "local", id="memory-local"),
@@ -118,14 +119,14 @@ async def _page_everything(store: FindingStore, *, tenant_id: str | None, limit:
     """Page to exhaustion the way a caller is meant to, collecting ids in order."""
     seen: list[str] = []
     cursor: str | None = None
-    for _ in range(100):  # loop guard: the suite never needs this many pages
+    for _page_number in range(MAX_WALK_PAGES):
         page, cursor = await store.query(
             FindingQuery(tenant_id=tenant_id, limit=limit, cursor=cursor)
         )
         seen.extend(f.id for f in page)
         if cursor is None:
             return seen
-    raise AssertionError("pagination did not terminate")
+    raise AssertionError("finding cursor full walk did not terminate")
 
 
 # --- Q1/Q3: the contract ---------------------------------------------------------
@@ -252,13 +253,15 @@ async def test_finding_cursor_applies_filters_before_limit(backend: str, tenant_
 
         seen: list[str] = []
         cursor: str | None = None
-        while True:
+        for _page_number in range(MAX_WALK_PAGES):
             page, cursor = await store.query(
                 FindingQuery(tenant_id=tenant_id, status=("open",), limit=2, cursor=cursor)
             )
             seen.extend(f.id for f in page)
             if cursor is None:
                 break
+        else:
+            raise AssertionError("finding cursor filtered walk did not terminate")
 
         assert target.id not in seen
         assert len(seen) == 4

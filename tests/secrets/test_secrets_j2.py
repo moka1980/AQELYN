@@ -663,7 +663,7 @@ async def test_crypto_asset_read_keyset_tiebreak_witness_and_owner_explanation(
             for limit in range(1, len(ids) + 1):
                 after: tuple[CryptoAssetKind, str] | None = None
                 seen: list[str] = []
-                while True:
+                for _page_number in range(len(ids) + 2):
                     store_page, after = await store.query_assets_for_read(
                         tenant_id=TENANT,
                         after=after,
@@ -672,6 +672,8 @@ async def test_crypto_asset_read_keyset_tiebreak_witness_and_owner_explanation(
                     seen.extend(record.id for record in store_page)
                     if after is None:
                         break
+                else:
+                    raise AssertionError("secrets read tiebreak walk did not terminate")
                 assert seen == ids
                 assert len(seen) == len(set(seen))
 
@@ -716,7 +718,7 @@ async def _assert_crypto_asset_read_walk(store: CryptoStore, expected: list[str]
     for limit in range(1, len(expected) + 1):
         after: tuple[CryptoAssetKind, str] | None = None
         seen: list[str] = []
-        while True:
+        for _page_number in range(len(expected) + 2):
             store_page, after = await store.query_assets_for_read(
                 tenant_id=TENANT,
                 after=after,
@@ -725,6 +727,8 @@ async def _assert_crypto_asset_read_walk(store: CryptoStore, expected: list[str]
             seen.extend(record.id for record in store_page)
             if after is None:
                 break
+        else:
+            raise AssertionError("secrets read leading-key walk did not terminate")
         assert seen == expected
         assert len(seen) == len(set(seen))
 

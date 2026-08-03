@@ -98,7 +98,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0091 | ECR-0089 read seams | Accepted (leading-key witnesses; amended by ECR-0092/0093) | **The mirror of a guard is not guarded by the guard.** Reverse-inserted leading values and deliberately conflicting tiebreak order make each in-memory leading key load-bearing. ECR-0093 corrects the named offset pair. |
 | ECR-0092 | Secrets Postgres read + surface pagination | Accepted (final keyset witness; applicable routes corrected by ECR-0093) | **The exception to a guard needs its own owner.** A forced-plan witness closes secrets' Postgres leading key; FR-003 becomes surface-wide and ECR-0093 names and guards the two snapshot exemptions. |
 | ECR-0093 | Surface pagination | Accepted (named snapshot exemptions; one cursor contract) | **A citation can be precisely right and still point at the wrong thing.** The actual offset routes are inventory and vulnerabilities; findings was already keyset-paged. Snapshot exemptions stay visible, and findings gains scope binding plus its covering index. |
-| ECR-0094 | Findings keyset read | Accepted (memory + forced-plan Postgres witnesses) | **Walking is what tests the predicate.** Findings gains deliberate leading-key, tiebreak and resume-predicate witnesses on both stores, closing the last silent member of the surface read arc. |
+| ECR-0094 | Findings keyset read | Accepted (memory + forced-plan Postgres witnesses; review-result wording amended by ECR-0095) | **Walking is what tests the predicate.** Findings gains deliberate leading-key, tiebreak and resume-predicate witnesses on both stores, closing the last silent member of the surface read arc. |
+| ECR-0095 | Test witness cursor walks (+ ECR-0094) | Accepted (walk termination guards) | **A cursor defect must fail, not hang.** All 14 test walks are bounded and diagnostic; ECR-0094 review treats every result other than clean RED as a finding. |
 
 ---
 
@@ -6917,3 +6918,47 @@ Together with the named snapshot exemptions from ECR-0093, every ordering proper
 surface collection read is now either mutation-proven on both stores or explicitly exempt with
 grounds. The reviewer re-runs the 19 carried mutations and measures the four widened reads'
 predicate coverage before merge.
+
+### 5. Amendment by ECR-0095
+
+R4's review disposition is widened from "any green result is recorded as a follow-up finding"
+to **"any result that is not a clean RED is recorded as a follow-up finding."** ECR-0095 is
+the worked example: all eight widened-read `>` → `>=` mutations hung rather than returning a
+diagnostic failure, exposing a witness-quality defect while every shipped predicate remained
+correct.
+
+## ECR-0095 - Walk termination guards
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0094 mutation review; implemented by Codex.
+**Status:** Accepted - all 14 test cursor walks are bounded; production pagination is unchanged.
+**Number:** re-verified as the next contiguous number after ECR-0094.
+
+### 1. Finding
+
+All eight widened-read exclusive-predicate mutations produced a hang rather than a clean test
+failure. Repeating the boundary row kept `next_cursor` non-null, and the witnesses' unbounded
+loops converted a precise pagination defect into a CI timeout. A tree sweep found the same idiom
+at 14 sites in 11 test files: seven Group A witness loops and seven Group B cursor walks.
+
+### 2. Resolution
+
+Every test cursor walk is bounded. Walks with a known expected population use
+`range(len(expected) + 2)` or the equivalent fixture population; generic walks use a named
+module-level `MAX_WALK_PAGES` large enough for their healthy corpus. Every exhaustion assertion
+names the walk so CI reports the affected contract without waiting for a job timeout.
+
+The eight Group A predicate mutations must now produce clean RED results on memory and Postgres.
+Group B is explicitly guarded-but-unwitnessed: its five-domain predicate-mutation arc remains
+deferred, with the surface HTTP findings walk and findings cursor-contract test first.
+
+### 3. No weakening and scope
+
+The 29 carried mutations remain in force. Bounds change how a bad witness terminates, not which
+defects it detects; any changed verdict is review-blocking. Tests and records only: zero
+production source, schema, dependency, loopback or GC changes.
+
+### 4. Method
+
+A mutation harness distinguishes RED, GREEN and HANG. A hang is not evidence that a test caught
+the right defect; it is an infrastructure symptom with the diagnosis erased. A defect found in
+one member of a test idiom requires a sweep of the family.
