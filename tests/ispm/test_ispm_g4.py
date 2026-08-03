@@ -380,7 +380,7 @@ async def test_ispm_read_keyset_tiebreak_witness_and_owner_explanation(
             for limit in range(1, len(expected) + 1):
                 after: tuple[str, str] | None = None
                 seen: list[str] = []
-                while True:
+                for _page_number in range(len(expected) + 2):
                     store_page, after = await store.query_scores_for_read(
                         tenant_id=TENANT,
                         after=after,
@@ -389,6 +389,8 @@ async def test_ispm_read_keyset_tiebreak_witness_and_owner_explanation(
                     seen.extend(score.id for score in store_page)
                     if after is None:
                         break
+                else:
+                    raise AssertionError("ISPM read tiebreak walk did not terminate")
                 assert seen == expected
                 assert len(seen) == len(set(seen))
 
@@ -430,7 +432,7 @@ async def test_ispm_read_keyset_leading_key_witness() -> None:
     for limit in range(1, len(expected) + 1):
         after: tuple[str, str] | None = None
         seen: list[str] = []
-        while True:
+        for _page_number in range(len(expected) + 2):
             store_page, after = await store.query_scores_for_read(
                 tenant_id=TENANT,
                 after=after,
@@ -439,6 +441,8 @@ async def test_ispm_read_keyset_leading_key_witness() -> None:
             seen.extend(score.id for score in store_page)
             if after is None:
                 break
+        else:
+            raise AssertionError("ISPM read leading-key walk did not terminate")
         assert seen == expected
         assert len(seen) == len(set(seen))
 

@@ -550,7 +550,7 @@ async def test_dspm_store_contract(kind: str) -> None:
         )
         paged: list[DataAsset] = []
         cursor: str | None = None
-        while True:
+        for _page_number in range(len(ids) + 2):
             rows, cursor = await harness.store.query_assets(
                 tenant_id=TENANT,
                 limit=2,
@@ -559,6 +559,8 @@ async def test_dspm_store_contract(kind: str) -> None:
             paged.extend(rows)
             if cursor is None:
                 break
+        else:
+            raise AssertionError("DSPM asset store cursor walk did not terminate")
 
         current = await harness.store.get_asset(ids[0], tenant_id=TENANT)
         assert current is not None

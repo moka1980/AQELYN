@@ -21,6 +21,7 @@ from aqelyn.supplychain import SoftwareComponent
 from aqelyn.supplychain.read import SupplyChainReadService
 
 NOW = datetime(2026, 8, 2, tzinfo=UTC)
+MAX_WALK_PAGES = 100
 
 
 @dataclass(frozen=True)
@@ -236,7 +237,7 @@ async def test_real_owner_stores_page_without_skip_or_duplicate_and_detail_round
     ) -> list[str]:
         cursor: str | None = None
         seen: list[str] = []
-        while True:
+        for _page_number in range(MAX_WALK_PAGES):
             page = await cast(Any, getattr(service, method_name))(
                 tenant_id=None,
                 limit=1,
@@ -247,6 +248,7 @@ async def test_real_owner_stores_page_without_skip_or_duplicate_and_detail_round
             cursor = page.next_cursor
             if cursor is None:
                 return seen
+        raise AssertionError(f"surface read-service {method_name} walk did not terminate")
 
     assert await collect(runtime.exposure_read_service, "list_exposures") == exposure_ids
     assert await collect(runtime.secrets_read_service, "list_assets") == sorted(secret_ids)

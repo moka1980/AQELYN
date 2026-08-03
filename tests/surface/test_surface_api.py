@@ -17,6 +17,7 @@ from aqelyn.kernel import AQELYNConfig, HealthStatus, create_inmemory_runtime
 from aqelyn.surface.app import MAX_PAGE_SIZE, SURFACE_WORK_BUDGET, SurfaceApplication
 
 NOW = datetime(2026, 8, 2, tzinfo=UTC)
+MAX_WALK_PAGES = 1000
 
 
 @dataclass(frozen=True)
@@ -308,7 +309,7 @@ async def test_surface_paginates_the_10173_finding_acceptance_scale() -> None:
     cursor: str | None = None
     seen: list[str] = []
 
-    while True:
+    for _page_number in range(MAX_WALK_PAGES):
         target = f"/api/v1/findings?limit={MAX_PAGE_SIZE}"
         if cursor is not None:
             target += f"&cursor={cursor}"
@@ -320,6 +321,8 @@ async def test_surface_paginates_the_10173_finding_acceptance_scale() -> None:
         cursor = payload["next_cursor"]
         if cursor is None:
             break
+    else:
+        raise AssertionError("surface HTTP findings walk did not terminate")
 
     assert seen == [finding.id for finding in findings]
     assert finding_service.tenant_calls == [None] * 102

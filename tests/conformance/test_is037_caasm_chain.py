@@ -369,11 +369,13 @@ async def test_asset_store_cursor_contract() -> None:
             # Paging the whole set yields every row exactly once.
             paged: list[str] = []
             cursor: str | None = None
-            while True:
+            for _page_number in range(len(expected) + 2):
                 page, cursor = await store.query(tenant_id=TENANT, limit=2, cursor=cursor)
                 paged.extend(row.id for row in page)
                 if cursor is None:
                     break
+            else:
+                raise AssertionError("IS-037 CAASM inventory cursor walk did not terminate")
             assert paged == expected
     finally:
         for closeable in closeables:

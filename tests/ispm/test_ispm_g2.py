@@ -511,7 +511,7 @@ async def test_ispm_pagination(kind: str) -> None:
         )
         seen: list[str] = []
         cursor: str | None = None
-        while True:
+        for _page_number in range(len(expected) + 2):
             rows, cursor = await harness.store.query_identities(
                 tenant_id=TENANT,
                 provider="entra",
@@ -521,6 +521,8 @@ async def test_ispm_pagination(kind: str) -> None:
             seen.extend(row.object_id for row in rows)
             if cursor is None:
                 break
+        else:
+            raise AssertionError("ISPM identity cursor walk did not terminate")
         assert seen == expected
         exact, next_cursor = await harness.store.query_identities(
             tenant_id=TENANT,

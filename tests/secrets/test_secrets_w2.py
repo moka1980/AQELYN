@@ -512,13 +512,15 @@ async def test_crypto_store_contract(backend: str) -> None:
 
         paged: list[str] = []
         cursor: str | None = None
-        while True:
+        for _page_number in range(len(secret_ids) + 2):
             rows, cursor = await harness.store.query_assets(
                 CryptoQuery(tenant_id=TENANT, kind="secret", limit=25, cursor=cursor)
             )
             paged.extend(asset.id for asset in rows)
             if cursor is None:
                 break
+        else:
+            raise AssertionError("crypto store secret cursor walk did not terminate")
         assert paged == secret_ids
 
         first = cast(SecretAsset, exact[0])
