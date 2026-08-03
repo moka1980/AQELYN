@@ -95,7 +95,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0088 | Local operator surface | Accepted (surface v1) | **The first user-facing path into the real kernel.** A stdlib read API and thin UI bind loopback only; outbound networking remains absent and non-loopback remains owner-gated. |
 | ECR-0089 | Local operator surface + reporting | Accepted (surface widening) | **Owner-provided read seams widen the surface without engine coupling.** ISPM, exposure, secrets and supply chain join the Runtime; P-001 uses the same registered publish/read path. |
 | ECR-0090 | ECR-0089 read seams | Accepted (tiebreak witnesses; R4 amended by ECR-0091) | **Correct keyset reads lacked witnesses for their trailing tiebreaks.** Decorrelated fixtures and forced Postgres plans make silent skips observable; a static guard pins query table, order, index name and direction. |
-| ECR-0091 | ECR-0089 read seams | Accepted (leading-key witnesses) | **The mirror of a guard is not guarded by the guard.** Reverse-inserted leading values and deliberately conflicting tiebreak order make each in-memory leading key load-bearing. |
+| ECR-0091 | ECR-0089 read seams | Accepted (leading-key witnesses; Postgres exception closed by ECR-0092) | **The mirror of a guard is not guarded by the guard.** Reverse-inserted leading values and deliberately conflicting tiebreak order make each in-memory leading key load-bearing. |
+| ECR-0092 | Secrets Postgres read + surface pagination | Accepted (final keyset witness; offset ruling) | **The exception to a guard needs its own owner.** A forced-plan witness closes secrets' Postgres leading key; FR-003 becomes surface-wide and ECR-0093 ends or explicitly exempts the two legacy offset routes. |
 
 ---
 
@@ -6765,12 +6766,12 @@ Secrets enumerates the complete legal kind set before constructing the fixture. 
 ID prefixes prevent a perfect reverse tiebreak ordering, so the witness asserts the load-bearing
 property directly: ID-only order differs from legal kind-first order. No asset kind is invented.
 
-### 3. Postgres scope
+### 3. Postgres scope - amended by ECR-0092
 
-No new Postgres runtime witness is added. ECR-0090's static guard already pins each covered query's
-table, ordered column list, named index and direction; removing a leading SQL order column turns
-that guard red. Postgres leading-key behaviour re-enters scope if a future change unpins one of
-those index contracts.
+ECR-0090's static guard pins each covered query's table, ordered column list, named index and
+direction. ECR-0092 records the exception that this section left unnamed: secrets is outside that
+guard because its `DISTINCT ON` CTE has no covering index, so its Postgres leading key now has a
+dedicated forced-plan witness.
 
 ### 4. ECR-0090 amendment
 
@@ -6781,6 +6782,50 @@ witness of the same kind.
 ### 5. Scope
 
 Tests and records only. Production reads, persistence, dependencies, loopback boundaries and
-GC-002/GC-003/GC-004 remain unchanged. The findings and inventory offset-versus-keyset split stays
-out of scope and is recorded as the spec author's next drafting intent unless superseded by more
-urgent work.
+GC-002/GC-003/GC-004 remain unchanged. ECR-0092 subsequently made ECR-0089 FR-003 surface-wide;
+the findings and inventory offset routes are grandfathered non-conformances scheduled for
+resolution by ECR-0093.
+
+## ECR-0092 - The last unguarded keyset property and the offset ruling
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0091 review; implemented by Codex.
+**Status:** Accepted - final keyset witness and surface-wide pagination ruling shipped.
+**Number:** re-verified as the next contiguous number after ECR-0091.
+
+### 1. Finding
+
+After ECR-0090 and ECR-0091, secrets' Postgres leading key was the only unwitnessed ordering
+property in the widened-read family. Deleting `kind` from its outer `ORDER BY kind, id` left the
+full secrets suite and the static guard green. The SQL was correct; the witness was absent.
+
+This was the third consecutive special case for the same read. Its `DISTINCT ON` CTE correctly
+keeps it outside the covering-index guard used by the other three domains. Any future guarantee
+for "the keyset reads" must therefore name secrets explicitly, in or out with grounds, or it is
+presumed to have missed it.
+
+### 2. Resolution
+
+Secrets now has a dedicated forced-plan Postgres leading-key witness using every legal asset kind.
+The fixture reverse-inserts those kinds, walks limits `1..N`, and asserts exhaustive, unique,
+kind-first order. With index and bitmap scans disabled, the inner CTE emits ID order; only the
+outer Sort on `kind, id` can produce the expected sequence. Removing `kind` makes this witness red.
+
+The existing memory witness and the new Postgres witness share the same legal-kind fixture and
+walk helper. ECR-0091's exposure witness also replaces its tautological ID assertion with the
+falsifiable `id_only != expected` shape.
+
+### 3. Offset ruling
+
+ECR-0089 FR-003's "never offset" requirement is surface-wide for collection routes. The two
+ECR-0088 routes, `/api/v1/findings` and `/api/v1/inventory`, are grandfathered non-conformances
+with a scheduled end, not acceptable divergence.
+
+ECR-0093 implements the ruling. Findings should use its existing ECR-0062 composite keyset.
+Inventory's budget-governed, degraded-aware report shape must either receive a stable keyset or a
+named exemption with grounds. No collection route may retain offset pagination silently.
+
+### 4. Scope
+
+Tests and records only; no production source, dependency, persistence, loopback or GC posture
+changes. ECR-0034 degraded, ECR-0061 exhaust-or-refuse, ECR-0062 keyset, rule 33 and the
+ECR-0090/ECR-0091 method notes remain binding.

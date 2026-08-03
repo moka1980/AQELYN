@@ -695,8 +695,7 @@ async def test_crypto_asset_read_keyset_tiebreak_witness_and_owner_explanation(
         assert all(item.explain is not None for item in read_page.items)
 
 
-async def test_crypto_asset_read_keyset_leading_key_witness() -> None:
-    store = InMemoryCryptoStore(mode="enterprise")
+def _leading_kind_assets() -> tuple[list[CryptoAsset], list[str]]:
     legal_kinds: list[CryptoAssetKind] = ["certificate", "key", "secret"]
     assert set(legal_kinds) == VALID_CRYPTO_ASSET_KINDS
 
@@ -707,13 +706,13 @@ async def test_crypto_asset_read_keyset_leading_key_witness() -> None:
         kind: _read_asset(kind, index) for index, kind in enumerate(reversed(legal_kinds))
     }
     assets = list(assets_by_kind.values())
-    for asset in assets:
-        await store.put_asset(asset)
-
     expected = [assets_by_kind[kind].id for kind in legal_kinds]
     id_only = [asset.id for asset in sorted(assets, key=lambda item: item.id)]
     assert id_only != expected
+    return assets, expected
 
+
+async def _assert_crypto_asset_read_walk(store: CryptoStore, expected: list[str]) -> None:
     for limit in range(1, len(expected) + 1):
         after: tuple[CryptoAssetKind, str] | None = None
         seen: list[str] = []
@@ -728,6 +727,29 @@ async def test_crypto_asset_read_keyset_leading_key_witness() -> None:
                 break
         assert seen == expected
         assert len(seen) == len(set(seen))
+
+
+async def test_crypto_asset_read_keyset_leading_key_witness() -> None:
+    store = InMemoryCryptoStore(mode="enterprise")
+    assets, expected = _leading_kind_assets()
+    for asset in assets:
+        await store.put_asset(asset)
+
+    await _assert_crypto_asset_read_walk(store, expected)
+
+
+async def test_crypto_asset_read_keyset_postgres_leading_key_witness(
+    forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
+) -> None:
+    async with _store("postgres") as store:
+        assets, expected = _leading_kind_assets()
+        for asset in assets:
+            await store.put_asset(asset)
+
+        # With scans disabled, the CTE emits id order. The outer Sort is therefore
+        # the only mechanism that can produce the asserted kind-first sequence.
+        async with forced_keyset_plan(store):
+            await _assert_crypto_asset_read_walk(store, expected)
 
 
 async def test_crypto_gov_factory_owner_handoff_and_assess_wiring() -> None:
