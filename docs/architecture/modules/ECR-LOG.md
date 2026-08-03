@@ -98,6 +98,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0091 | ECR-0089 read seams | Accepted (leading-key witnesses; amended by ECR-0092/0093) | **The mirror of a guard is not guarded by the guard.** Reverse-inserted leading values and deliberately conflicting tiebreak order make each in-memory leading key load-bearing. ECR-0093 corrects the named offset pair. |
 | ECR-0092 | Secrets Postgres read + surface pagination | Accepted (final keyset witness; applicable routes corrected by ECR-0093) | **The exception to a guard needs its own owner.** A forced-plan witness closes secrets' Postgres leading key; FR-003 becomes surface-wide and ECR-0093 names and guards the two snapshot exemptions. |
 | ECR-0093 | Surface pagination | Accepted (named snapshot exemptions; one cursor contract) | **A citation can be precisely right and still point at the wrong thing.** The actual offset routes are inventory and vulnerabilities; findings was already keyset-paged. Snapshot exemptions stay visible, and findings gains scope binding plus its covering index. |
+| ECR-0094 | Findings keyset read | Accepted (memory + forced-plan Postgres witnesses) | **Walking is what tests the predicate.** Findings gains deliberate leading-key, tiebreak and resume-predicate witnesses on both stores, closing the last silent member of the surface read arc. |
 
 ---
 
@@ -6877,3 +6878,42 @@ obligation and are not silently claimed by the static check.
 Reads-only, loopback, no new dependency, GC-002/GC-003 unchanged. A citation can be precisely
 right and still point at the wrong thing: when naming callers of a mechanism, inspect the call
 sites rather than inferring them from nearby line numbers.
+
+## ECR-0094 - Findings keyset witnesses
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0093 mutation review; implemented by Codex.
+**Status:** Accepted - findings ordering and predicate witnesses shipped.
+**Number:** re-verified as the next contiguous number after ECR-0093.
+
+### 1. Finding
+
+ECR-0093's review deleted findings' in-memory leading key and tiebreak independently; both
+mutations stayed green. Postgres turned red only because the static guard parses SQL and DDL.
+That guard cannot reach the memory sort, and it pins `ORDER BY` rather than the separate resume
+predicate on either store. Findings therefore had correct keyset code with no deliberate
+behavioural witness for any component.
+
+### 2. Resolution
+
+Two findings-domain fixtures pre-mint IDs, use distinct dedup keys, assert N stored rows and walk
+every limit from 1 through N to exhaustion. The tiebreak fixture ties every severity and
+reverse-inserts IDs. The leading fixture assigns increasing severity to increasing IDs, making
+correct severity-descending order the reverse of ID-only order. The same fixtures run on memory
+and on Postgres under the shared forced-plan context.
+
+The walks also deliberately guard the resume predicate. Flipping severity direction, changing
+the exclusive ID comparison from `>` to `>=`, or dropping the equal-severity ID clause must turn
+a witness red on each store. Mutation-to-witness mappings are recorded in the implementation PR.
+
+### 3. Scope
+
+Tests and records only; zero production source, schema, dependency, loopback or GC changes.
+ECR-0062's composite keyset and ECR-0063's stable `severity_score` contract remain unchanged and
+are now directly witnessed in the findings domain.
+
+### 4. Closure
+
+Together with the named snapshot exemptions from ECR-0093, every ordering property on every
+surface collection read is now either mutation-proven on both stores or explicitly exempt with
+grounds. The reviewer re-runs the 19 carried mutations and measures the four widened reads'
+predicate coverage before merge.
