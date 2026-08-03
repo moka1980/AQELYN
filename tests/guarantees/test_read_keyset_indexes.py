@@ -1,4 +1,4 @@
-"""ECR-0090 static conformance for keyset read indexes."""
+"""Static conformance for keyset read SQL and its covering indexes."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from aqelyn.findings.ddl import DDL as FINDINGS_DDL
 from aqelyn.findings.postgres import PostgresFindingStore
 from aqelyn.ispm.ddl import DDL as ISPM_DDL
 from aqelyn.ispm.postgres import PostgresISPMStore
+from aqelyn.secrets.postgres import PostgresCryptoStore
 from aqelyn.supplychain.ddl import DDL as SUPPLYCHAIN_DDL
 from aqelyn.supplychain.postgres import PostgresSBOMStore
 
@@ -28,6 +29,7 @@ _INDEX = re.compile(
 )
 _FROM = re.compile(r"\bFROM\s+([a-z0-9_]+)\b", re.IGNORECASE)
 _ORDER_BY = re.compile(r"\bORDER\s+BY\s+(.+?)\s+LIMIT\b", re.IGNORECASE | re.DOTALL)
+_OUTER_ORDER_BY = re.compile(r"\bORDER\s+BY\s+([^)]+?)\s+LIMIT\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,11 @@ _CONTRACTS = (
     ),
 )
 
+_OUTER_ORDER_CONTRACTS = (
+    ("secrets-legacy", PostgresCryptoStore.query_assets, (("id", "ASC"),)),
+    ("ispm-legacy", PostgresISPMStore.query_identities, (("id", "ASC"),)),
+)
+
 
 def _sql_shape(node: ast.expr) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -94,13 +101,13 @@ def _sql_shape(node: ast.expr) -> str | None:
 
 def _read_query(method: Callable[..., object]) -> str:
     tree = ast.parse(textwrap.dedent(inspect.getsource(method)))
-    assigned: dict[str, str] = {}
+    assigned: dict[str, str | None] = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
         target = node.targets[0]
         sql = _sql_shape(node.value)
-        if isinstance(target, ast.Name) and sql is not None:
+        if isinstance(target, ast.Name):
             assigned[target.id] = sql
 
     candidates: list[str] = []
@@ -113,8 +120,12 @@ def _read_query(method: Callable[..., object]) -> str:
         sql = _sql_shape(argument)
         if sql is None and isinstance(argument, ast.Name):
             sql = assigned.get(argument.id)
-        if sql is not None and "ORDER BY" in sql:
-            candidates.append(sql)
+        if sql is None:
+            raise AssertionError(
+                "the argument passed to conn.fetch is not a statically resolvable "
+                "SQL literal; the executed query cannot be pinned"
+            )
+        candidates.append(sql)
     if len(candidates) != 1:
         raise AssertionError(f"expected one read query, found {len(candidates)}")
     return " ".join(candidates[0].split())
@@ -155,3 +166,19 @@ def test_ecr0090_read_order_matches_named_covering_index(contract: _Contract) ->
     assert index_table == contract.table
     expected_prefix = (("tenant_id", "ASC"), *contract.order_by)
     assert index_columns[: len(expected_prefix)] == expected_prefix
+
+
+@pytest.mark.parametrize(
+    ("name", "method", "order_by"),
+    _OUTER_ORDER_CONTRACTS,
+    ids=[contract[0] for contract in _OUTER_ORDER_CONTRACTS],
+)
+def test_ecr0096_legacy_outer_order_is_pinned_on_executed_query(
+    name: str,
+    method: Callable[..., object],
+    order_by: tuple[tuple[str, str], ...],
+) -> None:
+    query = _read_query(method)
+    matches = _OUTER_ORDER_BY.findall(query)
+    assert matches, f"{name}: the executed query has no outer ORDER BY ... LIMIT"
+    assert _columns(matches[-1]) == order_by
