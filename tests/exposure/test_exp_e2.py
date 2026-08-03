@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import socket
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from typing import NoReturn, Protocol, cast
 
@@ -82,6 +83,23 @@ def _record(
     return ExposureRecord.model_validate(data)
 
 
+async def _assert_read_walk(store: ExposureStore, expected: list[str]) -> None:
+    for limit in range(1, len(expected) + 1):
+        after: tuple[datetime, str] | None = None
+        seen: list[str] = []
+        while True:
+            store_page, after = await store.query_for_read(
+                tenant_id=TENANT,
+                after=after,
+                limit=limit,
+            )
+            seen.extend(record.id for record in store_page)
+            if after is None:
+                break
+        assert seen == expected
+        assert len(seen) == len(set(seen))
+
+
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
 async def test_exp_store_contract(kind: str) -> None:
     async for store in _store(kind):
@@ -123,27 +141,20 @@ async def test_exp_tenant_isolation(kind: str) -> None:
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
-async def test_exp_read_keyset_is_exhaustive_with_tied_sort_keys(kind: str) -> None:
+async def test_exp_read_keyset_tiebreak_witness(
+    kind: str,
+    forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
+) -> None:
     async for store in _store(kind):
-        stored = [await store.put(_record(ref_id=f"asset:read-{index}")) for index in range(5)]
-        expected = [
-            record.id for record in sorted(stored, key=lambda item: (item.discovered_at, item.id))
-        ]
+        ids = sorted(new_id("exp") for _ in range(5))
+        for index, exposure_id in enumerate(reversed(ids)):
+            await store.put(_record(exposure_id=exposure_id, ref_id=f"asset:read-{index}"))
 
-        for limit in (1, 2, 3, 4, 5):
-            after: tuple[datetime, str] | None = None
-            seen: list[str] = []
-            while True:
-                store_page, after = await store.query_for_read(
-                    tenant_id=TENANT,
-                    after=after,
-                    limit=limit,
-                )
-                seen.extend(record.id for record in store_page)
-                if after is None:
-                    break
-            assert seen == expected
-            assert len(seen) == len(set(seen))
+        if kind == "postgres":
+            async with forced_keyset_plan(store):
+                await _assert_read_walk(store, ids)
+        else:
+            await _assert_read_walk(store, ids)
 
         read_service = ExposureReadService(store, tenant_mode="enterprise")
         read_page = await read_service.list_exposures(tenant_id=TENANT, limit=5, cursor=None)

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any, Literal, Protocol, cast
 
@@ -583,15 +583,18 @@ async def test_crypto_gov_store_contract(kind: str) -> None:
 
 
 @pytest.mark.parametrize("kind", ["inmemory", "postgres"])
-async def test_crypto_asset_read_keyset_and_owner_explanation(kind: str) -> None:
+async def test_crypto_asset_read_keyset_tiebreak_witness_and_owner_explanation(
+    kind: str,
+    forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
+) -> None:
     async with _store(kind) as store:
-        stored: list[CryptographicKey] = []
-        for index in range(5):
+        ids = sorted(new_id("cky") for _ in range(5))
+        for index, asset_id in enumerate(reversed(ids)):
             object_id = new_id("obj")
             asset = CryptographicKey.model_validate(
                 {
                     **_asset().model_dump(mode="json"),
-                    "id": new_id("cky"),
+                    "id": asset_id,
                     "object_id": object_id,
                     "inventory_ref": f"ast_{object_id.split('_', 1)[1]}",
                     "external_key_ref": f"urn:aqelyn:key:read-{index}",
@@ -600,23 +603,29 @@ async def test_crypto_asset_read_keyset_and_owner_explanation(kind: str) -> None
                     "evidence_id": new_id("evd"),
                 }
             )
-            stored.append(cast(CryptographicKey, await store.put_asset(asset)))
-        expected = sorted(record.id for record in stored)
+            await store.put_asset(asset)
 
-        for limit in (1, 2, 3, 4, 5):
-            after: tuple[CryptoAssetKind, str] | None = None
-            seen: list[str] = []
-            while True:
-                store_page, after = await store.query_assets_for_read(
-                    tenant_id=TENANT,
-                    after=after,
-                    limit=limit,
-                )
-                seen.extend(record.id for record in store_page)
-                if after is None:
-                    break
-            assert seen == expected
-            assert len(seen) == len(set(seen))
+        async def assert_walk() -> None:
+            for limit in range(1, len(ids) + 1):
+                after: tuple[CryptoAssetKind, str] | None = None
+                seen: list[str] = []
+                while True:
+                    store_page, after = await store.query_assets_for_read(
+                        tenant_id=TENANT,
+                        after=after,
+                        limit=limit,
+                    )
+                    seen.extend(record.id for record in store_page)
+                    if after is None:
+                        break
+                assert seen == ids
+                assert len(seen) == len(set(seen))
+
+        if kind == "postgres":
+            async with forced_keyset_plan(store):
+                await assert_walk()
+        else:
+            await assert_walk()
 
         runtime = create_inmemory_runtime(AQELYNConfig(tenant_mode="enterprise"))
         read_service = SecretsReadService(
@@ -624,7 +633,11 @@ async def test_crypto_asset_read_keyset_and_owner_explanation(kind: str) -> None
             runtime.secrets_engine,
             tenant_mode="enterprise",
         )
-        read_page = await read_service.list_assets(tenant_id=TENANT, limit=5, cursor=None)
+        read_page = await read_service.list_assets(
+            tenant_id=TENANT,
+            limit=len(ids),
+            cursor=None,
+        )
         assert all(item.explain is not None for item in read_page.items)
 
 
