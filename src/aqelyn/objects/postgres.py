@@ -299,10 +299,7 @@ class PostgresObjectStore:
             args.append(q.cursor)
             clauses.append(f"id > ${len(args)}")
         args.append(q.limit + 1)
-        sql = (
-            f"SELECT {_COLS} FROM aq_object WHERE {' AND '.join(clauses)} "
-            f"LIMIT ${len(args)}"
-        )
+        sql = f"SELECT {_COLS} FROM aq_object WHERE {' AND '.join(clauses)} LIMIT ${len(args)}"
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
         out = [_row_to_obj(r) for r in rows]
