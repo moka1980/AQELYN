@@ -160,7 +160,7 @@ class PostgresRunStore:
             clauses.append(f"tenant_id = ${len(args)}")
         args.append(limit)
         where = f"WHERE {' AND '.join(clauses)} " if clauses else ""
-        sql = f"SELECT {_COLS} FROM aq_workflow_run {where}LIMIT ${len(args)}"
+        sql = f"SELECT {_COLS} FROM aq_workflow_run {where}ORDER BY id LIMIT ${len(args)}"
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
         return [_row_to_run(row) for row in rows]

@@ -214,7 +214,7 @@ class PostgresSaaSNormalizationStore:
         async with self._pool.acquire() as conn:
             rows = list(
                 await conn.fetch(
-                    f"SELECT {columns} FROM {table} {where}LIMIT ${len(args)}",
+                    f"SELECT {columns} FROM {table} {where}ORDER BY object_id LIMIT ${len(args)}",
                     *args,
                 )
             )

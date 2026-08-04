@@ -132,7 +132,8 @@ class PostgresCloudNormalizationStore:
         async with self._pool.acquire() as conn:
             rows = list(
                 await conn.fetch(
-                    f"SELECT {_COLUMNS} FROM aq_cloud_normalization {where}LIMIT ${len(args)}",
+                    f"SELECT {_COLUMNS} FROM aq_cloud_normalization "
+                    f"{where}ORDER BY object_id LIMIT ${len(args)}",
                     *args,
                 )
             )
