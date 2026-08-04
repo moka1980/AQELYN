@@ -1,6 +1,6 @@
 # ECR-0097 - Single-Column Ordering Witnesses, Part 2
 
-**Status:** Accepted - the remaining ordering witnesses shipped.
+**Status:** Accepted - the ECR-0096 deferred ordering batch shipped.
 **From:** claude.ai, from Claude Code's post-ECR-0096 brief; corrected by Codex
 against the shipped APIs during implementation.
 **Date:** 2026-08-04
@@ -63,18 +63,51 @@ does not mislabel that structural proof as behavioral coverage.
 5. The carried 37-mutation matrix remains unchanged. Touching the central guard
    triggers its full carried rerun.
 
-## 5. Closure
+## 5. Bounded closure and the residual population
 
-On merge, all eight true single-column keyset reads and the one bounded workflow list
-have ordering witnesses on both stores, or a named structural treatment with measured
-grounds. The five composite keyset reads remain covered by ECR-0090 through ECR-0094.
-Secrets, ISPM, and DSPM are the named CTE-backed outer-order cases pinned by the central
-executed-query guard.
+This arc closes exactly fourteen enumerated reads: eight true single-column keyset
+reads, workflow's bounded ordered list, and the five composite reads covered by
+ECR-0090 through ECR-0094. For those fourteen, ordering, tiebreak, leading key,
+predicate, and termination are mutation-proven or carry a named structural treatment
+with measured grounds. Secrets, ISPM, and DSPM are the CTE-backed outer-order cases
+pinned by the central executed-query guard.
 
-The keyset family - ordering, tiebreak, leading key, predicate, and termination - is
-closed: every member is mutation-proven or named with its reason. This correction
-supersedes ECR-0096's shorthand count of nine single-column keyset reads, which included
-workflow despite its cursorless API.
+That is not the whole paged-read population. Excluding literal `LIMIT 1` point lookups,
+the source contains thirty `ORDER BY ... LIMIT` reads. Sixteen sit outside this arc:
+
+| Read | Review mutation | Result at `34c6c07` |
+|---|---|---|
+| `assetconfig/postgres.py:235` | drop `id` tiebreak | GREEN |
+| `decision/postgres.py:119` | drop `id` tiebreak | GREEN |
+| `executive/postgres.py:167` | delete `ORDER BY version` | GREEN |
+| `executive/postgres.py:257` | not yet measured | ECR-0098 |
+| `exposure/postgres.py:121` | drop `id` tiebreak | GREEN |
+| `forecast/postgres.py:183` | drop `id` tiebreak | GREEN |
+| `forecast/postgres.py:342` | not yet measured | ECR-0098 |
+| `governance/postgres.py:120` | not yet measured | ECR-0098 |
+| `idthreat/postgres.py:164` | not yet measured | ECR-0098 |
+| `lake/postgres.py:331` | drop `id` tiebreak | GREEN |
+| `lake/postgres.py:439` | not yet measured | ECR-0098 |
+| `response/postgres.py:162` | not yet measured | ECR-0098 |
+| `risk/postgres.py:154` | drop `id` tiebreak | GREEN |
+| `risk/postgres.py:227` | not yet measured | ECR-0098 |
+| `soc/postgres.py:205` | drop `id` tiebreak | GREEN |
+| `vuln/postgres.py:135` | drop `id` tiebreak | RED (`test_ordering_determinism.py` x2) |
+
+Nine of the sixteen were measured in review: eight mutations stayed green and only
+`vuln` turned red. `executive.versions(key, limit)` is a second cursorless bounded
+ordered list, the same class this ECR identified for workflow. `exposure.query()` is
+the unwitnessed sibling of the `query_for_read()` method covered by ECR-0090.
+
+C-038/R3's docstring claims every SQL ordering in `src/` terminates in a unique column,
+but its mechanism exercises `VulnerabilityStore` alone. Review proved that claim for
+`vuln`; it did not prove the repo-wide assertion. ECR-0098 is scheduled to enumerate
+and classify all sixteen residual reads, add or name their witnesses, and correct the
+C-038/R3 claim. No residual read except the measured `vuln` case is claimed covered
+here.
+
+This section also supersedes ECR-0096's shorthand count of nine single-column keyset
+reads, which included workflow despite its cursorless API.
 
 ## 6. Scope
 
