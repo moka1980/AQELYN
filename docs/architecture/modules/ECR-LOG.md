@@ -101,6 +101,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0094 | Findings keyset read | Accepted (memory + forced-plan Postgres witnesses; review-result wording amended by ECR-0095) | **Walking is what tests the predicate.** Findings gains deliberate leading-key, tiebreak and resume-predicate witnesses on both stores, closing the last silent member of the surface read arc. |
 | ECR-0095 | Test witness cursor walks (+ ECR-0094) | Accepted (walk termination guards) | **A cursor defect must fail, not hang.** All 14 test walks are bounded and diagnostic; ECR-0094 review treats every result other than clean RED as a finding. |
 | ECR-0096 | Single-column keysets, first batch | Accepted (eight ordering witnesses) | **Insertion order is not an ordering witness.** The first four selected legacy reads now reverse-insert IDs and walk every page size on memory and Postgres; CTE-backed outer clauses are pinned on the executed SQL without overstating behavioral proof. |
+| ECR-0097 | Remaining single-column ordered reads | Accepted (nine ordering witnesses plus DSPM structural pin) | **A method must be classified by the API it actually exposes.** Four remaining cursor reads gain two-store witnesses; workflow gains ordered-prefix witnesses without a false cursor claim, and DSPM joins the named CTE-backed structural cases. |
 
 ---
 
@@ -7011,3 +7012,50 @@ binding for every deferred member.
 
 Tests and records only; production reads and schemas are unchanged. ECR-0097 is scheduled for
 the interior four reads and the `objects` maintained-order determination.
+
+### 4. Amendment by ECR-0097
+
+The `objects` scope-out path is closed: `insort` becoming `append` is a clean memory mutation,
+and Postgres has an ordinary outer `ORDER BY id`. The new-file wording is also replaced by the
+family rule: witnesses live where their family lives, and touching a carried-control file
+requires the full carried matrix to be rerun.
+
+The original nine-single-column-keysets shorthand included workflow, whose `RunStore.list`
+method has a limit but no cursor. ECR-0097 corrects the closure population to eight true
+single-column keyset reads plus one bounded ordered list.
+
+## ECR-0097 - Single-column ordering witnesses, part 2
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0096 review; implemented by Codex.
+**Status:** Accepted - the remaining ordering witnesses shipped.
+**Number:** re-verified as the next contiguous number after ECR-0096.
+
+### 1. Corrections
+
+`objects` is ordinarily mutatable and receives memory and Postgres witnesses. Workflow is a
+bounded ordered list rather than a cursor API, so its witness proves every ordered prefix and
+makes no resume-predicate claim. DSPM's `DISTINCT ON (id)` CTE makes outer-order deletion
+behaviorally indistinguishable, so the central executed-query AST guard pins its final clause
+alongside secrets and ISPM.
+
+### 2. Resolution
+
+CSPM, DSPM, SSPM, workflow, and objects each pre-mint six IDs, reverse-insert them, and prove all
+six independent records survived storage. The four cursor APIs walk every limit from 1 through N
+under a `len(expected) + 2` bound. Workflow checks every prefix from 1 through N. Postgres cases
+retain the forced-plan fixture as insurance, not as the claimed detection mechanism.
+
+All five memory sort removals turn the named witness red and become green when that witness is
+deselected. CSPM, SSPM, workflow, and objects use live-Postgres behavioral witnesses. DSPM's
+outer-order deletion turns the fail-closed executed-query guard red instead of being mislabeled
+as behavioral evidence.
+
+### 3. Closure and scope
+
+All eight true single-column keyset reads and the bounded workflow list now have ordering
+witnesses on both stores or a named structural treatment with measured grounds. The five
+composite keyset reads remain covered by ECR-0090 through ECR-0094. Ordering, tiebreak, leading
+key, predicate, and termination are closed across the family.
+
+Tests and records only; production source, schema, dependencies, loopback behavior, and GC
+postures are unchanged. Any edit to the carried central guard requires the full carried matrix.
