@@ -1,6 +1,6 @@
 # ECR-0098 - The residual sixteen, part 1: ordering clauses
 
-**Status:** Proposed
+**Status:** Accepted - implementation ready for merge; live-Postgres mutation review required
 **From:** claude.ai, from Claude Code's post-ECR-0097 review; classification and
 implementation by Codex
 **Date:** 2026-08-04
@@ -118,10 +118,23 @@ coverage. Every census states its command, and every closure claim cites its
 census. A classification deliverable precedes fixture design because a witness
 written for the wrong API can be green while proving the wrong property.
 
-## 6. Acceptance and handoff
+## 6. Resolution and handoff
 
-Codex implements the backend alignment, thirty-two witnesses, C-038 scoping,
-and the mutation/necessity matrix. Claude Code reviews the 32 new and 57
-carried controls, checks the classification against public APIs, and writes the
-ECR-0099 measurement brief. ECR-0098 becomes Accepted only when that work
-ships.
+The backend alignment and all thirty-two test cases have shipped in the change:
+sixteen named witnesses, each parameterized over memory and Postgres. Local
+mutation proved 16/16 memory sort removals red. The quarantine fixture initially
+allowed its deletion to survive; combining out-of-order timestamps with stable
+same-timestamp pairs made the specified contract and the plausible no-sort
+alternative disagree.
+
+This workstation has no Postgres runtime and `AQELYN_DATABASE_URL` is unset.
+The sixteen Postgres cases collect and skip locally; CI proves their clean path,
+while Claude Code's live-Postgres review remains responsible for the SQL-clause
+deletion and necessity matrix. That boundary is a disclosed review obligation,
+not a claimed local result.
+
+The C-038 docstring is scoped to `VulnerabilityStore`, the carried ordering
+suite is green, focused tests pass under `python -O`, mypy strict is clean, and
+the full local suite exits zero. Claude Code reviews the 32 new and 57 carried
+controls, checks the classification against public APIs, and writes the
+ECR-0099 measurement brief.

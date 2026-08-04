@@ -102,7 +102,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0095 | Test witness cursor walks (+ ECR-0094) | Accepted (walk termination guards) | **A cursor defect must fail, not hang.** All 14 test walks are bounded and diagnostic; ECR-0094 review treats every result other than clean RED as a finding. |
 | ECR-0096 | Single-column keysets, first batch | Accepted (eight ordering witnesses) | **Insertion order is not an ordering witness.** The first four selected legacy reads now reverse-insert IDs and walk every page size on memory and Postgres; CTE-backed outer clauses are pinned on the executed SQL without overstating behavioral proof. |
 | ECR-0097 | ECR-0096 deferred ordering batch | Accepted (nine behavioral witnesses plus DSPM structural pin; residual scheduled as ECR-0098) | **A method must be classified by the API it actually exposes.** Four cursor reads gain two-store witnesses; workflow gains ordered-prefix witnesses without a false cursor claim. The wider 30-read census leaves sixteen named residuals for ECR-0098. |
-| ECR-0098 | Residual paged reads, ordering-clause class | Proposed | **The census boundary is thirty `ORDER BY ... LIMIT` reads.** The sixteen residual APIs are all cursorless bounded lists; witnesses are classified before they are written. |
+| ECR-0098 | Residual paged reads, ordering-clause class | Accepted (32 two-store cases; live-PG mutations reviewed at merge) | **The census boundary is thirty `ORDER BY ... LIMIT` reads.** The sixteen residual APIs are all cursorless bounded lists; witnesses were classified before they were written. |
 
 ---
 
@@ -7094,7 +7094,8 @@ postures are unchanged. Any edit to the carried central guard requires the full 
 
 **Raised by:** claude.ai from Claude Code's post-ECR-0097 review; classification and
 implementation by Codex.
-**Status:** Proposed - classification is recorded; witnesses have not shipped.
+**Status:** Accepted - sixteen named witnesses cover both stores; live-Postgres mutation
+results remain a merge-review obligation.
 **Number:** re-verified as the next contiguous number after ECR-0097.
 
 ### 1. Classification correction
@@ -7118,9 +7119,19 @@ unguarded historical observation, not a property that the test could enforce. EC
 the docstring to the store its mechanism reaches. The wider population is governed by the
 explicit thirty-read census, not by that single control.
 
-### 3. Scheduled resolution
+### 3. Resolution
 
-The implementation supplies thirty-two witnesses, mutation and necessity results per backend,
-and reruns the carried 57 controls. ECR-0099 remains owed for measured leading-key,
-resume-predicate, and termination classifications. Production shape is unchanged except for
-the memory quarantine ordering alignment recorded above.
+The implementation supplies thirty-two cases: sixteen named ordered-prefix witnesses, each
+parameterized over memory and Postgres. All sixteen memory ordering deletions turn their named
+witness red. The quarantine witness itself needed one correction: all-equal timestamps inserted
+in expected order could not distinguish a stable sort from no sort, so the final fixture combines
+out-of-order timestamps with equal-timestamp insertion pairs.
+
+Local Postgres is unavailable. The Postgres cases collect and skip locally; CI owns their clean
+path and merge review owns the live SQL-deletion and necessity matrix. That limitation is stated
+rather than converted into a claimed result. The carried ordering suite, optimized focused run,
+mypy strict, ruff, and the full local suite are green.
+
+ECR-0099 remains owed for measured leading-key, resume-predicate, and termination
+classifications. Production shape is unchanged except for the memory quarantine ordering
+alignment recorded above.
