@@ -102,6 +102,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0095 | Test witness cursor walks (+ ECR-0094) | Accepted (walk termination guards) | **A cursor defect must fail, not hang.** All 14 test walks are bounded and diagnostic; ECR-0094 review treats every result other than clean RED as a finding. |
 | ECR-0096 | Single-column keysets, first batch | Accepted (eight ordering witnesses) | **Insertion order is not an ordering witness.** The first four selected legacy reads now reverse-insert IDs and walk every page size on memory and Postgres; CTE-backed outer clauses are pinned on the executed SQL without overstating behavioral proof. |
 | ECR-0097 | ECR-0096 deferred ordering batch | Accepted (nine behavioral witnesses plus DSPM structural pin; residual scheduled as ECR-0098) | **A method must be classified by the API it actually exposes.** Four cursor reads gain two-store witnesses; workflow gains ordered-prefix witnesses without a false cursor claim. The wider 30-read census leaves sixteen named residuals for ECR-0098. |
+| ECR-0098 | Residual paged reads, ordering-clause class | Proposed | **The census boundary is thirty `ORDER BY ... LIMIT` reads.** The sixteen residual APIs are all cursorless bounded lists; witnesses are classified before they are written. |
 
 ---
 
@@ -7088,3 +7089,38 @@ is declared covered here.
 
 Tests and records only; production source, schema, dependencies, loopback behavior, and GC
 postures are unchanged. Any edit to the carried central guard requires the full carried matrix.
+
+## ECR-0098 - The residual sixteen, part 1: ordering clauses
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0097 review; classification and
+implementation by Codex.
+**Status:** Proposed - classification is recorded; witnesses have not shipped.
+**Number:** re-verified as the next contiguous number after ECR-0097.
+
+### 1. Classification correction
+
+The census command returns thirty paged `ORDER BY ... LIMIT` reads after literal `LIMIT 1`
+point lookups are excluded. Fourteen are covered by ECR-0090 through ECR-0097. Inspection of
+the sixteen residual public APIs found that all sixteen are cursorless bounded ordered lists;
+none is a keyset API and none has the CTE-backed outer-order shape. Each therefore requires a
+memory and Postgres ordered-prefix witness.
+
+`KPIDefinitionStore.versions` needs an allocation-aware fixture because public proposal order
+and allocated version order otherwise correlate. `TelemetryRecordStore.list_quarantine` also
+exposed a backend divergence: Postgres uses `(received_at, seq)` while memory used
+`(received_at, source_id, reason)`. ECR-0098 selects `(received_at, insertion sequence)` and
+requires memory to use a stable `received_at` sort before the witnesses are claimed.
+
+### 2. C-038/R3 amendment
+
+C-038/R3's control exercises `VulnerabilityStore`. Its former repo-wide audit sentence was an
+unguarded historical observation, not a property that the test could enforce. ECR-0098 scopes
+the docstring to the store its mechanism reaches. The wider population is governed by the
+explicit thirty-read census, not by that single control.
+
+### 3. Scheduled resolution
+
+The implementation supplies thirty-two witnesses, mutation and necessity results per backend,
+and reruns the carried 57 controls. ECR-0099 remains owed for measured leading-key,
+resume-predicate, and termination classifications. Production shape is unchanged except for
+the memory quarantine ordering alignment recorded above.

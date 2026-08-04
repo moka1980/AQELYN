@@ -1,10 +1,10 @@
-"""C-038/R3: orderings on a non-unique key are deterministic and agree across backends.
+"""C-038/R3: VulnerabilityStore ordering is deterministic across backends.
 
 The EA-0013 backlog item was *equal timestamps produce nondeterministic ordering*. The
-audit found the item **already satisfied**: every SQL ordering in `src/` terminates in a
-unique column (`id`, `object_id`, `evidence_id`, `seq`, `source_id` PK, or the lake's
-unique `(tenant_id, name)`), and every Python sort key ends in a unique component. No
-ordering was left un-tie-broken.
+The implementation audit reported that every SQL ordering in `src/` terminated in a
+unique column. That was a historical observation, not a property this test could enforce:
+the mechanism below exercises `VulnerabilityStore` alone. ECR-0098 scopes the claim to
+the store this control actually reaches and gives the wider population its own census.
 
 So this pins the property rather than fixing a defect. Which makes the fixtures the
 whole point:
