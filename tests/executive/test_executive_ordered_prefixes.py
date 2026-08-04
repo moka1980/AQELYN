@@ -110,9 +110,7 @@ async def _report_stores(kind: str) -> AsyncIterator[ReportStore]:
         await store.close()
 
 
-async def _assert_definition_prefixes(
-    store: KPIDefinitionStore, expected: list[int]
-) -> None:
+async def _assert_definition_prefixes(store: KPIDefinitionStore, expected: list[int]) -> None:
     held = await store.versions(KEY, limit=len(expected))
     assert len(held) == len(expected), "KPI definition fixture lost rows"
     for limit in range(1, len(expected) + 1):

@@ -46,9 +46,7 @@ async def _assert_record_prefixes(store: TelemetryRecordStore, expected: list[st
         assert [row.id for row in rows] == expected[:limit]
 
 
-async def _assert_quarantine_prefixes(
-    store: TelemetryRecordStore, expected: list[str]
-) -> None:
+async def _assert_quarantine_prefixes(store: TelemetryRecordStore, expected: list[str]) -> None:
     held = await store.list_quarantine(tenant_id=None, limit=len(expected))
     assert len(held) == len(expected), "quarantine fixture lost rows"
     for limit in range(1, len(expected) + 1):
