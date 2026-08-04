@@ -133,7 +133,7 @@ class PostgresCloudNormalizationStore:
             rows = list(
                 await conn.fetch(
                     f"SELECT {_COLUMNS} FROM aq_cloud_normalization "
-                    f"{where}ORDER BY object_id LIMIT ${len(args)}",
+                    f"{where}LIMIT ${len(args)}",
                     *args,
                 )
             )

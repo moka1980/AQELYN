@@ -301,7 +301,7 @@ class PostgresObjectStore:
         args.append(q.limit + 1)
         sql = (
             f"SELECT {_COLS} FROM aq_object WHERE {' AND '.join(clauses)} "
-            f"ORDER BY id LIMIT ${len(args)}"
+            f"LIMIT ${len(args)}"
         )
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(sql, *args)
