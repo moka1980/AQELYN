@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from aqelyn.dspm.postgres import PostgresDSPMStore
 from aqelyn.exposure.ddl import DDL as EXPOSURE_DDL
 from aqelyn.exposure.postgres import PostgresExposureStore
 from aqelyn.findings.ddl import DDL as FINDINGS_DDL
@@ -80,6 +81,7 @@ _CONTRACTS = (
 _OUTER_ORDER_CONTRACTS = (
     ("secrets-legacy", PostgresCryptoStore.query_assets, (("id", "ASC"),)),
     ("ispm-legacy", PostgresISPMStore.query_identities, (("id", "ASC"),)),
+    ("dspm-legacy", PostgresDSPMStore.query_assets, (("id", "ASC"),)),
 )
 
 
