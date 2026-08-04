@@ -64,12 +64,13 @@ async def test_campaign_query_ordered_prefixes(
 ) -> None:
     ids = sorted(new_id("rsp") for _ in range(ROW_COUNT))
     records = [
-        _campaign(campaign_id=row_id, updated_at=BASE + timedelta(minutes=index))
+        _campaign(campaign_id=row_id, updated_at=BASE + timedelta(minutes=index // 2))
         for index, row_id in enumerate(ids)
     ]
-    expected = list(reversed(ids))
+    ordered = sorted(records, key=lambda row: (-row.updated_at.timestamp(), row.id))
+    expected = [row.id for row in ordered]
     async for store in _stores(kind):
-        for record in records:
+        for record in reversed(ordered):
             await store.upsert(record)
         if kind == "postgres":
             async with forced_keyset_plan(store):

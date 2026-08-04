@@ -141,7 +141,7 @@ async def test_identity_detection_query_ordered_prefixes(
 ) -> None:
     expected = sorted(new_id("idt") for _ in range(ROW_COUNT))
     records = [
-        _detection(detection_id=row_id, detected_at=BASE + timedelta(minutes=index))
+        _detection(detection_id=row_id, detected_at=BASE + timedelta(minutes=index // 2))
         for index, row_id in enumerate(expected)
     ]
     async for store in _stores(kind):

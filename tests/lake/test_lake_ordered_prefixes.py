@@ -65,8 +65,8 @@ async def test_lake_query_ordered_prefixes(
             id=row_id,
             dataset="endpoint_process",
             source_id=new_id("src"),
-            occurred_at=BASE + timedelta(minutes=index),
-            ingested_at=BASE + timedelta(minutes=index),
+            occurred_at=BASE + timedelta(minutes=index // 2),
+            ingested_at=BASE + timedelta(minutes=index // 2),
             fields={"pid": index},
         )
         for index, row_id in enumerate(expected)
@@ -86,17 +86,26 @@ async def test_lake_quarantine_ordered_prefixes(
     kind: str,
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
-    source_ids = [new_id("src") for _ in range(ROW_COUNT)]
+    source_ids = sorted(new_id("src") for _ in range(ROW_COUNT))
     minute_offsets = [2, 0, 0, 3, 1, 1]
+    # IDs descend inside timestamp ties, separating insertion sequence from ID order.
+    insertion_ids = [
+        source_ids[5],
+        source_ids[2],
+        source_ids[1],
+        source_ids[0],
+        source_ids[4],
+        source_ids[3],
+    ]
     items = [
         Quarantine(
             source_id=source_id,
             reason=f"reason-{index}",
             received_at=BASE + timedelta(minutes=minute_offsets[index]),
         )
-        for index, source_id in enumerate(source_ids)
+        for index, source_id in enumerate(insertion_ids)
     ]
-    expected = [source_ids[index] for index in (1, 2, 4, 5, 0, 3)]
+    expected = [source_ids[index] for index in (2, 1, 4, 3, 5, 0)]
     async for store in _stores(kind):
         for item in items:
             await store.quarantine(item, tenant_id=None)

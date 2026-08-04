@@ -54,7 +54,7 @@ async def test_compliance_snapshot_history_ordered_prefixes(
     records = [
         ComplianceSnapshot(
             id=row_id,
-            run_at=BASE + timedelta(minutes=index),
+            run_at=BASE + timedelta(minutes=index // 2),
             overall_score=1.0,
         )
         for index, row_id in enumerate(expected)

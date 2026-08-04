@@ -69,7 +69,7 @@ async def test_vulnerability_query_ordered_prefixes(
     records = [
         _record(
             vulnerability_id=row_id,
-            discovered_at=BASE + timedelta(minutes=index),
+            discovered_at=BASE + timedelta(minutes=index // 2),
             index=index,
         )
         for index, row_id in enumerate(expected)

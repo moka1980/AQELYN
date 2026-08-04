@@ -86,7 +86,7 @@ async def test_drift_snapshot_history_ordered_prefixes(
 ) -> None:
     expected = [f"ecr0098-drift-{index}" for index in range(ROW_COUNT)]
     records = [
-        _snapshot(snapshot_id=row_id, run_at=BASE + timedelta(minutes=index))
+        _snapshot(snapshot_id=row_id, run_at=BASE + timedelta(minutes=index // 2))
         for index, row_id in enumerate(expected)
     ]
     async for store in _stores(kind):

@@ -73,7 +73,7 @@ async def test_exposure_query_ordered_prefixes(
 ) -> None:
     expected = sorted(new_id("exp") for _ in range(ROW_COUNT))
     records = [
-        _record(exposure_id=row_id, discovered_at=BASE + timedelta(minutes=index))
+        _record(exposure_id=row_id, discovered_at=BASE + timedelta(minutes=index // 2))
         for index, row_id in enumerate(expected)
     ]
     async for store in _stores(kind):

@@ -82,7 +82,7 @@ async def test_recommendation_query_ordered_prefixes(
 ) -> None:
     expected = sorted(new_id("rec") for _ in range(ROW_COUNT))
     records = [
-        _recommendation(recommendation_id=row_id, created_at=BASE + timedelta(minutes=index))
+        _recommendation(recommendation_id=row_id, created_at=BASE + timedelta(minutes=index // 2))
         for index, row_id in enumerate(expected)
     ]
     async for store in _stores(kind):

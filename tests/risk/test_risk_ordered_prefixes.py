@@ -109,7 +109,7 @@ async def test_risk_query_ordered_prefixes(
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
     records = [
-        _risk(risk_id=f"risk:ecr0098:{index}", score=10.0 + index, index=index)
+        _risk(risk_id=f"risk:ecr0098:{index}", score=10.0 + (index // 2), index=index)
         for index in range(ROW_COUNT)
     ]
     ordered = sorted(records, key=lambda row: (-row.score, row.id))
@@ -129,16 +129,17 @@ async def test_risk_snapshot_history_ordered_prefixes(
     kind: str,
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
+    ids = sorted(new_risk_snapshot_id() for _ in range(ROW_COUNT))
     records = [
         RiskSnapshot(
-            id=new_risk_snapshot_id(),
-            run_at=BASE + timedelta(minutes=index),
+            id=row_id,
+            run_at=BASE + timedelta(minutes=index // 2),
             total=0,
             overall_exposure=0.0,
         )
-        for index in range(ROW_COUNT)
+        for index, row_id in enumerate(ids)
     ]
-    expected = [row.id for row in records]
+    expected = ids
     async for store in _snapshot_stores(kind):
         for record in reversed(records):
             await store.put(record)

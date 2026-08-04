@@ -78,7 +78,7 @@ async def test_soc_incident_query_ordered_prefixes(
         _incident(
             incident_id=row_id,
             priority=50.0 + (index // 2),
-            updated_at=BASE + timedelta(minutes=index),
+            updated_at=BASE + timedelta(minutes=index // 2),
         )
         for index, row_id in enumerate(ids)
     ]

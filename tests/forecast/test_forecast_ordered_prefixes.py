@@ -118,7 +118,7 @@ async def test_forecast_query_ordered_prefixes(
 ) -> None:
     expected = sorted(new_id("fct") for _ in range(ROW_COUNT))
     records = [
-        _forecast(forecast_id=row_id, issued_at=BASE + timedelta(minutes=index))
+        _forecast(forecast_id=row_id, issued_at=BASE + timedelta(minutes=index // 2))
         for index, row_id in enumerate(expected)
     ]
     async for store in _forecast_stores(kind):
@@ -136,15 +136,18 @@ async def test_prediction_model_query_ordered_prefixes(
     kind: str,
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
+    ids = sorted(new_id("pdm") for _ in range(ROW_COUNT))
     methods = ["holt_winters", "linear_trend", "moving_average"]
+    # Lower versions receive larger IDs so removing `version` reverses each pair.
     records = [
         PredictionModel(
-            id=new_id("pdm"),
-            method=methods[index % len(methods)],
+            id=ids[(index * 2) + (1 - version_index)],
+            method=method,
             params={"window": index + 1},
-            version=(index // len(methods)) + 1,
+            version=version_index + 1,
         )
-        for index in range(ROW_COUNT)
+        for index, method in enumerate(methods)
+        for version_index in range(2)
     ]
     ordered = sorted(records, key=lambda row: (row.method, row.version, row.id))
     expected = [row.id for row in ordered]
