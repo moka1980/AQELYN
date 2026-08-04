@@ -100,6 +100,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0093 | Surface pagination | Accepted (named snapshot exemptions; one cursor contract) | **A citation can be precisely right and still point at the wrong thing.** The actual offset routes are inventory and vulnerabilities; findings was already keyset-paged. Snapshot exemptions stay visible, and findings gains scope binding plus its covering index. |
 | ECR-0094 | Findings keyset read | Accepted (memory + forced-plan Postgres witnesses; review-result wording amended by ECR-0095) | **Walking is what tests the predicate.** Findings gains deliberate leading-key, tiebreak and resume-predicate witnesses on both stores, closing the last silent member of the surface read arc. |
 | ECR-0095 | Test witness cursor walks (+ ECR-0094) | Accepted (walk termination guards) | **A cursor defect must fail, not hang.** All 14 test walks are bounded and diagnostic; ECR-0094 review treats every result other than clean RED as a finding. |
+| ECR-0096 | Single-column keysets, first batch | Accepted (eight ordering witnesses) | **Insertion order is not an ordering witness.** The first four selected legacy reads now reverse-insert IDs and walk every page size on memory and Postgres; CTE-backed outer clauses are pinned on the executed SQL without overstating behavioral proof. |
 
 ---
 
@@ -6962,3 +6963,51 @@ production source, schema, dependency, loopback or GC changes.
 A mutation harness distinguishes RED, GREEN and HANG. A hang is not evidence that a test caught
 the right defect; it is an infrastructure symptom with the diagnosis erased. A defect found in
 one member of a test idiom requires a sweep of the family.
+
+### 5. Amendment by ECR-0096
+
+The bounded Group B walks also close their single-column resume-predicate class. The
+`ispm.query_identities`, `secrets.query_assets`, and `dspm.query_assets` `>` to `>=`
+mutations now fail diagnostically. This coverage was a side effect of ECR-0095 and is claimed
+explicitly here; their ordering properties remained separate and are split between ECR-0096
+and ECR-0097.
+
+## ECR-0096 - Single-column keyset ordering witnesses, part 1
+
+**Raised by:** claude.ai from Claude Code's post-ECR-0095 review; implemented by Codex.
+**Status:** Accepted - the first four selected reads are witnessed on both stores.
+**Number:** re-verified as the next contiguous number after ECR-0095.
+
+### 1. Finding
+
+The memory side of eight of nine single-column keyset reads had no decorrelated ordering
+witness. UUIDv7 made insertion order look sorted. Postgres coverage was narrower: three
+measured outer-order deletions stayed green, while ECR-0096's live mutation proved inventory
+was already covered by IS-037's conformance cursor contract. The SQL and memory
+implementations were correct, but several regressions could pass silently.
+
+### 2. Resolution
+
+Inventory, secrets, ISPM, and supply chain now pre-mint six IDs, reverse-insert them, prove
+all six rows survived storage, and walk every page size to bounded exhaustion. Memory sort
+neutralization fails each domain witness. Postgres variants run with index and bitmap scans
+disabled.
+
+Inventory and supply chain detect outer-order deletion behaviorally. Inventory's older IS-037
+control fires as defence in depth, so ECR-0096 does not claim first coverage there. Secrets and
+ISPM cannot: their required `DISTINCT ON (id) ... ORDER BY id, revision DESC` CTE already emits
+the same ID order. A central AST guard resolves the SQL argument actually passed to
+`conn.fetch`, fails closed when it cannot, and pins the final outer clause. Deletion, direction
+reversal, and dead-literal relocation fail without being mislabeled as behavioral evidence.
+
+Only inventory's witnessed method reaches `/api/v1/inventory`. `CryptoStore.query_assets` feeds
+the secrets engine, secrets exposure, and service health; `ISPMStore.query_identities` feeds the
+ISPM engine, ISPM exposure, and service health; `SBOMStore.query` feeds the supply-chain engine and
+service health. Their surface routes use the separate composite reads covered by ECR-0090 through
+ECR-0092. This batch is a reviewability split, not an exposure classification. ECR-0097 remains
+binding for every deferred member.
+
+### 3. Scope and follow-up
+
+Tests and records only; production reads and schemas are unchanged. ECR-0097 is scheduled for
+the interior four reads and the `objects` maintained-order determination.
