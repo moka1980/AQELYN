@@ -7135,10 +7135,13 @@ ECR-0098's forced-plan or structural controls, not by that single clean-path com
 
 The implementation supplies thirty-two cases: sixteen named controls across memory and
 Postgres. A user-owned PostgreSQL 16.14 instance ran the complete local matrix. All 32 assigned
-mutations are RED, and all 32 become GREEN with their assigned control deselected. Observable
-tuple tails use tied, anti-correlated fixtures; the two unobservable Postgres tails use the
-executed-query AST guard. Prediction-model `version` removal is independently RED on both stores,
-and restoring quarantine memory's former tuple is RED.
+mutations are RED. With each assigned control deselected against its owning control family, 31
+become GREEN; `executive.versions` on Postgres remains RED through the pre-existing
+`test_exec_def_contract[postgres]`, so its new witness is defence in depth. Observable tuple tails
+use tied, anti-correlated fixtures; the two unobservable Postgres tails use the executed-query AST
+guard. Prediction-model `version` removal is independently RED on both stores, and restoring
+quarantine memory's former tuple is RED. The contained CI import repair adds
+`pythonpath = [".", "src"]` and `tools/__init__.py` without changing the `src/aqelyn` wheel.
 
 ECR-0099 remains owed for measured leading-key, resume-predicate, and termination
 classifications. Production shape is unchanged except for the memory quarantine ordering

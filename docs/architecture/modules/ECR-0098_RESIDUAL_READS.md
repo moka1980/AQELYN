@@ -116,8 +116,10 @@ separated legally are pinned structurally under section 2.3.
 **R2 - Mutation and necessity.** For each read and backend, deleting the sort,
 the SQL ordering component, or the structural tuple component named in section
 2.3 turns its assigned witness red. Deselecting that witness under the mutation
-returns green. The PR records the 32-row result matrix. C-038/R3 is not credited
-as a catcher because its mutation verdict is plan-dependent.
+classifies it as the sole catcher when the owning control family turns green, or
+as defence in depth when a named pre-existing control stays red. The PR records
+the 32-row result matrix. C-038/R3 is not credited as a catcher because its
+mutation verdict is plan-dependent.
 
 **R3 - Scope C-038/R3 to its mechanism.**
 `tests/conformance/test_ordering_determinism.py` witnesses
@@ -155,18 +157,24 @@ controls, each covering memory and Postgres. A user-owned PostgreSQL 16.14
 instance supplied the local database matrix; the evidence is no longer
 delegated to merge review.
 
-The matrix below uses the trailing observable component unless noted. `RED`
-means the assigned control failed under mutation; `GREEN` means the same
-mutated implementation passed when that control was deselected.
+The CI import repair records `pythonpath = [".", "src"]` and
+`tools/__init__.py`; the production wheel remains limited to `src/aqelyn`.
 
-| Read | Backend | Mutation | Control | Without control |
+The matrix below uses the trailing observable component unless noted. `RED`
+means the assigned control failed under mutation. In the final column, `GREEN`
+means the assigned control is the sole catcher; `RED` names a pre-existing
+catcher and marks the new control as defence in depth. Necessity runs cover the
+owning domain suite, or the central executed-query guard file for structural
+rows, with only the assigned control deselected.
+
+| Read | Backend | Mutation | Control | Without assigned control |
 |---|---|---|---|---|
 | assetconfig history | memory | drop `id` from sort | RED | GREEN |
 | assetconfig history | Postgres | drop `id` from SQL | RED | GREEN |
 | decision query | memory | drop `id` from sort | RED | GREEN |
 | decision query | Postgres | drop `id` from SQL | RED | GREEN |
 | executive versions | memory | delete version sort | RED | GREEN |
-| executive versions | Postgres | delete version order | RED | GREEN |
+| executive versions | Postgres | delete version order | RED | RED - defence in depth: `test_exec_def_contract[postgres]` |
 | executive reports | memory | drop `id` from sort | RED | GREEN |
 | executive reports | Postgres | drop `id` from SQL | RED | GREEN |
 | exposure query | memory | drop `id` from sort | RED | GREEN |
