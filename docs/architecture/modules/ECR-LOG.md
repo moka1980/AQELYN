@@ -105,6 +105,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0098 | Residual paged reads, ordering-clause class | Accepted (32 local-PG mutation and necessity results; second review pending) | **The census boundary is thirty `ORDER BY ... LIMIT` reads.** The sixteen residual APIs are all cursorless bounded lists; witnesses were classified before they were written. |
 | ECR-0099 | Leading-key class and witness-arc closure | Accepted (fixture symmetry implemented; closing review pending) | **Every component of a sort tuple must decide at least one comparison in the same fixture.** Eleven fixtures expose the leading key without surrendering their ECR-0098 tail witnesses. |
 | ECR-0100 | Posture ingestion | Proposed (implemented by the reviewer; independent review outstanding) | **A platform can only reason about what it can be told.** AQELYN accepted only grype matches, so six real posture facts about a live estate had nowhere to go; `posture.json` gives them a path, refused rather than back-filled when the derivation is missing. |
+| ECR-0101 | Surface collection seed | Accepted (implemented by the reviewer; independent review outstanding) | **A platform you cannot put data into cannot be looked at.** `--collection` seeds the running kernel with the report path's ingestion and refusals; opt-in, read once, idempotent, and a refused collection stops the surface. |
 
 ---
 
@@ -7238,3 +7239,40 @@ This ECR was written, implemented and recorded by the reviewer, so the separatio
 implementation and review is suspended rather than satisfied. Section 6 of the ECR document lists
 what independent review should attack first, including the fact that a mutation matrix written by
 the code's own author shares that author's blind spots.
+
+
+## ECR-0101 - Surface collection seed
+
+**Raised and implemented by:** Claude Code, at the owner's direction while Codex was unavailable.
+**Status:** Accepted - implemented; independent review outstanding.
+**Number:** verified free at `1861ee4`.
+
+### 1. Finding
+
+ECR-0100 gave posture observations a path into the report, which builds a throwaway runtime and
+discards it. The operator surface - a long-lived kernel serving eight routes - still had no way to
+be given anything, so starting it produced a working shell over an empty store. A platform that
+cannot be seeded cannot be looked at.
+
+### 2. Resolution
+
+`aqelyn surface --collection DIR` seeds the kernel's finding store before serving, reusing the
+report path's ingestion and refusals. Opt-in: absent the flag, behaviour is unchanged. Read once
+at startup, never re-read, so the store does not mutate under a paging cursor. A refused
+collection stops the surface with exit 2 rather than serving an empty page that would read as
+"nothing found". Seeding is idempotent through ECR-0100's dedup key, now witnessed.
+
+Against the machine's real collection the surface seeds six posture findings and serves them from
+`/api/v1/findings` with working keyset pagination - the arc's ordering guarantee applied to real
+data for the first time.
+
+### 3. Acceptance and scope
+
+Six mutations, all red: seeding short-circuited, dedup key made unstable, ordering reversed,
+refusal swallowed, the flag given a default, the flag parsed as a string. Seven tests, ruff clean,
+mypy --strict clean across 580 files, full suite on live Postgres. One mutation reported a false
+green first run - `return () or await ...` evaluates to the call - and is recorded in the ECR
+because a mutation that does not mutate looks exactly like a test that does not test.
+
+Changed `surface/cli.py` and one public wrapper in `reporting/analyze.py`. Loopback binding and
+read-only posture unchanged. Carried matrix stays at 84, untouched.
