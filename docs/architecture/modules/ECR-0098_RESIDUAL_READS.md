@@ -118,8 +118,8 @@ the SQL ordering component, or the structural tuple component named in section
 2.3 turns its assigned witness red. Deselecting that witness under the mutation
 classifies it as the sole catcher when the owning control family turns green, or
 as defence in depth when a named pre-existing control stays red. The PR records
-the 32-row result matrix. C-038/R3 is not credited as a catcher because its
-mutation verdict is plan-dependent.
+the 32-row result matrix. C-038/R3's Postgres half is not credited because its
+mutation verdict is plan-dependent; its deterministic memory half is credited.
 
 **R3 - Scope C-038/R3 to its mechanism.**
 `tests/conformance/test_ordering_determinism.py` witnesses
@@ -165,7 +165,8 @@ means the assigned control failed under mutation. In the final column, `GREEN`
 means the assigned control is the sole catcher; `RED` names a pre-existing
 catcher and marks the new control as defence in depth. Necessity runs cover the
 owning domain suite, or the central executed-query guard file for structural
-rows, with only the assigned control deselected.
+rows, with only the assigned control deselected. Cross-suite catchers outside
+those targets are not excluded by that run.
 
 | Read | Backend | Mutation | Control | Without assigned control |
 |---|---|---|---|---|
@@ -199,7 +200,7 @@ rows, with only the assigned control deselected.
 | risk history | Postgres | drop `id` from SQL | RED | GREEN |
 | SOC incidents | memory | drop `id` from sort | RED | GREEN |
 | SOC incidents | Postgres | drop `id` from SQL | RED | GREEN |
-| vulnerability query | memory | drop `id` from sort | RED | GREEN |
+| vulnerability query | memory | drop `id` from sort | RED | RED - defence in depth: `test_vuln_order_deterministic_on_ties[inmemory]` |
 | vulnerability query | Postgres | drop `id` from SQL | RED | GREEN |
 
 Additional controls exercise the middle `version` component of prediction

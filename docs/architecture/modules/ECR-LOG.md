@@ -7126,21 +7126,24 @@ behavioral: prediction models cannot tie `(tenant, method, version)` legally, an
 
 C-038/R3's control exercises `VulnerabilityStore`. Its former repo-wide audit sentence was an
 unguarded historical observation, not a property that the test could enforce. ECR-0098 scopes
-the docstring to the store its mechanism reaches and records a second limit: its mutation result
-depends on the physical plan because a matching index can still return ID order after the SQL
-tiebreak is deleted. The wider population is governed by the explicit thirty-read census and
-ECR-0098's forced-plan or structural controls, not by that single clean-path comparison.
+the docstring to the store its mechanism reaches and records a second limit: its Postgres mutation
+result depends on the physical plan because a matching index can still return ID order after the
+SQL tiebreak is deleted; its deterministic memory half is a credited catcher. The wider population
+is governed by the explicit thirty-read census and ECR-0098's forced-plan or structural controls,
+not by that single clean-path comparison.
 
 ### 3. Resolution
 
 The implementation supplies thirty-two cases: sixteen named controls across memory and
 Postgres. A user-owned PostgreSQL 16.14 instance ran the complete local matrix. All 32 assigned
-mutations are RED. With each assigned control deselected against its owning control family, 31
-become GREEN; `executive.versions` on Postgres remains RED through the pre-existing
-`test_exec_def_contract[postgres]`, so its new witness is defence in depth. Observable tuple tails
-use tied, anti-correlated fixtures; the two unobservable Postgres tails use the executed-query AST
-guard. Prediction-model `version` removal is independently RED on both stores, and restoring
-quarantine memory's former tuple is RED. The contained CI import repair adds
+mutations are RED. With each assigned control deselected, 30 become GREEN; `executive.versions` on
+Postgres remains RED through `test_exec_def_contract[postgres]`, and vulnerability memory remains
+RED through `test_vuln_order_deterministic_on_ties[inmemory]`, so both new witnesses are defence in
+depth. Necessity was established against the owning domain suite, or the central executed-query
+guard file for structural rows; cross-suite catchers outside those targets are not excluded.
+Observable tuple tails use tied, anti-correlated fixtures; the two unobservable Postgres tails use
+the executed-query AST guard. Prediction-model `version` removal is independently RED on both
+stores, and restoring quarantine memory's former tuple is RED. The contained CI import repair adds
 `pythonpath = [".", "src"]` and `tools/__init__.py` without changing the `src/aqelyn` wheel.
 
 ECR-0099 remains owed for measured leading-key, resume-predicate, and termination
