@@ -116,6 +116,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | **Single-column ordering witnesses, part 2** | *(cross-cutting tests)* | *ECR-0096 deferred batch; four cursor walks plus workflow prefixes; residual census scheduled as ECR-0098* | [ECR-0097](ECR-0097_INTERIOR_KEYSETS.md) | Accepted |
 | **Residual ordered reads, part 1** | *(cross-cutting tests)* | *sixteen cursorless bounded lists; classification preceded thirty-two two-store cases* | [ECR-0098](ECR-0098_RESIDUAL_READS.md) | Accepted |
 | **Leading-key witnesses and arc closure** | *(cross-cutting tests)* | *fixture symmetry; every tuple component decides a comparison; carried-matrix policy recorded* | [ECR-0099](ECR-0099_LEADING_KEYS.md) | Accepted |
+| **Posture ingestion** | *(P track)* | *a second collection document; posture facts get a path, refused when the derivation is missing* | [ECR-0100](ECR-0100_POSTURE_INGESTION.md) | Proposed |
 | **GC-004 — persisted-field consumers** | *(GC track)* | *census not clearance; dormancy declared, not computed — see ECR-0085* | [GC-004](GC-004_Task_Bundle.md) | Accepted |
 | **C-041 — ECR-0076 cross-cutting repair** | EA-0032/0013/0023/SOC | *absence is the fold's identity; enumerate the class, not the instances* | [C-041](C-041_Task_Bundle.md) | Accepted |
 | [IS-037 — conformant via EA-0023+0024+0025+0005](IS-037_Conformance_Analysis.md) | EA-0037 | *(no new module; no `Cyber*` namespace — see ECR-0059)* | [C-034](C-034_Task_Bundle.md) | Analysis |

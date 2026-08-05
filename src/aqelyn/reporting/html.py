@@ -14,6 +14,7 @@ def render_findings_report(analysis: CollectionAnalysis) -> str:
     """Render an operator report without external assets or network capability."""
 
     finding_html = "\n".join(_finding(item, index) for index, item in enumerate(analysis.findings))
+    posture_html = _posture_section(analysis)
     rejected_html = _rejected_matches(analysis)
     source_names = ", ".join(source.name for source in analysis.sources)
     high_attention = sum(
@@ -125,6 +126,7 @@ def render_findings_report(analysis: CollectionAnalysis) -> str:
     <section id="findings" class="findings" aria-label="Findings">
       {finding_html}
     </section>
+    {posture_html}
     {rejected_html}
   </main>
   <footer>
@@ -451,6 +453,45 @@ def _display_score_arithmetic(
     )
 
 
+def _posture_section(analysis: CollectionAnalysis) -> str:
+    """ECR-0100. Posture observations, rendered beside the vulnerability findings.
+
+    Absent when no posture document was handed in — an empty section would imply the
+    collection was checked for posture and found clean, which is a different claim.
+    """
+
+    if not analysis.posture_findings:
+        return ""
+    rows = "\n".join(
+        f"""
+        <article class="posture-finding severity-{_e(finding.severity)}">
+          <h3><span class="posture-severity">{_e(finding.severity)}</span>
+              {_e(finding.title)}
+              <span class="posture-score">{_number(finding.severity_score):.0f}</span></h3>
+          <p class="posture-what">{_e(finding.what_happened)}</p>
+          <dl class="posture-derivation">
+            <dt>Why it matters</dt><dd>{_e(finding.why_it_matters)}</dd>
+            <dt>How determined</dt><dd>{_e(finding.how_determined)}</dd>
+            <dt>Risk of inaction</dt><dd>{_e(finding.risk_of_inaction)}</dd>
+            <dt>Remediation</dt><dd>{_e(finding.remediation.summary)}
+                ({_e(finding.remediation.difficulty)} effort) &mdash;
+                {_e(finding.remediation.expected_outcome)}</dd>
+            <dt>Evidence</dt><dd class="posture-evidence">{_e(", ".join(finding.evidence_ids))}</dd>
+          </dl>
+        </article>
+        """
+        for finding in analysis.posture_findings
+    )
+    return f"""
+    <section id="posture" class="posture" aria-label="Posture observations">
+      <h2>Posture observations ({len(analysis.posture_findings):,})</h2>
+      <p class="posture-note">Handed in as <code>posture.json</code>. These are configuration
+      and exposure facts, not vulnerability matches; no CVE is claimed for any of them.</p>
+      {rows}
+    </section>
+    """
+
+
 def _rejected_matches(analysis: CollectionAnalysis) -> str:
     if not analysis.rejected_matches:
         return ""
@@ -514,6 +555,28 @@ def _priority_class(value: str) -> str:
 
 
 _STYLES = """
+.posture { margin-top: 2rem; }
+.posture > h2 { font-size: 1.1rem; margin-bottom: .25rem; }
+.posture-note { color: #555; font-size: .9rem; margin-top: 0; }
+.posture-finding { border: 1px solid #d8dee6; border-left: 4px solid #6b7280;
+  border-radius: 5px; padding: .85rem 1rem; margin-bottom: .7rem; background: #fff; }
+.posture-finding.severity-critical { border-left-color: #b3261e; }
+.posture-finding.severity-high { border-left-color: #b26a00; }
+.posture-finding.severity-medium { border-left-color: #0b74c8; }
+.posture-finding.severity-low, .posture-finding.severity-info { border-left-color: #94a3b8; }
+.posture-finding h3 { font-size: 1rem; margin: 0 0 .35rem; display: flex;
+  align-items: baseline; gap: .55rem; }
+.posture-severity { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+  font-weight: 700; color: #444; }
+.posture-score { margin-left: auto; font-variant-numeric: tabular-nums; color: #555; }
+.posture-what { margin: 0 0 .5rem; }
+.posture-derivation { display: grid; grid-template-columns: max-content 1fr;
+  gap: .2rem .8rem; margin: 0; font-size: .9rem; }
+.posture-derivation dt { color: #555; font-weight: 600; }
+.posture-derivation dd { margin: 0; }
+.posture-evidence { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .82rem; color: #444; word-break: break-all; }
+
 :root {
   color-scheme: light;
   --ink: #18201d;

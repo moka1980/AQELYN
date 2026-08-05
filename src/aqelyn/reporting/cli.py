@@ -39,9 +39,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         _write_private_report(output, rendered)
     except ReportInputError as exc:
         parser.exit(2, f"aqelyn: {exc}\n")
+    # ECR-0100: posture observations are counted separately. Folding them into the
+    # findings total would let a collection with no representable vulnerability record
+    # report a non-zero count, which is the opposite of what that zero is for.
+    posture_note = (
+        f"; {len(analysis.posture_findings):,} posture observations"
+        if analysis.posture_findings
+        else ""
+    )
     print(
         f"Wrote {len(analysis.findings):,} local findings to {output} "
         f"({analysis.unknown_factor_count:,} unknown factors remain visible)"
+        f"{posture_note}"
     )
     return 0
 
