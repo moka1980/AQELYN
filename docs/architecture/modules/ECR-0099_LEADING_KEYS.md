@@ -54,9 +54,28 @@ class back for the other:**
   defence-in-depth columns.
 
 **R3 — No weakening, and this review runs the whole carried matrix one final time.** The
-carried **89** stay in force. Because this ECR closes the arc, its review is the arc's
-**closing audit**: the reviewer re-runs all 89 plus R2's additions — the last full-matrix
+carried **84** stay in force. Because this ECR closes the arc, its review is the arc's
+**closing audit**: the reviewer re-runs all 84 plus R2's additions — the last full-matrix
 run under the old policy, and the baseline the new policy (§4) samples against.
+
+**The count is 84, and earlier documents said 89.** The drift entered at ECR-0094 §4, which
+wrote *"the reviewer re-runs the 19 carried mutations"* for a block that is fourteen. ECR-0092's
+review of record states it plainly — *"Full matrix — 14 mutations × 16 witness cases"* — and the
+reviewer's harness has executed fourteen there in every run since. Every later total inherited
+the +5: 37 → 47 → 57 → 89, where the truth is 32 → 42 → 52 → 84. Corrected here because §4
+installs a sampling policy, and a sample whose denominator is wrong is not auditable.
+
+**The carried population, enumerated.** §4's rotation needs a list, not a running total:
+
+| block | mutations | source of record |
+|---|---|---|
+| ECR-0090 + ECR-0091 + ECR-0092 | 14 | ECR-0092 review, "14 mutations × 16 witness cases" |
+| ECR-0094 findings witnesses | 10 | ECR-0094 review |
+| ECR-0095 walk termination | 8 | ECR-0095 review |
+| ECR-0096 single-column keysets, batch 1 | 10 | ECR-0096 review |
+| ECR-0097 single-column keysets, batch 2 | 10 | ECR-0097 review |
+| ECR-0098 residual sixteen | 32 | ECR-0098 §6 matrix |
+| **total** | **84** | |
 
 ## 3. Closure statement
 
@@ -112,7 +131,7 @@ is its first one restated: briefs assert, ECRs decide, mutations settle.
 
 **Next: Codex implements** — R1's eleven amendments plus forecast-query's witness, R2's
 two-sided matrix with full-target necessity runs. **Then: Claude Code** reviews — the
-closing audit of §2 R3 (all 89 + additions), the two-sided acceptance, the
+closing audit of §2 R3 (all 84 + additions), the two-sided acceptance, the
 defence-in-depth ledger — and merges; re-check ECR number at merge. **Owner:** nothing
 queued; §4 consumed the delegation and is reversible by recorded decision. On merge the
 witness arc closes, and the next brief opens a new subject — the standing suggestion on

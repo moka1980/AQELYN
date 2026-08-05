@@ -7175,8 +7175,14 @@ to blind another until the two-sided mutations prove otherwise.
 The eleven amended memory witnesses each turn red when the leading key is removed, and each stays
 red when its ECR-0098 tail is removed. Forecast query's owned control is defence in depth beside
 `test_fc_p2`; the other ten close previously open leading-key cells. The same twenty-two cases,
-full-target necessity runs, and the closing 89-control carried matrix remain the independent
+full-target necessity runs, and the closing 84-control carried matrix remain the independent
 reviewer's live-Postgres acceptance gate. No `src/` file changes.
+
+The carried total is **84**, not the 89 quoted before this ECR. ECR-0094 §4 wrote "the 19 carried
+mutations" for a block that ECR-0092's review records as fourteen — "Full matrix — 14 mutations ×
+16 witness cases" — and each later total inherited the +5. The corrected chain is 32 → 42 → 52 →
+84: fourteen from ECR-0090/0091/0092, ten from ECR-0094, eight from ECR-0095, ten from ECR-0096,
+ten from ECR-0097, thirty-two from ECR-0098. Rule 34 samples against that enumeration.
 
 Rule 34 records the carried-matrix policy selected with this closure: full runs on carried-file
 changes, fixture amendments, family closures, and every tenth ECR; otherwise a named rotating
