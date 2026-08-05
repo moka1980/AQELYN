@@ -16,6 +16,12 @@ from aqelyn.events import Subject
 from aqelyn.evidence.models import EvidenceRecord
 from aqelyn.findings import Finding
 from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime
+from aqelyn.reporting.posture import (
+    POSTURE_DOCUMENT,
+    PostureDocumentError,
+    observation_to_finding,
+    validate_posture_shape,
+)
 from aqelyn.threat.parse import KevExploitationProvider, parse_kev
 from aqelyn.vuln.models import VulnerabilityRecord, VulnPriority
 from aqelyn.vuln.parse import RejectedMatch, parse_grype
@@ -102,6 +108,9 @@ class CollectionAnalysis:
     represented_records: int
     rejected_matches: tuple[RejectedMatch, ...]
     findings: tuple[ReportFinding, ...]
+    # ECR-0100. Kept as its own collection rather than folded into `findings`: a posture
+    # finding has no CVE and no VulnPriority, and giving it a hollow one would model a lie.
+    posture_findings: tuple[Finding, ...] = ()
 
     @property
     def unknown_factor_count(self) -> int:
@@ -110,7 +119,14 @@ class CollectionAnalysis:
 
 def load_collection_documents(
     directory: Path,
-) -> tuple[dict[str, Any], dict[str, Any] | None, datetime, tuple[ReportSource, ...], str]:
+) -> tuple[
+    dict[str, Any],
+    dict[str, Any] | None,
+    dict[str, Any] | None,
+    datetime,
+    tuple[ReportSource, ...],
+    str,
+]:
     """Load only the documents the report consumes, without collecting anything."""
 
     selected = directory.resolve()
@@ -136,6 +152,14 @@ def load_collection_documents(
     manifest = manifest_loaded[0] if manifest_loaded is not None else None
     observed_at = _observation_time(vulnerability_document, manifest)
 
+    posture_path = selected / POSTURE_DOCUMENT
+    posture_loaded = (
+        _read_json_object(posture_path, label="posture document")
+        if posture_path.is_file()
+        else None
+    )
+    posture_document = posture_loaded[0] if posture_loaded is not None else None
+
     source_items = [
         ReportSource(name=vulnerability_path.name, sha256=vulnerability_digest),
     ]
@@ -143,9 +167,18 @@ def load_collection_documents(
         source_items.append(ReportSource(name=kev_path.name, sha256=kev_loaded[1]))
     if manifest_loaded is not None:
         source_items.append(ReportSource(name=manifest_path.name, sha256=manifest_loaded[1]))
+    if posture_loaded is not None:
+        source_items.append(ReportSource(name=posture_path.name, sha256=posture_loaded[1]))
     sources = tuple(sorted(source_items, key=lambda item: item.name))
     fingerprint = _input_fingerprint(selected, sources)
-    return vulnerability_document, kev_document, observed_at, sources, fingerprint
+    return (
+        vulnerability_document,
+        kev_document,
+        posture_document,
+        observed_at,
+        sources,
+        fingerprint,
+    )
 
 
 async def analyze_collection(directory: Path) -> CollectionAnalysis:
@@ -154,6 +187,7 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
     (
         vulnerability_document,
         kev_document,
+        posture_document,
         observed_at,
         sources,
         fingerprint,
@@ -257,9 +291,17 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
         )
     )
 
+    posture_findings = await _ingest_posture(
+        runtime,
+        posture_document,
+        sources=sources,
+        observed_at=observed_at,
+    )
+
     matches = vulnerability_document.get("matches")
     scanner_matches = len(matches) if isinstance(matches, list) else 0
     return CollectionAnalysis(
+        posture_findings=posture_findings,
         observed_at=observed_at,
         generated_at=datetime.now(UTC),
         input_fingerprint=fingerprint,
@@ -269,6 +311,73 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
         rejected_matches=parsed.rejected,
         findings=tuple(findings),
     )
+
+
+async def _ingest_posture(
+    runtime: Runtime,
+    posture_document: dict[str, Any] | None,
+    *,
+    sources: tuple[ReportSource, ...],
+    observed_at: datetime,
+) -> tuple[Finding, ...]:
+    """Raise a Finding per posture observation, through the real finding owner.
+
+    Each observation gets its own EvidenceRecord carrying the document digest, so a reader
+    can get from a rendered finding back to the bytes it came from. An absent document is
+    not an error - most collections will not have one.
+    """
+
+    if posture_document is None:
+        return ()
+    try:
+        observations = validate_posture_shape(posture_document)
+    except PostureDocumentError as exc:
+        raise ReportInputError(f"posture document was refused: {exc}") from exc
+
+    posture_source = next(source for source in sources if source.name == POSTURE_DOCUMENT)
+    evidence_store = runtime.evidence_store
+    finding_store = runtime.finding_store
+    collector = ActorRef(actor_type="system", actor_id="aqelyn-report")
+
+    raised: list[Finding] = []
+    for observation in observations:
+        subject_id = new_id("obj")
+        evidence = await evidence_store.add(
+            EvidenceRecord(
+                id="",
+                evidence_type="posture.observation",
+                schema_version=1,
+                subject=Subject(object_ids=[subject_id]),
+                collected_at=observed_at,
+                recorded_at=observed_at,
+                collector=collector,
+                source_id=_REPORT_SOURCE_ID,
+                method=str(observation.get("check", "posture observation")),
+                content={
+                    "document": posture_source.name,
+                    "sha256": posture_source.sha256,
+                    "observation_id": str(observation.get("observation_id", "")),
+                },
+                content_hash="",
+                confidence=1.0,
+                seq=0,
+                prev_hash=None,
+                record_hash="",
+            )
+        )
+        raised.append(
+            await finding_store.raise_finding(
+                observation_to_finding(
+                    observation,
+                    finding_id=new_id("fnd"),
+                    evidence_id=evidence.id,
+                    observed_at=observed_at,
+                )
+            )
+        )
+
+    raised.sort(key=lambda item: (-item.severity_score, item.id))
+    return tuple(raised)
 
 
 def _apply_reporting_vulnerability_profile(

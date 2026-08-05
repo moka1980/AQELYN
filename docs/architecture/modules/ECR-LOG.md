@@ -104,6 +104,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0097 | ECR-0096 deferred ordering batch | Accepted (nine behavioral witnesses plus DSPM structural pin; residual scheduled as ECR-0098) | **A method must be classified by the API it actually exposes.** Four cursor reads gain two-store witnesses; workflow gains ordered-prefix witnesses without a false cursor claim. The wider 30-read census leaves sixteen named residuals for ECR-0098. |
 | ECR-0098 | Residual paged reads, ordering-clause class | Accepted (32 local-PG mutation and necessity results; second review pending) | **The census boundary is thirty `ORDER BY ... LIMIT` reads.** The sixteen residual APIs are all cursorless bounded lists; witnesses were classified before they were written. |
 | ECR-0099 | Leading-key class and witness-arc closure | Accepted (fixture symmetry implemented; closing review pending) | **Every component of a sort tuple must decide at least one comparison in the same fixture.** Eleven fixtures expose the leading key without surrendering their ECR-0098 tail witnesses. |
+| ECR-0100 | Posture ingestion | Proposed (implemented by the reviewer; independent review outstanding) | **A platform can only reason about what it can be told.** AQELYN accepted only grype matches, so six real posture facts about a live estate had nowhere to go; `posture.json` gives them a path, refused rather than back-filled when the derivation is missing. |
 
 ---
 
@@ -7191,3 +7192,49 @@ matrix.
 
 **The tell:** a fixture that makes one tuple component obvious may make its neighbor irrelevant.
 Mutation-prove both directions before calling the ordering witnessed.
+
+## ECR-0100 - Posture ingestion
+
+**Raised and implemented by:** Claude Code, at the owner's direction while Codex was unavailable.
+**Status:** Proposed - implemented, independent review outstanding.
+**Number:** verified free at `bddcc6d`.
+
+### 1. Finding
+
+AQELYN accepted exactly one document shape. `reporting/analyze.py` read `vulns.json` (grype),
+plus optional `kev.json` and `collection-manifest.json`; nothing else had an ingestion path. Six
+real posture facts observed passively on the owner's own estate - application ports bound to all
+interfaces beside the reverse proxy, absent HSTS behind a working redirect, four missing
+browser-hardening headers, DMARC at `p=none` against an SPF that already ends `-all`, a
+version-disclosing banner, and a certificate's remaining life - had nowhere to go. None is a CVE.
+On a platform whose engine families are CSPM, DSPM, SSPM and ISPM, that is the gap.
+
+The vulnerability path was confirmed sound in the same work: a real syft SBOM of 55 packages and a
+real grype run against a same-day advisory database produced zero matches. Zero was measured.
+
+### 2. Resolution
+
+`posture.json` becomes an optional second collection document. Each observation is refused unless
+it carries all four narrative fields a `Finding` requires, then becomes a Finding raised through
+the real finding owner with its own evidence record. Posture findings are held in their own
+`posture_findings` collection rather than folded into `findings`: they have no CVE and no
+`VulnPriority`, and a hollow one would model a false claim. The vulnerability count keeps its
+meaning, so a collection with posture and no CVEs still reports zero findings.
+
+`dedup_key` derives from subject, check and observation id so re-runs are idempotent while
+distinct observations stay apart; a repeated observation id is refused. `severity_score` is
+carried unchanged, per ECR-0063.
+
+### 3. Acceptance and scope
+
+Eighteen mutations across validation, dedup key, finding construction, pipeline wiring and the
+renderer: all red. Forty tests. Ruff, `mypy --strict` across 579 files, and the full suite on live
+Postgres. The carried matrix stays at **84** and is untouched - no carried-control file changes and
+no carried fixture is amended, so rule 34's full-run trigger is not met.
+
+### 4. Standing caveat
+
+This ECR was written, implemented and recorded by the reviewer, so the separation of
+implementation and review is suspended rather than satisfied. Section 6 of the ECR document lists
+what independent review should attack first, including the fact that a mutation matrix written by
+the code's own author shares that author's blind spots.
