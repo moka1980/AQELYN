@@ -313,6 +313,26 @@ async def analyze_collection(directory: Path) -> CollectionAnalysis:
     )
 
 
+async def ingest_posture_into(runtime: Runtime, directory: Path) -> tuple[Finding, ...]:
+    """ECR-0101: seed a live runtime's finding store from a collection directory.
+
+    `analyze_collection` builds a throwaway runtime because a report is a one-shot render.
+    The operator surface is the other case: a long-lived kernel that should be able to start
+    holding something. Same ingestion, same refusals, caller's runtime.
+
+    Returns the findings raised. A directory with no posture document raises nothing and is
+    not an error.
+    """
+
+    _, _, posture_document, observed_at, sources, _ = load_collection_documents(directory)
+    return await _ingest_posture(
+        runtime,
+        posture_document,
+        sources=sources,
+        observed_at=observed_at,
+    )
+
+
 async def _ingest_posture(
     runtime: Runtime,
     posture_document: dict[str, Any] | None,
