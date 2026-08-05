@@ -141,7 +141,8 @@ class InMemoryTelemetryRecordStore:
             for row_tenant, item in self._quarantine
             if self._visible_tenant(row_tenant, tenant_id)
         ]
-        rows.sort(key=lambda item: (item.received_at, item.source_id, item.reason))
+        # Python's stable sort preserves append order for equal timestamps, matching PG seq.
+        rows.sort(key=lambda item: item.received_at)
         return rows[:limit]
 
     async def put_archive(self, archive: ArchiveRecord) -> ArchiveRecord:

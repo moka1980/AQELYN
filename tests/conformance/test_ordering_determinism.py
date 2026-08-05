@@ -1,23 +1,17 @@
-"""C-038/R3: orderings on a non-unique key are deterministic and agree across backends.
+"""C-038/R3: VulnerabilityStore ordering is deterministic across backends.
 
 The EA-0013 backlog item was *equal timestamps produce nondeterministic ordering*. The
-audit found the item **already satisfied**: every SQL ordering in `src/` terminates in a
-unique column (`id`, `object_id`, `evidence_id`, `seq`, `source_id` PK, or the lake's
-unique `(tenant_id, name)`), and every Python sort key ends in a unique component. No
-ordering was left un-tie-broken.
+implementation audit reported that every SQL ordering in `src/` terminated in a unique
+column. That was a historical observation, not a property this test could enforce: the
+mechanism below exercises `VulnerabilityStore` alone. ECR-0098 scopes the claim to the
+store this control actually reaches and gives the wider population its own census.
 
-So this pins the property rather than fixing a defect. Which makes the fixtures the
-whole point:
-
-> **The rows must carry identical timestamps.** A suite whose timestamps are all
-> distinct passes against an un-tie-broken implementation, so it would confirm nothing —
-> C-037's inert-control lesson (rule 24) in its next instance. The tie-breaker is
-> removed by mutation to prove the fixtures can see it.
-
-The concrete risk this guards is **backend divergence**: Python's `sort` is stable, so
-an in-memory store returns insertion order on ties while Postgres returns whatever the
-plan yields. The one-contract-suite guarantee exists to catch exactly that, and cannot
-if there are no ties to disagree about.
+The fixtures deliberately tie every timestamp. Distinct timestamps would pass against
+an untied implementation and prove nothing (rule 24). This remains a clean-path backend
+comparison, not the mutation control: without the SQL tiebreak, Postgres may still return
+id order from a matching index, so the verdict depends on the physical plan. ECR-0098
+records that limit and supplies the forced-plan witness whose verdict does not depend on
+incidental layout.
 """
 
 from __future__ import annotations

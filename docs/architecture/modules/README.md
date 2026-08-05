@@ -114,6 +114,7 @@ EA-0025, EA-0032, EA-0002, and EA-0005; C-031 enhancements stay with those owner
 | **Walk termination guards** | *(cross-cutting tests)* | *14 bounded cursor walks; predicate defects fail diagnostically instead of hanging* | [ECR-0095](ECR-0095_WALK_TERMINATION.md) | Accepted |
 | **Single-column keyset witnesses, part 1** | *(cross-cutting tests)* | *first four legacy reads; reverse-inserted IDs; memory + Postgres* | [ECR-0096](ECR-0096_SINGLE_COLUMN_KEYSETS.md) | Accepted |
 | **Single-column ordering witnesses, part 2** | *(cross-cutting tests)* | *ECR-0096 deferred batch; four cursor walks plus workflow prefixes; residual census scheduled as ECR-0098* | [ECR-0097](ECR-0097_INTERIOR_KEYSETS.md) | Accepted |
+| **Residual ordered reads, part 1** | *(cross-cutting tests)* | *sixteen cursorless bounded lists; classification preceded thirty-two two-store cases* | [ECR-0098](ECR-0098_RESIDUAL_READS.md) | Accepted |
 | **GC-004 — persisted-field consumers** | *(GC track)* | *census not clearance; dormancy declared, not computed — see ECR-0085* | [GC-004](GC-004_Task_Bundle.md) | Accepted |
 | **C-041 — ECR-0076 cross-cutting repair** | EA-0032/0013/0023/SOC | *absence is the fold's identity; enumerate the class, not the instances* | [C-041](C-041_Task_Bundle.md) | Accepted |
 | [IS-037 — conformant via EA-0023+0024+0025+0005](IS-037_Conformance_Analysis.md) | EA-0037 | *(no new module; no `Cyber*` namespace — see ECR-0059)* | [C-034](C-034_Task_Bundle.md) | Analysis |

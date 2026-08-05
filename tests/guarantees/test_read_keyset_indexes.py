@@ -16,8 +16,10 @@ from aqelyn.exposure.ddl import DDL as EXPOSURE_DDL
 from aqelyn.exposure.postgres import PostgresExposureStore
 from aqelyn.findings.ddl import DDL as FINDINGS_DDL
 from aqelyn.findings.postgres import PostgresFindingStore
+from aqelyn.forecast.postgres import PostgresPredictionModelStore
 from aqelyn.ispm.ddl import DDL as ISPM_DDL
 from aqelyn.ispm.postgres import PostgresISPMStore
+from aqelyn.lake.postgres import PostgresTelemetryRecordStore
 from aqelyn.secrets.postgres import PostgresCryptoStore
 from aqelyn.supplychain.ddl import DDL as SUPPLYCHAIN_DDL
 from aqelyn.supplychain.postgres import PostgresSBOMStore
@@ -82,6 +84,19 @@ _OUTER_ORDER_CONTRACTS = (
     ("secrets-legacy", PostgresCryptoStore.query_assets, (("id", "ASC"),)),
     ("ispm-legacy", PostgresISPMStore.query_identities, (("id", "ASC"),)),
     ("dspm-legacy", PostgresDSPMStore.query_assets, (("id", "ASC"),)),
+)
+
+_RESIDUAL_STRUCTURAL_ORDER_CONTRACTS = (
+    (
+        "forecast-model-residual",
+        PostgresPredictionModelStore.query,
+        (("method", "ASC"), ("version", "ASC"), ("id", "ASC")),
+    ),
+    (
+        "lake-quarantine-residual",
+        PostgresTelemetryRecordStore.list_quarantine,
+        (("received_at", "ASC"), ("seq", "ASC")),
+    ),
 )
 
 
@@ -184,3 +199,19 @@ def test_ecr0096_legacy_outer_order_is_pinned_on_executed_query(
     matches = _OUTER_ORDER_BY.findall(query)
     assert matches, f"{name}: the executed query has no outer ORDER BY ... LIMIT"
     assert _columns(matches[-1]) == order_by
+
+
+@pytest.mark.parametrize(
+    ("name", "method", "order_by"),
+    _RESIDUAL_STRUCTURAL_ORDER_CONTRACTS,
+    ids=[contract[0] for contract in _RESIDUAL_STRUCTURAL_ORDER_CONTRACTS],
+)
+def test_ecr0098_unobservable_tiebreak_is_pinned_on_executed_query(
+    name: str,
+    method: Callable[..., object],
+    order_by: tuple[tuple[str, str], ...],
+) -> None:
+    query = _read_query(method)
+    match = _ORDER_BY.search(query)
+    assert match is not None, f"{name}: the executed query has no ORDER BY ... LIMIT"
+    assert _columns(match.group(1)) == order_by
