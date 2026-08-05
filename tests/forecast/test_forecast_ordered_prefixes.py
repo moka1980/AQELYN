@@ -116,13 +116,19 @@ async def test_forecast_query_ordered_prefixes(
     kind: str,
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
-    expected = sorted(new_id("fct") for _ in range(ROW_COUNT))
+    ids = sorted(new_id("fct") for _ in range(ROW_COUNT))
+    # This is forecast query's owned leading-key witness; FC-P2 remains defence in depth.
     records = [
-        _forecast(forecast_id=row_id, issued_at=BASE + timedelta(minutes=index // 2))
-        for index, row_id in enumerate(expected)
+        _forecast(
+            forecast_id=row_id,
+            issued_at=BASE + timedelta(minutes=((ROW_COUNT // 2) - 1) - (index // 2)),
+        )
+        for index, row_id in enumerate(ids)
     ]
+    ordered = sorted(records, key=lambda row: (row.issued_at, row.id))
+    expected = [row.id for row in ordered]
     async for store in _forecast_stores(kind):
-        for record in reversed(records):
+        for record in reversed(ordered):
             await store.put(record)
         if kind == "postgres":
             async with forced_keyset_plan(store):

@@ -51,7 +51,7 @@ def _definition(version: int) -> KPIDefinition:
     )
 
 
-def _report(report_id: str) -> ExecutiveReport:
+def _report(report_id: str, *, period: str = "2026-Q3") -> ExecutiveReport:
     figure = Figure(
         value=75.0,
         unit="score",
@@ -61,7 +61,7 @@ def _report(report_id: str) -> ExecutiveReport:
     return ExecutiveReport(
         id=report_id,
         title="ECR-0098 board report",
-        period="2026-Q3",
+        period=period,
         sections=[ReportSection(key="kpis", title="KPIs", figures=[figure])],
         exceptions=[],
     )
@@ -146,10 +146,14 @@ async def test_executive_report_query_ordered_prefixes(
     kind: str,
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
-    expected = sorted(new_id("rpt") for _ in range(ROW_COUNT))
+    ids = sorted(new_id("rpt") for _ in range(ROW_COUNT))
+    periods = ["2026-Q3", "2026-Q3", "2026-Q2", "2026-Q2", "2026-Q1", "2026-Q1"]
+    reports = [_report(report_id, period=periods[index]) for index, report_id in enumerate(ids)]
+    ordered = sorted(reports, key=lambda row: (row.period, row.id))
+    expected = [row.id for row in ordered]
     async for store in _report_stores(kind):
-        for report_id in reversed(expected):
-            await store.put(_report(report_id))
+        for report in reversed(ordered):
+            await store.put(report)
         if kind == "postgres":
             async with forced_keyset_plan(store):
                 await _assert_report_prefixes(store, expected)

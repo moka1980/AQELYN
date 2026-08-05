@@ -59,20 +59,23 @@ async def test_lake_query_ordered_prefixes(
     kind: str,
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
-    expected = sorted(new_id("tlm") for _ in range(ROW_COUNT))
+    ids = sorted(new_id("tlm") for _ in range(ROW_COUNT))
+    # Leading-key groups descend across ascending IDs; IDs still decide each tie.
     records = [
         TelemetryRecord(
             id=row_id,
             dataset="endpoint_process",
             source_id=new_id("src"),
-            occurred_at=BASE + timedelta(minutes=index // 2),
-            ingested_at=BASE + timedelta(minutes=index // 2),
+            occurred_at=BASE + timedelta(minutes=((ROW_COUNT // 2) - 1) - (index // 2)),
+            ingested_at=BASE + timedelta(minutes=ROW_COUNT // 2),
             fields={"pid": index},
         )
-        for index, row_id in enumerate(expected)
+        for index, row_id in enumerate(ids)
     ]
+    ordered = sorted(records, key=lambda row: (row.occurred_at, row.id))
+    expected = [row.id for row in ordered]
     async for store in _stores(kind):
-        for record in reversed(records):
+        for record in reversed(ordered):
             await store.append(record)
         if kind == "postgres":
             async with forced_keyset_plan(store):
