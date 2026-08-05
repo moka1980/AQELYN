@@ -130,18 +130,20 @@ async def test_risk_snapshot_history_ordered_prefixes(
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
     ids = sorted(new_risk_snapshot_id() for _ in range(ROW_COUNT))
+    # Leading-key groups descend across ascending IDs; IDs still decide each tie.
     records = [
         RiskSnapshot(
             id=row_id,
-            run_at=BASE + timedelta(minutes=index // 2),
+            run_at=BASE + timedelta(minutes=((ROW_COUNT // 2) - 1) - (index // 2)),
             total=0,
             overall_exposure=0.0,
         )
         for index, row_id in enumerate(ids)
     ]
-    expected = ids
+    ordered = sorted(records, key=lambda row: (row.run_at, row.id))
+    expected = [row.id for row in ordered]
     async for store in _snapshot_stores(kind):
-        for record in reversed(records):
+        for record in reversed(ordered):
             await store.put(record)
         if kind == "postgres":
             async with forced_keyset_plan(store):

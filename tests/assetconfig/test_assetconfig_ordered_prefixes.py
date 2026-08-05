@@ -84,13 +84,19 @@ async def test_drift_snapshot_history_ordered_prefixes(
     kind: str,
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
-    expected = [f"ecr0098-drift-{index}" for index in range(ROW_COUNT)]
+    ids = [f"ecr0098-drift-{index}" for index in range(ROW_COUNT)]
+    # Leading-key groups descend across ascending IDs; IDs still decide each tie.
     records = [
-        _snapshot(snapshot_id=row_id, run_at=BASE + timedelta(minutes=index // 2))
-        for index, row_id in enumerate(expected)
+        _snapshot(
+            snapshot_id=row_id,
+            run_at=BASE + timedelta(minutes=((ROW_COUNT // 2) - 1) - (index // 2)),
+        )
+        for index, row_id in enumerate(ids)
     ]
+    ordered = sorted(records, key=lambda row: (row.run_at, row.id))
+    expected = [row.id for row in ordered]
     async for store in _stores(kind):
-        for record in reversed(records):
+        for record in reversed(ordered):
             await store.put(record)
         if kind == "postgres":
             async with forced_keyset_plan(store):

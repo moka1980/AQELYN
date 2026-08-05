@@ -420,6 +420,25 @@ fresh per-run store cannot produce the re-emission state that makes the branch f
 shipped path can supply the state that reader consumes. If not, record the consumer as dormant
 rather than claiming the feature exists.
 
+**Fixture symmetry (ECR-0099).** Every component of a sort tuple must decide at least one
+comparison in the same fixture. A fixture tuned to expose one component is presumed to blind
+another until leading-key and tail mutations both turn red against it.
+
+### 34. Carried mutation matrices are sampled by recorded policy, not convenience
+
+ECR-0099 closes the ordering-witness arc with one final full carried run and records the policy
+for later reviews:
+
+- run the full carried matrix when a carried-control file changes, an ECR amends carried
+  fixtures or claims family closure, and at every tenth ECR;
+- otherwise name the rotating sample in the review record, cover the full matrix within five
+  reviews, and add every carried mutation touching the current ECR's scope;
+- any changed verdict in the sample or scope escalates to the full matrix before merge.
+
+Sampling is a recorded allocation of review attention, not an implicit relaxation. Its
+composition and rotation must remain auditable, and the rule can be reversed only by another
+recorded decision.
+
 ## Part 2 - Current handover: widening the surface (proposed ECR-0089)
 
 **From:** Claude Code (reviewer; the only actor that reads shipped code)

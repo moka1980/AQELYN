@@ -74,13 +74,20 @@ async def test_soc_incident_query_ordered_prefixes(
     forced_keyset_plan: Callable[[object], AbstractAsyncContextManager[None]],
 ) -> None:
     ids = sorted(new_id("inc") for _ in range(ROW_COUNT))
+    # Priority, update time, and ID each decide at least one comparison.
+    ordering = [
+        (60.0, 0),
+        (60.0, 0),
+        (60.0, 1),
+        (50.0, 3),
+        (50.0, 2),
+        (50.0, 2),
+    ]
     records = [
         _incident(
-            incident_id=row_id,
-            priority=50.0 + (index // 2),
-            updated_at=BASE + timedelta(minutes=index // 2),
+            incident_id=row_id, priority=priority, updated_at=BASE + timedelta(minutes=minute)
         )
-        for index, row_id in enumerate(ids)
+        for row_id, (priority, minute) in zip(ids, ordering, strict=True)
     ]
     ordered = sorted(records, key=lambda row: (-row.priority, -row.updated_at.timestamp(), row.id))
     expected = [row.id for row in ordered]

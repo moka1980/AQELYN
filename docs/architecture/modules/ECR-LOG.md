@@ -103,6 +103,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0096 | Single-column keysets, first batch | Accepted (eight ordering witnesses) | **Insertion order is not an ordering witness.** The first four selected legacy reads now reverse-insert IDs and walk every page size on memory and Postgres; CTE-backed outer clauses are pinned on the executed SQL without overstating behavioral proof. |
 | ECR-0097 | ECR-0096 deferred ordering batch | Accepted (nine behavioral witnesses plus DSPM structural pin; residual scheduled as ECR-0098) | **A method must be classified by the API it actually exposes.** Four cursor reads gain two-store witnesses; workflow gains ordered-prefix witnesses without a false cursor claim. The wider 30-read census leaves sixteen named residuals for ECR-0098. |
 | ECR-0098 | Residual paged reads, ordering-clause class | Accepted (32 local-PG mutation and necessity results; second review pending) | **The census boundary is thirty `ORDER BY ... LIMIT` reads.** The sixteen residual APIs are all cursorless bounded lists; witnesses were classified before they were written. |
+| ECR-0099 | Leading-key class and witness-arc closure | Accepted (fixture symmetry implemented; closing review pending) | **Every component of a sort tuple must decide at least one comparison in the same fixture.** Eleven fixtures expose the leading key without surrendering their ECR-0098 tail witnesses. |
 
 ---
 
@@ -7146,6 +7147,47 @@ the executed-query AST guard. Prediction-model `version` removal is independentl
 stores, and restoring quarantine memory's former tuple is RED. The contained CI import repair adds
 `pythonpath = [".", "src"]` and `tools/__init__.py` without changing the `src/aqelyn` wheel.
 
-ECR-0099 remains owed for measured leading-key, resume-predicate, and termination
-classifications. Production shape is unchanged except for the memory quarantine ordering
-alignment recorded above.
+ECR-0099 classifies the leading-key, resume-predicate, and termination classes and closes the
+witness arc with symmetric fixtures. Production shape is unchanged except for the memory
+quarantine ordering alignment recorded above.
+
+## ECR-0099 - The leading-key class, and the close of the witness arc
+
+**Raised by:** claude.ai from Claude Code's measured ECR-0098 follow-up; implementation by
+Codex.
+**Status:** Accepted - implementation complete; closing review pending.
+**Number:** re-verified as the next contiguous number after ECR-0098 at `0fc7cff`.
+
+### 1. Decision
+
+Ten reads had no leading-key catcher. Forecast query had only the accidental `test_fc_p2`
+contract coverage and no owned witness. Eleven ECR-0098 fixtures are amended so that leading-key
+groups conflict with ID order while the tail still decides within each tied group. Resume
+predicates are inapplicable because these reads are cursorless; termination is inapplicable
+because their ordered-prefix controls do not walk.
+
+The standing fixture rule is now symmetric: **every component of a sort tuple must decide at
+least one comparison in the same fixture.** A fixture tuned to expose one component is presumed
+to blind another until the two-sided mutations prove otherwise.
+
+### 2. Implementation and review boundary
+
+The eleven amended memory witnesses each turn red when the leading key is removed, and each stays
+red when its ECR-0098 tail is removed. Forecast query's owned control is defence in depth beside
+`test_fc_p2`; the other ten close previously open leading-key cells. The same twenty-two cases,
+full-target necessity runs, and the closing 84-control carried matrix remain the independent
+reviewer's live-Postgres acceptance gate. No `src/` file changes.
+
+The carried total is **84**, not the 89 quoted before this ECR. ECR-0094 §4 wrote "the 19 carried
+mutations" for a block that ECR-0092's review records as fourteen — "Full matrix — 14 mutations ×
+16 witness cases" — and each later total inherited the +5. The corrected chain is 32 → 42 → 52 →
+84: fourteen from ECR-0090/0091/0092, ten from ECR-0094, eight from ECR-0095, ten from ECR-0096,
+ten from ECR-0097, thirty-two from ECR-0098. Rule 34 samples against that enumeration.
+
+Rule 34 records the carried-matrix policy selected with this closure: full runs on carried-file
+changes, fixture amendments, family closures, and every tenth ECR; otherwise a named rotating
+sample plus every in-scope carried mutation, with any changed verdict escalating to the full
+matrix.
+
+**The tell:** a fixture that makes one tuple component obvious may make its neighbor irrelevant.
+Mutation-prove both directions before calling the ordering witnessed.
