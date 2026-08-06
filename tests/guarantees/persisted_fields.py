@@ -337,19 +337,17 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
     ),
     (
         "identity",
-        ("email", "redeemed_by"),
-        "ECR-0116 keeps the login address and single-use invite bookkeeping inside the identity "
-        "owner: callers authenticate through the store methods (get_by_email / authenticate) "
-        "rather than reading the email field, and redeemed_by is read only within the invite "
-        "store to refuse reuse. No external consumer references either.",
+        ("redeemed_by",),
+        "ECR-0116 keeps single-use invite bookkeeping inside the identity owner: redeemed_by is "
+        "read only within the invite store to refuse reuse, and no external consumer references "
+        "it. (email became consumed once ECR-0118's portal login/register reads it.)",
     ),
     (
         "consent",
-        ("actor_account_id", "revoked_at", "text_version"),
-        "ECR-0117 keeps consent lifecycle and audit-actor bookkeeping inside its owner: external "
-        "consumers receive ConsentRecord / AuditEvent envelopes through the store's active() and "
-        "list() methods rather than reading revoked_at, text_version or the acting-account field "
-        "directly.",
+        ("revoked_at",),
+        "ECR-0117 keeps the consent revocation timestamp inside its owner: external consumers "
+        "receive ConsentRecord envelopes through active() and never read revoked_at directly. "
+        "(actor_account_id and text_version became consumed once ECR-0118's portal writes them.)",
     ),
 )
 
