@@ -51,13 +51,16 @@ def test_run_writes_a_valid_posture_document(tmp_path: Path) -> None:
 
 
 def test_run_writes_a_report_containing_the_findings(tmp_path: Path) -> None:
-    obs = run(tmp_path, runner=_fake(tmp_path))
-    html = (tmp_path / "report.html").read_text(encoding="utf-8")
-    assert "<!doctype html>" in html
     import html as _h
 
-    for o in obs:
-        assert _h.escape(o["what_happened"]) in html
+    obs = run(tmp_path, runner=_fake(tmp_path))
+    report = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "<!doctype html>" in report
+    findings = [o for o in obs if not (o.get("observed") or {}).get("unmeasured")]
+    assert findings
+    for o in findings:
+        # a finding's raw text lives in the collapsed technical detail, HTML-escaped
+        assert _h.escape(o["what_happened"]) in report
 
 
 def test_findings_are_ordered_by_severity() -> None:
@@ -68,7 +71,10 @@ def test_findings_are_ordered_by_severity() -> None:
 def test_the_report_escapes_observation_text() -> None:
     """Observation text describes a real machine; it must never inject markup."""
     html = render_report(
-        "host", "OS", [{"severity": "high", "what_happened": "<script>x</script>"}], "now"
+        "host",
+        "OS",
+        [{"severity": "high", "check": "x", "what_happened": "<script>x</script>"}],
+        "now",
     )
     assert "<script>x</script>" not in html
     assert "&lt;script&gt;" in html
@@ -76,7 +82,7 @@ def test_the_report_escapes_observation_text() -> None:
 
 def test_an_empty_scan_reports_nothing_flagged() -> None:
     html = render_report("host", "OS", [], "now")
-    assert "Nothing was flagged." in html
+    assert "Nothing to report." in html
 
 
 def test_main_runs_and_returns_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,3 +109,44 @@ def test_build_produces_a_runnable_zipapp(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     doc = json.loads((workdir / "aqelyn-scan" / "posture.json").read_text(encoding="utf-8"))
     assert "observations" in doc
+
+
+# --- ECR-0114: plain-language report + check/plain sync -------------------------------------
+
+
+def test_every_emitted_check_has_plain_language(tmp_path: Path) -> None:
+    """A new check without a plain-language entry would show the fallback — fail instead."""
+    from aqelyn.collect.plain import PLAIN
+
+    obs = run(tmp_path, runner=_fake(tmp_path))
+    for o in obs:
+        assert o["check"] in PLAIN, f"no plain-language entry for {o['check']}"
+
+
+def test_linux_check_ids_all_have_plain_entries() -> None:
+    from aqelyn.collect.plain import LINUX_CHECK_IDS, PLAIN
+
+    for cid in LINUX_CHECK_IDS:
+        assert cid in PLAIN
+
+
+def test_report_shows_plain_headline_not_raw_jargon(tmp_path: Path) -> None:
+    run(tmp_path, runner=_fake(tmp_path))
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    # the plain headline is primary; the raw ss command only appears in the collapsed detail
+    assert "can be reached over the network" in html
+    assert "What to do:" in html
+    assert "Show the technical detail" in html
+
+
+def test_report_shows_a_looking_good_section(tmp_path: Path) -> None:
+    """Charter Principle 2: show what is good, not only problems."""
+    html = (
+        (tmp_path / "report.html").read_text(encoding="utf-8")
+        if (tmp_path / "report.html").exists()
+        else ""
+    )
+    run(tmp_path, runner=_fake(tmp_path))
+    html = (tmp_path / "report.html").read_text(encoding="utf-8")
+    assert "Looking good" in html
+    assert "✓" in html

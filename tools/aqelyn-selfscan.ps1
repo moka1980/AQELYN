@@ -14,6 +14,20 @@ function Add-Obs($h) { [void]$obs.Add($h) }
 function Is-Public($addr) { return -not ($addr -like "127.*" -or $addr -eq "::1") }
 function HtmlEnc($s) { if ($null -eq $s) { return "" }; return ([string]$s).Replace("&","&amp;").Replace("<","&lt;").Replace(">","&gt;").Replace([string][char]34,"&quot;") }
 
+# Plain-language layer (Charter Principle 2) - mirrors src/aqelyn/collect/plain.py.
+$SEVWORD = @{ critical="Fix this soon"; high="Worth attention"; medium="Worth improving"; low="Minor"; info="For information" }
+$WINDOWS_CHECK_IDS = @("listening_sockets_public","host_firewall_active","disk_encryption_at_rest","antivirus_protection","remote_desktop_exposed")
+$PLAIN = @{
+  listening_sockets_public = @{ headline="Some services on this computer can be reached over the network"; meaning="Programs on this computer are waiting for connections from other devices on the same network - not only from the computer itself. That is normal for things like file and printer sharing, but anything you do not actually use is safer turned off."; action="On a network you do not fully trust (a cafe, airport, or shared office), set that network to Public in your settings. If you do not share files or printers from this computer, turn that sharing off."; good="Nothing on this computer is needlessly open to the network." }
+  host_firewall_active = @{ headline="The firewall is switched off"; meaning="A firewall turns away connections you did not ask for. With it off, other devices can reach services on this computer more freely."; action="Switch the firewall on for every network type."; good="The firewall is on - it turns away connections you did not ask for." }
+  disk_encryption_at_rest = @{ headline="The disk is not encrypted"; meaning="If this computer is lost or stolen, someone could take the drive out and read everything on it, because the files are not scrambled."; action="Turn on disk encryption (BitLocker)."; good="The disk is encrypted - if the computer is lost or stolen, the files cannot be read." }
+  antivirus_protection = @{ headline="Antivirus or real-time protection is off"; meaning="With real-time protection off, harmful files are not checked as they arrive, so malware can run without being caught."; action="Turn Microsoft Defender real-time protection on, or confirm another antivirus is active."; good="Antivirus is on and watching for harmful files." }
+  antivirus_signatures_current = @{ headline="Antivirus is out of date"; meaning="Old antivirus data misses threats discovered since it was last updated."; action="Update your antivirus (check for updates in Windows Security)."; good="Antivirus data is up to date." }
+  remote_desktop_exposed = @{ headline="Remote Desktop is switched on"; meaning="Remote Desktop lets someone log in to this computer over the network. Left open, it is a constant target for people guessing passwords."; action="Turn Remote Desktop off if you do not use it; if you need it, do not expose it to the internet."; good="Remote Desktop is off - nobody can log in to this computer over the network." }
+}
+function Plain($id) { if ($PLAIN.ContainsKey($id)) { return $PLAIN[$id] } return @{ headline="Something needs a look"; meaning="A security check reported something worth reviewing."; action="Review this item."; good="This check passed." } }
+
+
 # --- 1. public listeners (mirrors the Linux listening_sockets_public check) ------------
 $listen = Get-NetTCPConnection -State Listen
 if ($null -ne $listen) {
@@ -77,47 +91,76 @@ if ($deny -eq 0) {
   Add-Obs @{ observation_id="obs-rdp"; subject=@{kind="host";ref=$subject}; check="remote_desktop_exposed"; severity="high"; severity_score=68.0; what_happened="Remote Desktop (RDP) is enabled$(if($nla -ne 1){' and Network Level Authentication is off'} )."; why_it_matters="RDP accepts logins over the network; exposed to the internet it is a constant target for credential guessing."; how_determined="Read fDenyTSConnections (and NLA) from the Terminal Server registry keys."; risk_of_inaction="Remote access is open to guessing and known RDP flaws."; remediation=@{summary="Turn RDP off if unused; if needed, require Network Level Authentication and never expose it directly to the internet.";difficulty="medium";expected_outcome="Remote logins are limited and authenticated before a session starts."}; observed=@{rdp_enabled=$true;nla=$nla} }
 }
 
-# --- output: posture.json + report.html + console ---------------------------------------
+# --- output: posture.json (technical) + plain-language report.html + console -----------
 $out = Join-Path (Get-Location) "aqelyn-scan"
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 $order = @{ critical=0; high=1; medium=2; low=3; info=4 }
 $sorted = @($obs | Sort-Object @{ Expression = { $order[$_.severity] } })
 (@{ observations = $sorted } | ConvertTo-Json -Depth 6) | Set-Content -Path (Join-Path $out "posture.json") -Encoding UTF8
 
+$findings = @($sorted | Where-Object { -not $_.observed.unmeasured })
+$unknown  = @($sorted | Where-Object { $_.observed.unmeasured })
+$seen     = @($sorted | ForEach-Object { $_.check })
+$passed   = @($WINDOWS_CHECK_IDS | Where-Object { $seen -notcontains $_ })
 $colors = @{ critical="#c62828"; high="#e08a00"; medium="#0b6fc4"; low="#657790"; info="#657790" }
 $when = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'")
-$cards = ""
-foreach ($o in $sorted) {
-  $c = $colors[$o.severity]; $fix = $o.remediation.summary
-  $cards += "<article class='f'><div class='sv' style='--c:$c'>$($o.severity.ToUpper())</div><div><h3>$((HtmlEnc $o.what_happened))</h3><p class='w'>$((HtmlEnc $o.why_it_matters))</p><p class='d'>Determined by: $((HtmlEnc $o.how_determined))</p>$(if($fix){"<p class='fix'>Fix: $((HtmlEnc $fix))</p>"})</div></article>`n"
+
+$sections = ""
+if ($findings.Count) {
+  $sections += "<h2>Worth a look</h2>"
+  foreach ($o in $findings) {
+    $p = Plain $o.check; $c = $colors[$o.severity]
+    $tech = HtmlEnc ("" + $o.what_happened + "  Determined by: " + $o.how_determined)
+    $sections += "<article class='card'><span class='chip' style='--c:$c'>$(HtmlEnc $SEVWORD[$o.severity])</span><p class='hl'>$(HtmlEnc $p.headline)</p><p class='mean'>$(HtmlEnc $p.meaning)</p><p class='act'><b>What to do:</b> $(HtmlEnc $p.action)</p><details><summary>Show the technical detail</summary><p class='tech'>$tech</p></details></article>"
+  }
 }
-if (-not $cards) { $cards = "<p>Nothing was flagged.</p>" }
+if ($passed.Count) {
+  $sections += "<h2>Looking good</h2>"
+  foreach ($id in $passed) { $p = Plain $id; $sections += "<article class='card good'><span class='tick'>&#10003;</span><span>$(HtmlEnc $p.good)</span></article>" }
+}
+if ($unknown.Count) {
+  $sections += "<h2>Could not check</h2>"
+  foreach ($o in $unknown) { $p = Plain $o.check; $sections += "<article class='card good'><span class='g3'>&#8226;</span><span class='g3'>Could not check: $(HtmlEnc ($p.headline.ToLower())). Run as administrator to read it.</span></article>" }
+}
+if (-not $sections) { $sections = "<p>Nothing to report.</p>" }
+$ucount = if ($unknown.Count) { "<span class='u'>$($unknown.Count) could not check</span>" } else { "" }
+$summary = "<div class='sum'><span class='g'>$($passed.Count) looking good</span><span class='a'>$($findings.Count) worth a look</span>$ucount</div>"
+
 $report = @"
 <!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>AQELYN self-scan - $subject</title><style>
+<title>AQELYN security check - $subject</title><style>
  body{margin:0;background:#060b15;color:#e7eef8;font:15px/1.6 system-ui,Segoe UI,Arial,sans-serif}
  .top{background:linear-gradient(160deg,#0b2440,#04182e);padding:26px 22px;border-bottom:2px solid #0b8ce0}
- .top h1{margin:0;font-size:22px} .top p{margin:4px 0 0;color:#8fb2d2;font-size:13px}
- main{max-width:820px;margin:0 auto;padding:22px}
- .f{display:grid;grid-template-columns:96px 1fr;gap:14px;padding:16px;border:1px solid #1e2f49;border-radius:10px;background:#0d1626;margin-bottom:12px}
- .sv{font:700 10px/1.7 ui-monospace,monospace;letter-spacing:.08em;color:var(--c);border:1px solid var(--c);border-radius:100px;text-align:center;padding:2px 0;align-self:start}
- h3{margin:0 0 5px;font-size:15.5px} .w{margin:0 0 6px;color:#aab9d0;font-size:13.5px}
- .d{margin:0;color:#7e8fa8;font-size:12px;font-family:ui-monospace,monospace} .fix{margin:8px 0 0;color:#3fc169;font-size:13px}
- footer{max-width:820px;margin:0 auto;padding:0 22px 30px;color:#7e8fa8;font-size:12.5px}
+ .top h1{margin:0;font-size:23px} .top p{margin:6px 0 0;color:#8fb2d2;font-size:13.5px}
+ .sum{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+ .sum span{font-size:12.5px;font-weight:700;padding:5px 12px;border-radius:100px}
+ .sum .g{background:#0d2a1a;color:#3fc169} .sum .a{background:#2c2410;color:#eeae4a} .sum .u{background:#131f34;color:#8fb2d2}
+ main{max-width:780px;margin:0 auto;padding:22px}
+ h2{font-size:14px;letter-spacing:.04em;color:#8fb2d2;text-transform:uppercase;margin:26px 0 12px}
+ .card{border:1px solid #1e2f49;border-radius:12px;background:#0d1626;padding:18px;margin-bottom:12px}
+ .card.good{display:flex;gap:11px;align-items:flex-start;padding:14px 16px}
+ .tick{color:#3fc169;font-weight:800;font-size:16px}
+ .chip{font:700 10.5px/1.7 system-ui;letter-spacing:.05em;text-transform:uppercase;padding:2px 10px;border-radius:100px;color:var(--c);border:1px solid var(--c)}
+ .hl{font-size:16.5px;font-weight:700;margin:10px 0 6px} .mean{color:#c7d4e6;margin:0 0 10px}
+ .act{margin:0} .act b{color:#3fc169}
+ details{margin-top:12px;border-top:1px solid #1e2f49;padding-top:10px} summary{cursor:pointer;color:#7e8fa8;font-size:12.5px}
+ .tech{color:#7e8fa8;font-size:12px;font-family:ui-monospace,monospace;margin:8px 0 0;white-space:pre-wrap}
+ .g3{color:#9fb0c6;font-size:13px}
+ footer{max-width:780px;margin:0 auto;padding:6px 22px 30px;color:#7e8fa8;font-size:12.5px}
 </style></head><body>
-<div class='top'><h1>AQELYN self-scan - $subject</h1><p>$osName - $($sorted.Count) observations - $when - read-only, nothing left this machine</p></div>
-<main>$cards</main>
-<footer>Produced by the AQELYN Windows collector. Run again from an elevated PowerShell to read BitLocker and Defender. This report was generated entirely on your machine.</footer>
+<div class='top'><h1>Security check - $subject</h1><p>$osName - $when - read-only, nothing left this computer</p>$summary</div>
+<main>$sections</main>
+<footer>This check only reads how your computer is set up - it changes nothing and sends nothing anywhere. The report was made entirely on your machine.</footer>
 </body></html>
 "@
 Set-Content -Path (Join-Path $out "report.html") -Value $report -Encoding UTF8
 
 Write-Host ""
-Write-Host "  AQELYN self-scan - $subject"
+Write-Host "  AQELYN security check - $subject"
 Write-Host "  ============================================"
-foreach ($o in $sorted) { Write-Host ("  [{0,-8}] {1}" -f $o.severity.ToUpper(), $o.what_happened) }
+if (-not $findings.Count) { Write-Host "  Nothing needs attention right now." }
+foreach ($o in $findings) { $p = Plain $o.check; Write-Host ("  [{0,-16}] {1}" -f $SEVWORD[$o.severity], $p.headline) }
 Write-Host ""
 Write-Host "  Read-only. Nothing was sent anywhere."
-Write-Host "  Findings : $(Join-Path $out 'posture.json')"
-Write-Host "  Report   : open $(Join-Path $out 'report.html') in your browser"
+Write-Host "  Report: open $(Join-Path $out 'report.html') in your browser"
 Write-Host ""

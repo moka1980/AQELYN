@@ -118,6 +118,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0111 | Every door a password can walk through | Accepted (implemented by the reviewer; independent review outstanding) | **An unset directive is not a neutral one.** Keyboard-interactive and empty passwords are password paths too. Measured on a real sshd: TWO of the three upstream defaults are OPEN, so "the config does not mention it" is not the neutral state ECR-0102 treated it as. Recorded rather than acted on, because a build default belongs to the sshd being examined. |
 | ECR-0112 | A Match block makes the answer conditional | Accepted (implemented by the reviewer; independent review outstanding) | **A Match-scoped directive is not a global one.** `PasswordAuthentication no` + `Match Address 0.0.0.0/0 {yes}` reads as `no` globally but is `yes` for those connections - a false all-clear, proven with `sshd -T -C`. The collector reads global scope on its own and flags Match-governed paths as conditional rather than folding them in. `Match all` returns to unconditional scope, verified. |
 | ECR-0113 | The self-scan download is the shipped collector | Accepted (implemented by the reviewer; independent review outstanding) | **A shipped download that isn't built from tested source will silently rot.** The Linux `.pyz` is now assembled from `src/aqelyn/collect` by a repo build script with a build-and-run test; the Windows `.ps1` (validated on a real Win11 box) is now version-controlled. Report output is HTML-escaped. |
+| ECR-0114 | The self-scan report speaks to a person | Accepted (implemented by the reviewer; independent review outstanding) | **The report must be understood by everyone, and show what's good too.** A plain-language layer (`plain.py`) gives every check a plain headline / meaning / what-to-do + a 'looking good' line; technical detail is tucked into an expander. Also fixed a real Windows bug: `HtmlEnc` blanked every field (no `(char,string)` Replace overload, swallowed by SilentlyContinue) — found because I'd validated the console, not the report. |
 
 ---
 
@@ -7643,3 +7644,23 @@ ruff + mypy --strict clean across 595 files, full suite on live Postgres. Carrie
 
 Open and named: the zipapp isn't byte-reproducible (mtimes) so the page SHA-256 is per-build; the
 Windows .ps1 has no automated test (Linux CI can't run it) and is only as safe as the next manual run.
+
+## ECR-0114 — the self-scan report speaks to a person, not an operator
+
+The owner ran the Windows scan and the report read like an operator wrote it ("ports 135/139/445
+are RPC/NetBIOS/SMB", "Get-NetTCPConnection") — against Charter Principle 2, and it showed only
+problems, never what was good. `plain.py` maps each check id to a plain headline, meaning,
+what-to-do, and a reassuring line for passes; the report now has three sections (Worth a look /
+Looking good / Could not check) with the raw text tucked into a "show technical detail" expander.
+posture.json is unchanged (technical record); only report.html gets the plain layer. The Windows
+.ps1 carries the same words.
+
+A sharper bug surfaced first: on the real machine every escaped field was BLANK. HtmlEnc used
+`.Replace([char]34,"&quot;")` — no (char,string) overload — which threw and was swallowed by
+SilentlyContinue. Found because I validated the CONSOLE (no HtmlEnc), not the report.html the
+customer opens. Lesson: validate the artifact the customer sees.
+
+11 Linux tests (plain headline shown, looking-good section, every emitted check has plain text,
+zipapp still builds+runs), ruff + mypy --strict clean across 596 files, full suite on live
+Postgres. Carried matrix 84. The Windows .ps1 has no automated test (no PowerShell on CI) - only
+as validated as the owner's last run.
