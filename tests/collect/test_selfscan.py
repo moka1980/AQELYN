@@ -55,6 +55,7 @@ def test_run_writes_a_report_containing_the_findings(tmp_path: Path) -> None:
     html = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert "<!doctype html>" in html
     import html as _h
+
     for o in obs:
         assert _h.escape(o["what_happened"]) in html
 
