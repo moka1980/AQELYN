@@ -18,7 +18,7 @@ from pathlib import Path
 _COLLECT = Path(__file__).resolve().parent.parent / "src" / "aqelyn" / "collect"
 # Everything the self-scan runner touches. Kept explicit so a stray new module is a
 # deliberate addition, not an accident that bloats the download.
-_MODULES = ("__init__.py", "host.py", "checks.py", "cli.py", "selfscan.py")
+_MODULES = ("__init__.py", "host.py", "checks.py", "cli.py", "plain.py", "selfscan.py")
 _MAIN = "from aqelyn.collect.selfscan import main\n\nraise SystemExit(main())\n"
 
 
