@@ -10,6 +10,7 @@ from typing import Any
 from aqelyn.findings import Finding
 from aqelyn.reporting.analyze import CollectionAnalysis, ReportFinding
 from aqelyn.reporting.disclosure import Mode, levels
+from aqelyn.reporting.glossary import glosses_for
 
 
 def render_findings_report(analysis: CollectionAnalysis, *, mode: Mode = Mode.ENTERPRISE) -> str:
@@ -482,6 +483,7 @@ def _posture_section(analysis: CollectionAnalysis, mode: Mode) -> str:
                 <span class="level-name">{_e(level.name)}</span>
                 <span class="level-q">{_e(level.question)}</span></summary>
               <div class="level-body">{_e(level.body)}</div>
+              {_plain_words(level.body, mode)}
             </details>
             """
             for level in levels(finding, mode=mode)
@@ -507,6 +509,32 @@ def _posture_section(analysis: CollectionAnalysis, mode: Mode) -> str:
       {"".join(articles)}
     </section>
     """
+
+
+# Charter UX-008 read as Principle 2 asks: the audiences who are offered plain-language
+# help. Enterprise and expert readers are not - they know the words, and a gloss under every
+# sentence would be noise that trains them to skip the section.
+_GLOSSED_MODES = frozenset({Mode.HOME, Mode.SMB})
+
+
+def _plain_words(body: str, mode: Mode) -> str:
+    """ECR-0108: explain the vocabulary rather than replace it.
+
+    The level's own sentence above this is untouched in every mode. Rewriting it per
+    audience would create a second rendering of the same fact with nothing to witness the
+    drift between them, so the plain language is offered beside the words, never instead
+    of them.
+    """
+
+    if mode not in _GLOSSED_MODES:
+        return ""
+    glosses = glosses_for(body)
+    if not glosses:
+        return ""
+    items = "".join(
+        f"<li><dfn>{_e(gloss.term)}</dfn> &mdash; {_e(gloss.plain)}</li>" for gloss in glosses
+    )
+    return f'<ul class="plain-words" aria-label="In plain words">{items}</ul>'
 
 
 def _affected_assets(finding: Finding) -> str:
@@ -612,6 +640,10 @@ _STYLES = """
 .level-q { color: #6b7280; font-size: .82rem; }
 .level-body { padding: 0 0 .6rem 1.9rem; font-size: .9rem; color: #333; }
 .affected { margin: .2rem 0 .5rem; font-size: .9rem; }
+.plain-words { margin: 0 0 .6rem 1.9rem; padding: .4rem .6rem; list-style: none;
+               border-left: 2px solid #cfe0f0; background: #f6fafd; font-size: .82rem; }
+.plain-words li { margin: .15rem 0; color: #34506a; }
+.plain-words dfn { font-style: normal; font-weight: 600; }
 .affected.none { color: #8a4b00; }
 .objid { font-size: .78rem; color: #555; background: #f1f1f1;
          padding: .05rem .3rem; border-radius: 3px; }

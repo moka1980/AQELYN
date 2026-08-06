@@ -112,6 +112,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0105 | The disclosure model reaches the page | Accepted (implemented by the reviewer; independent review outstanding) | **A requirement that lives only in a module no caller imports is not implemented.** The Charter's six levels become `<details>` a reader can actually open, and `--mode` selects how many start open. A mutation deleting the level *names* ran green first: the words were rendered and nothing witnessed them. |
 | ECR-0106 | A posture subject becomes an asset | Accepted (implemented by the reviewer; independent review outstanding) | **Identity belongs to the subject, not to an id we minted.** `upsert` resolves by natural key, so Affected Assets now points at an object the store returns and four observations of this machine are one asset. Found while reading my own deferral: the dangling id ECR-0100 refused to put in the Finding was already in the EvidenceRecord. |
 | ECR-0107 | The collector stops assuming Debian | Accepted (implemented by the reviewer; independent review outstanding) | **A check that reports "unreadable" on every machine that needs it is not a check.** dnf/zypper/pacman, disk encryption and automatic updates. Two of my own parsers were wrong and my own witnesses caught them - one would have reported automatic updates disabled on every machine, including ones that had them on. |
+| ECR-0108 | Plain words beside the finding | Accepted (implemented by the reviewer; independent review outstanding) | **The reason I deferred it twice became the design.** A rewritten sentence has no witness for its drift, so the plain language is additive: the finding's own words are byte-identical in all four modes and the jargon is annotated beneath them. Also caught a second mutation-that-did-not-mutate - an empty line number read as GREEN. |
 
 ---
 
@@ -7475,3 +7476,38 @@ observations, up from four - no encrypted volume, no automatic updates, 31 pendi
 
 Open and named: `lsblk` sees mappings not policy, Windows and macOS remain invisible, and the
 zypper and pacman parsers have no real-output fixture.
+
+## ECR-0108 — plain words beside the finding, never instead of it
+
+UX-008's vocabulary half was recorded against my own work twice, in ECR-0104 and again in
+ECR-0105, each time with a stated reason: a second rendering of the same fact is where a
+"simplified" version drifts from a true one, and nothing can witness that drift when both
+sentences are things we wrote.
+
+That reason is the design. The plain language is additive - the finding's sentence is untouched
+in every mode and the technical terms it contains are annotated beneath it, for home and SMB
+readers only. One rendering of the fact, nothing to drift from.
+
+The invariant is witnessed by rendering ONE analysis four ways. Building a fresh analysis per
+mode mints new evidence ids and compares different findings; ECR-0104 made exactly that mistake
+and repeating it here would have produced a test that passes for the wrong reason.
+
+Eight mutations red, including the only one whose failure would be a lie rather than a missing
+feature: a home reader served a reworded sentence. Three necessity runs, all green.
+
+Second harness defect of the same family as ECR-0105: a grep-computed line number came back
+empty, `int("")` raised, the applier exited 1, and `lib.sh` only treated exit 9 as "did not
+apply" - so the cell ran against pristine source and reported GREEN. The driver now rejects a
+non-numeric line, an out-of-range line, any non-zero applier exit, and an unchanged file. Second
+time this project has been bitten by a mutation that did not mutate; the first was a wrong
+working directory.
+
+An existing absence guard earned its keep: EA-0054 Web Intelligence is a recorded decision not
+to build, and my draft glossary defined four web- and mail-intelligence terms. The guard fired,
+then fired again on the comment explaining the removal - the census is a text scan. The terms
+went, not the guard. That turned a hypothetical gap into a measured one: 8 of 18 terms appear in
+this machine's real rendered report, and a witness now asserts the glossary is grounded in
+genuine check output at all.
+
+Open and named: nothing measures the reverse direction (a word the checks use and the glossary
+lacks is still invisible), definitions whose correctness no test can check, and English only.
