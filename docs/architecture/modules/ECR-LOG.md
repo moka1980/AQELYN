@@ -108,6 +108,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0101 | Surface collection seed | Accepted (implemented by the reviewer; independent review outstanding) | **A platform you cannot put data into cannot be looked at.** `--collection` seeds the running kernel with the report path's ingestion and refusals; opt-in, read once, idempotent, and a refused collection stops the surface. |
 | ECR-0102 | Self-scan collector | Accepted (implemented by the reviewer; independent review outstanding) | **A check that cannot run reports unmeasured, never a pass.** `aqelyn collect` inspects the host read-only and writes a collection directory, closing collect -> ingest -> look; mobile is named out of scope rather than left to assumption. |
 | ECR-0103 | Charter v2 compliance | Accepted (implemented by the reviewer; independent review outstanding) | **Hollow compliance is worse than a named gap.** Plain-language titles and an expert expansion close UX-001 and UX-002; Affected Assets is left empty rather than filled with an id that resolves to nothing, and owed to ECR-0104. |
+| ECR-0104 | Progressive disclosure and modes | Accepted (implemented by the reviewer; independent review outstanding) | **A mode narrows what is shown; it never softens what is true.** The Charter's six levels become data a renderer consumes, with witnesses that levels never duplicate and that no audience gets a smaller truth. |
 
 ---
 
@@ -7367,3 +7368,43 @@ the whole paragraph, empty-title fallback removed, operator-supplied title ignor
 dropped from level 4. Twelve tests, including one asserting that nothing is lost when the title is
 simplified, and a UX-007 check on generated wording. Ruff clean, mypy --strict clean across 586
 files, full suite on live Postgres. Carried matrix stays at 84, untouched.
+
+
+## ECR-0104 - Progressive disclosure and communication modes
+
+**Raised and implemented by:** Claude Code, at the owner's direction while Codex was unavailable.
+**Status:** Accepted - implemented; independent review outstanding.
+**Number:** verified free at `e2a04ec`.
+
+### 1. Finding
+
+ECR-0103 named three Charter gaps it did not close. Two are closed here: Principle 5's six-level
+Progressive Detail Model and UX-008's four communication modes, both stated in section 9 as
+mandatory architectural requirements. Neither existed: findings rendered as one flat block and
+nothing selected register by audience.
+
+### 2. Resolution
+
+reporting/disclosure.py expresses both as data a renderer consumes. levels(finding, mode=...)
+returns the six Charter levels in order with the question each answers and whether it opens by
+default for that audience.
+
+Two properties carry witnesses because both are easy to break by accident. Levels add and never
+repeat - Principle 5 requires multiple levels "without duplicating data". And a mode narrows what
+is opened while never changing what is said: every mode returns all six levels with identical
+bodies, and a test holds one finding and reads it four ways to prove it. Home opens two levels,
+SMB three, enterprise five, expert six; every level stays reachable in every mode because the
+Charter calls the simplified view a starting point, not a ceiling.
+
+Level 3 renders a missing evidence link as a defect the platform requires fixing, never as an
+absence of problems. A mutation rewording it to "No issues found." turns the suite red.
+
+### 3. Acceptance and scope
+
+Ten mutations red, including a mode rewording the summary for a home reader. Fourteen tests, ruff
+clean, mypy --strict clean across 588 files, full suite on live Postgres. Carried matrix stays at
+84, untouched.
+
+No renderer consumes the model yet - deliberate scope, and recorded as such rather than left to be
+discovered. UX-008 is half-served: modes change disclosure depth, not vocabulary, which is what
+Principle 2 actually asks for.
