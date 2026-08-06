@@ -115,6 +115,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0108 | Plain words beside the finding | Accepted (implemented by the reviewer; independent review outstanding) | **The reason I deferred it twice became the design.** A rewritten sentence has no witness for its drift, so the plain language is additive: the finding's own words are byte-identical in all four modes and the jargon is annotated beneath them. Also caught a second mutation-that-did-not-mutate - an empty line number read as GREEN. |
 | ECR-0109 | The firewall reader told the truth in neither direction | Accepted (implemented by the reviewer; independent review outstanding) | **A fixture proves the code does what the fixture says; only a real machine says what the inputs look like.** Pointed at the live VPS, the collector reported an ACTIVE firewall as inactive - `ufw status` needs root. The same three lines also read a STOPPED firewalld as running, because "running" is a substring of "not running". |
 | ECR-0110 | The SSH reader read the wrong file, in the wrong order | Accepted (implemented by the reviewer; independent review outstanding) | **A green test that encodes a misunderstanding is the misunderstanding, notarised.** The reader ignored `Include` and kept the LAST directive; sshd takes the FIRST, proven against a real sshd. On the live VPS the two drop-ins disagree, and the effective answer is that password auth is ENABLED on a port open to the internet - reported until now as unmeasured. |
+| ECR-0111 | Every door a password can walk through | Accepted (implemented by the reviewer; independent review outstanding) | **An unset directive is not a neutral one.** Keyboard-interactive and empty passwords are password paths too. Measured on a real sshd: TWO of the three upstream defaults are OPEN, so "the config does not mention it" is not the neutral state ECR-0102 treated it as. Recorded rather than acted on, because a build default belongs to the sshd being examined. |
 
 ---
 
@@ -7576,3 +7577,34 @@ away. The exact command is in ECR-0110 §7.
 Open and named: Match blocks are ignored, KbdInteractiveAuthentication is not read, and the
 collector still cannot run `sshd -T`, so this re-implements sshd's parsing and re-implementations
 drift.
+
+## ECR-0111 — every door a password can walk through
+
+ECR-0110 named its own gap: only `PasswordAuthentication` was read, and the VPS's other password
+paths were safe by luck. Naming a gap and shipping is fine once; doing it while the finding is
+live on the owner's production server is not.
+
+Three directives can leave a typed secret sufficient: PasswordAuthentication,
+KbdInteractiveAuthentication (with PAM, a password prompt under another name) and
+PermitEmptyPasswords. The check now names WHICH door is open instead of saying "password
+authentication" regardless.
+
+`ssh_password_auth` stopped being a stored field and became a property over the path set. Two
+records of one fact are two records that can disagree, and they were sitting next to each other
+in the same dataclass.
+
+The third path disagreed with `sshd -T`, and the disagreement was worth having. Rather than argue
+from the man page I measured the defaults with `sshd -T -f` on a config containing only `Port 22`:
+**passwordauthentication yes, kbdinteractiveauthentication yes, permitemptypasswords no.** Two of
+three default to OPEN, so an unset directive is not neutral - a machine that never sets
+KbdInteractiveAuthentication has that door open and AQELYN reports nothing. Recorded in
+`UPSTREAM_DEFAULT_OPEN` and surfaced as `unset_and_open_by_default`, but NOT synthesised into
+values: a build default belongs to how a given sshd was compiled, and applying one machine's
+measurement to every machine is a guess with a citation.
+
+Eight mutations red, eight new tests, validated against `sshd -T` on the real VPS.
+
+**Deliberately not built: a Windows collector.** WSL interop is unavailable here, so not one
+Windows command can be executed. ECR-0109 and ECR-0110 exist precisely because fixtures agreed
+with a collector that reality did not; shipping one validated only against strings I wrote myself
+would repeat that mistake knowingly.

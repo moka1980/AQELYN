@@ -14,6 +14,7 @@ from aqelyn.collect.checks import (
     check_disk_encryption,
     check_firewall,
     check_pending_updates,
+    check_ssh_password_auth,
     check_unattended_upgrades,
     observations_for,
 )
@@ -26,6 +27,7 @@ from aqelyn.collect.host import (
     parse_dnf_updates,
     parse_pacman_updates,
     parse_ssh_password_auth,
+    parse_ssh_password_paths,
     parse_unattended_upgrades,
     parse_zypper_updates,
     read_host_facts,
@@ -407,3 +409,76 @@ def test_an_unreadable_drop_in_does_not_crash_the_collector(tmp_path: Path) -> N
         auto_upgrades=tmp_path / "absent",
     )
     assert facts.ssh_password_auth is True
+
+
+# --- ECR-0111: every password-capable path, not just the obvious one ----------------------
+
+
+def test_keyboard_interactive_is_reported_as_a_password_path() -> None:
+    """With PAM this is a password prompt under another name. ECR-0110 read only
+    PasswordAuthentication and said so; on the live VPS the others are safe by luck."""
+    paths = parse_ssh_password_paths(
+        "PasswordAuthentication no\nKbdInteractiveAuthentication yes\n"
+    )
+    assert paths == {
+        "password_authentication": False,
+        "keyboard_interactive_authentication": True,
+    }
+
+
+def test_empty_passwords_is_reported_as_a_password_path() -> None:
+    paths = parse_ssh_password_paths("PermitEmptyPasswords yes\n")
+    assert paths == {"empty_passwords": True}
+
+
+def test_a_directive_the_config_never_sets_is_omitted_not_defaulted() -> None:
+    """Two of the three upstream defaults are OPEN, measured with `sshd -T -f` on a config
+    containing only `Port 22`. Synthesising a value here would either invent a finding or
+    hide one, so the absence is carried through instead."""
+    assert parse_ssh_password_paths("PasswordAuthentication no\n") == {
+        "password_authentication": False
+    }
+
+
+def test_a_config_that_sets_none_of_them_is_unmeasured() -> None:
+    assert parse_ssh_password_paths("Port 22\n") is None
+
+
+def test_the_check_names_which_path_is_open() -> None:
+    facts = HostFacts(
+        ssh_password_paths={
+            "password_authentication": False,
+            "keyboard_interactive_authentication": True,
+        }
+    )
+    observation = check_ssh_password_auth(facts, "host-1")
+    assert observation is not None
+    assert "keyboard-interactive" in observation["what_happened"]
+    assert "password login" not in observation["what_happened"]
+
+
+def test_the_check_stays_silent_when_every_path_is_closed() -> None:
+    facts = HostFacts(
+        ssh_password_paths={
+            "password_authentication": False,
+            "keyboard_interactive_authentication": False,
+            "empty_passwords": False,
+        }
+    )
+    assert check_ssh_password_auth(facts, "host-1") is None
+
+
+def test_the_check_reports_unset_paths_the_upstream_default_leaves_open() -> None:
+    facts = HostFacts(ssh_password_paths={"password_authentication": True})
+    observation = check_ssh_password_auth(facts, "host-1")
+    assert observation is not None
+    assert observation["observed"]["unset_and_open_by_default"] == [
+        "keyboard_interactive_authentication"
+    ]
+
+
+def test_password_auth_is_derived_from_the_path_set_not_stored_twice() -> None:
+    """Two records of one fact are two records that can disagree."""
+    assert HostFacts(ssh_password_paths={"password_authentication": True}).ssh_password_auth
+    assert HostFacts().ssh_password_auth is None
+    assert HostFacts(ssh_password_paths={"empty_passwords": True}).ssh_password_auth is None
