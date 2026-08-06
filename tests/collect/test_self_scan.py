@@ -59,9 +59,13 @@ def test_pending_updates_counts_only_install_lines() -> None:
     assert parse_pending_updates(output) == 2
 
 
-def test_ssh_password_auth_reads_the_last_effective_directive() -> None:
+def test_ssh_password_auth_reads_the_first_effective_directive() -> None:
+    """ECR-0110 corrected this. It asserted LAST-wins, which is not what sshd does:
+    "unless noted otherwise, for each keyword, the first obtained value will be used".
+    Proven against a real sshd with `sshd -T -f` on two-line configs in both orders, after
+    the live VPS turned up two drop-ins that disagree."""
     assert (
-        parse_ssh_password_auth("PasswordAuthentication yes\nPasswordAuthentication no\n") is False
+        parse_ssh_password_auth("PasswordAuthentication yes\nPasswordAuthentication no\n") is True
     )
 
 

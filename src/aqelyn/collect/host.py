@@ -232,14 +232,57 @@ def parse_unattended_upgrades(conf: str) -> bool:
     return False
 
 
-def parse_ssh_password_auth(sshd_config: str) -> bool | None:
-    """Return whether password auth is enabled, or None when the file does not say.
+_MAX_INCLUDE_DEPTH = 8
 
-    An sshd_config that never mentions the directive is not evidence of either setting -
-    the effective value comes from the build default - so it reads as unmeasured.
+IncludeResolver = Callable[[str], Sequence[str]]
+
+
+def flatten_sshd_config(text: str, *, resolve: IncludeResolver, _depth: int = 0) -> str:
+    """Inline `Include` directives where they appear, as sshd does.
+
+    Modern Ubuntu ships `Include /etc/ssh/sshd_config.d/*.conf` near the top of the main
+    file and puts the settings that matter in the drop-ins, so a parser that reads only the
+    main file reads a file whose every auth directive is commented out. Measured on the
+    live VPS: the effective setting lives in a drop-in, and the collector called the fact
+    unmeasured.
+
+    Depth is bounded: sshd permits nested includes, and a config that includes itself must
+    not hang a collector.
     """
 
-    result: bool | None = None
+    if _depth >= _MAX_INCLUDE_DEPTH:
+        return text
+    out: list[str] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        parts = line.split()
+        # No `startswith("#")` guard here. A commented Include yields a first token of
+        # "#Include" or "#", neither of which equals "include", so the guard could not
+        # change a verdict - measured as GREEN by ECR-0110/M6. `is_public` set the
+        # precedent: dead code in a security-relevant path is a liability, so it is gone
+        # rather than left looking load-bearing. The witness for the behaviour stays.
+        if len(parts) >= 2 and parts[0].lower() == "include":
+            for pattern in parts[1:]:
+                for included in resolve(pattern):
+                    out.append(flatten_sshd_config(included, resolve=resolve, _depth=_depth + 1))
+            continue
+        out.append(raw)
+    return "\n".join(out)
+
+
+def parse_ssh_password_auth(sshd_config: str) -> bool | None:
+    """Return whether password auth is enabled, or None when the config does not say.
+
+    **The first value wins**, which is sshd's rule: "unless noted otherwise, for each
+    keyword, the first obtained value will be used". This used to keep the last one. On the
+    live VPS two drop-ins disagree - `50-cloud-init.conf` says yes and
+    `60-cloudimg-settings.conf` says no - and taking the last would have reported the
+    opposite of what `sshd -T` reports.
+
+    A config that never mentions the directive is not evidence of either setting - the
+    effective value comes from the build default - so it reads as unmeasured.
+    """
+
     for raw in sshd_config.splitlines():
         line = raw.strip()
         # The `#` test is defensive, not load-bearing: a commented directive already fails
@@ -249,8 +292,27 @@ def parse_ssh_password_auth(sshd_config: str) -> bool | None:
             continue
         parts = line.split()
         if len(parts) >= 2 and parts[0].lower() == "passwordauthentication":
-            result = parts[1].lower() == "yes"
-    return result
+            return parts[1].lower() == "yes"
+    return None
+
+
+def _filesystem_include_resolver(base: Path) -> IncludeResolver:
+    """Read Include patterns off disk in the order sshd would: globbed, then sorted."""
+
+    def resolve(pattern: str) -> Sequence[str]:
+        target = Path(pattern)
+        root, glob = (target.parent, target.name) if target.is_absolute() else (base, pattern)
+        contents: list[str] = []
+        try:
+            matches = sorted(root.glob(glob))
+        except (OSError, ValueError):
+            return ()
+        for path in matches:
+            with contextlib.suppress(OSError):
+                contents.append(path.read_text(encoding="utf-8"))
+        return contents
+
+    return resolve
 
 
 def read_host_facts(
@@ -259,6 +321,7 @@ def read_host_facts(
     os_release: Path = Path("/etc/os-release"),
     sshd_config: Path = Path("/etc/ssh/sshd_config"),
     auto_upgrades: Path = Path("/etc/apt/apt.conf.d/20auto-upgrades"),
+    include_resolver: IncludeResolver | None = None,
 ) -> HostFacts:
     """Gather what this machine will say about itself. Read-only throughout."""
 
@@ -343,7 +406,12 @@ def read_host_facts(
 
     ssh_password_auth: bool | None = None
     with contextlib.suppress(OSError):
-        ssh_password_auth = parse_ssh_password_auth(sshd_config.read_text(encoding="utf-8"))
+        ssh_password_auth = parse_ssh_password_auth(
+            flatten_sshd_config(
+                sshd_config.read_text(encoding="utf-8"),
+                resolve=include_resolver or _filesystem_include_resolver(sshd_config.parent),
+            )
+        )
     if ssh_password_auth is None:
         unreadable.append("ssh_password_auth")
 

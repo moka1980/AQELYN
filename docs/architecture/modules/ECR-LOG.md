@@ -114,6 +114,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0107 | The collector stops assuming Debian | Accepted (implemented by the reviewer; independent review outstanding) | **A check that reports "unreadable" on every machine that needs it is not a check.** dnf/zypper/pacman, disk encryption and automatic updates. Two of my own parsers were wrong and my own witnesses caught them - one would have reported automatic updates disabled on every machine, including ones that had them on. |
 | ECR-0108 | Plain words beside the finding | Accepted (implemented by the reviewer; independent review outstanding) | **The reason I deferred it twice became the design.** A rewritten sentence has no witness for its drift, so the plain language is additive: the finding's own words are byte-identical in all four modes and the jargon is annotated beneath them. Also caught a second mutation-that-did-not-mutate - an empty line number read as GREEN. |
 | ECR-0109 | The firewall reader told the truth in neither direction | Accepted (implemented by the reviewer; independent review outstanding) | **A fixture proves the code does what the fixture says; only a real machine says what the inputs look like.** Pointed at the live VPS, the collector reported an ACTIVE firewall as inactive - `ufw status` needs root. The same three lines also read a STOPPED firewalld as running, because "running" is a substring of "not running". |
+| ECR-0110 | The SSH reader read the wrong file, in the wrong order | Accepted (implemented by the reviewer; independent review outstanding) | **A green test that encodes a misunderstanding is the misunderstanding, notarised.** The reader ignored `Include` and kept the LAST directive; sshd takes the FIRST, proven against a real sshd. On the live VPS the two drop-ins disagree, and the effective answer is that password auth is ENABLED on a port open to the internet - reported until now as unmeasured. |
 
 ---
 
@@ -7541,3 +7542,37 @@ directly.
 
 Open and named: nftables and iptables remain invisible, "active" is not "default-deny", and no
 test runs the real ufw binary - which is exactly how the original defect survived.
+
+## ECR-0110 — the SSH reader read the wrong file, in the wrong order
+
+The same live-VPS run that produced ECR-0109 reported ssh password auth as unmeasured. Ubuntu
+26.04 comments out the auth directives in the main sshd_config and puts them in
+`/etc/ssh/sshd_config.d/*.conf`; the reader never followed the Include.
+
+The drop-ins on that machine disagree - `50-cloud-init.conf` says yes, `60-cloudimg-settings.conf`
+says no - and sshd takes the FIRST value in sorted glob order, so yes wins. `sshd -T` confirms.
+**Password authentication is enabled on the production VPS, on port 22 open to 0.0.0.0.** Exactly
+the high-severity finding this check exists to raise.
+
+The reader also kept the LAST matching directive, and an ECR-0102 test asserted that rule was
+correct. It is not. Proven against a real sshd in both orders rather than from the man page. Had
+last-wins stood, the collector would have read the VPS as `no` - a false all-clear on the finding
+that matters most.
+
+Two mutations ran GREEN and both were real. M3's witness depended on directory iteration order,
+so `sorted()` could be removed without failing anything; replaced by one asserting the resolver's
+own output order. M6's `#` guard on the Include branch cannot change a verdict, because a
+commented Include's first token is never `include`; removed, following the `is_public` precedent
+that dead code in a security path is a liability. `parse_ssh_password_auth` deliberately keeps
+its own - what matters is knowing which you have.
+
+Six mutations red, nine new tests, one corrected assertion. Validated against `sshd -T` on the
+real machine, not against a fixture.
+
+**Not fixed on the server, deliberately:** disabling password auth means I cannot verify how the
+owner reaches that machine, and getting it wrong locks them out of production while they are
+away. The exact command is in ECR-0110 §7.
+
+Open and named: Match blocks are ignored, KbdInteractiveAuthentication is not read, and the
+collector still cannot run `sshd -T`, so this re-implements sshd's parsing and re-implementations
+drift.
