@@ -128,6 +128,24 @@ def parse_pending_updates(apt_simulate_output: str) -> int:
     return sum(1 for line in apt_simulate_output.splitlines() if line.startswith("Inst "))
 
 
+# (tool, argv, the token that proves the command answered at all)
+# The token is separate from the active test because a command can fail in a way that
+# produces output: `ufw status` without root prints an error, and reading "active" out of
+# its absence turns a permission problem into a security finding.
+_FIREWALL_TOOLS: tuple[tuple[str, list[str], str], ...] = (
+    ("ufw", ["ufw", "status"], "status:"),
+    ("firewalld", ["firewall-cmd", "--state"], "running"),
+)
+
+# `firewall-cmd --state` prints "not running" when firewalld is stopped, and exits non-zero.
+# A substring test for "running" matched that too, so a STOPPED firewall reported as active -
+# the same defect as above in the direction that hides a real problem.
+_FIREWALL_ACTIVE: dict[str, Callable[[str], bool]] = {
+    "ufw": lambda output: "status: active" in output,
+    "firewalld": lambda output: output.strip() == "running",
+}
+
+
 _UPDATE_TOOLS: tuple[tuple[str, tuple[str, ...], int], ...] = (
     # (tool, argv, the exit code that means "the command answered")
     # `dnf check-update` exits 100 when updates exist and 0 when none do, so treating a
@@ -277,15 +295,19 @@ def read_host_facts(
 
     firewall_tool: str | None = None
     firewall_active: bool | None = None
-    for tool, argv, marker in (
-        ("ufw", ["ufw", "status"], "status: active"),
-        ("firewalld", ["firewall-cmd", "--state"], "running"),
-    ):
+    for tool, argv, readable_token in _FIREWALL_TOOLS:
         result = runner(argv)
         if result is None:
             continue
         firewall_tool = tool
-        firewall_active = marker in result[1].lower()
+        output = result[1].lower()
+        if readable_token not in output:
+            # ECR-0109: the tool is installed and did not answer - almost always because
+            # `ufw status` needs root. That is not "no firewall". Measured on the live VPS,
+            # where this reported an ACTIVE firewall as inactive and advised enabling it.
+            unreadable.append("firewall")
+            break
+        firewall_active = _FIREWALL_ACTIVE[tool](output)
         break
     if firewall_tool is None:
         unreadable.append("firewall")

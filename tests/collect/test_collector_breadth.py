@@ -12,6 +12,7 @@ from pathlib import Path
 
 from aqelyn.collect.checks import (
     check_disk_encryption,
+    check_firewall,
     check_pending_updates,
     check_unattended_upgrades,
     observations_for,
@@ -247,3 +248,56 @@ def test_the_new_observations_carry_the_four_narrative_fields() -> None:
 def test_pending_updates_still_behaves_as_ecr_0102_left_it() -> None:
     assert check_pending_updates(HostFacts(pending_updates=0), "host-1") is None
     assert check_pending_updates(HostFacts(pending_updates=None), "host-1") is not None
+
+
+# --- ECR-0109: the firewall reader, found wrong by running it on the live VPS ------------
+
+
+def _facts(tmp_path: Path, table: dict[str, tuple[int, str]]) -> HostFacts:
+    absent = tmp_path / "absent"
+    return read_host_facts(
+        _runner(table), os_release=absent, sshd_config=absent, auto_upgrades=absent
+    )
+
+
+def test_ufw_reporting_active_is_read_as_active(tmp_path: Path) -> None:
+    facts = _facts(tmp_path, {"ufw": (0, "Status: active\nTo  Action  From\n22/tcp  ALLOW IN")})
+    assert facts.firewall_active is True
+    assert "firewall" not in facts.unreadable
+
+
+def test_ufw_reporting_inactive_is_read_as_inactive(tmp_path: Path) -> None:
+    facts = _facts(tmp_path, {"ufw": (0, "Status: inactive")})
+    assert facts.firewall_active is False
+    assert "firewall" not in facts.unreadable
+
+
+def test_ufw_refusing_without_root_is_unreadable_not_inactive(tmp_path: Path) -> None:
+    """Measured on the live VPS: `ufw status` needs root, and the collector was telling the
+    owner to enable a firewall that was already running. A false positive in the direction
+    that costs trust - the same class the `is_public` fix addressed."""
+    facts = _facts(tmp_path, {"ufw": (1, "ERROR: You need to be root to run this script")})
+    assert facts.firewall_active is None
+    assert facts.firewall_tool == "ufw"
+    assert "firewall" in facts.unreadable
+
+
+def test_a_stopped_firewalld_is_not_read_as_running(tmp_path: Path) -> None:
+    """`firewall-cmd --state` prints "not running", which contains "running". The old
+    substring test called a stopped firewall active - the same defect in the direction
+    that hides a real problem."""
+    facts = _facts(tmp_path, {"firewall-cmd": (252, "not running")})
+    assert facts.firewall_active is False
+
+
+def test_a_running_firewalld_is_read_as_running(tmp_path: Path) -> None:
+    facts = _facts(tmp_path, {"firewall-cmd": (0, "running")})
+    assert facts.firewall_active is True
+
+
+def test_an_unreadable_firewall_produces_an_unmeasured_observation(tmp_path: Path) -> None:
+    facts = _facts(tmp_path, {"ufw": (1, "ERROR: You need to be root to run this script")})
+    observation = check_firewall(facts, "host-1")
+    assert observation is not None
+    assert observation["severity"] == "info"
+    assert "not active" not in observation["what_happened"]
