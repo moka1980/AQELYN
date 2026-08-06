@@ -15,6 +15,8 @@ from aqelyn.conventions.errors import SchemaValidationError
 # Reserved prefixes -> family (CONVENTIONS §1). One owner per prefix.
 PREFIXES: dict[str, str] = {
     "obj": "object",
+    "acc": "account",
+    "inv": "invite",
     "rel": "relationship",
     "src": "source",
     "evt": "event",
