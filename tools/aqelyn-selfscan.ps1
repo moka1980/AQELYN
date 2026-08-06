@@ -12,7 +12,7 @@ $obs = New-Object System.Collections.ArrayList
 
 function Add-Obs($h) { [void]$obs.Add($h) }
 function Is-Public($addr) { return -not ($addr -like "127.*" -or $addr -eq "::1") }
-function HtmlEnc($s) { if ($null -eq $s) { return "" }; return ([string]$s).Replace("&","&amp;").Replace("<","&lt;").Replace(">","&gt;").Replace([char]34,"&quot;") }
+function HtmlEnc($s) { if ($null -eq $s) { return "" }; return ([string]$s).Replace("&","&amp;").Replace("<","&lt;").Replace(">","&gt;").Replace([string][char]34,"&quot;") }
 
 # --- 1. public listeners (mirrors the Linux listening_sockets_public check) ------------
 $listen = Get-NetTCPConnection -State Listen
