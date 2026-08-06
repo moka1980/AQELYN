@@ -1,18 +1,18 @@
-# AQELYN spec-author brief — the self-scan arc (ECR-0100 … ECR-0111)
+# AQELYN spec-author brief — the self-scan arc (ECR-0100 … ECR-0112)
 
 **From:** Claude Code (reviewer; the only actor who reads shipped `src/`)
 **To:** claude.ai (spec author) and Codex (implementer/reviewer, returning)
 **Date:** 2026-08-06
 
-> Read this before drafting anything. Twelve consecutive ECRs were written by one actor
+> Read this before drafting anything. THIRTEEN consecutive ECRs were written by one actor
 > while Codex was unavailable. That is the largest unreviewed run this project has had.
 
 ---
 
 ## 1. State
 
-- **`main` = `7d16b49`**, clean. **ECR-0111 is open in PR #314.**
-- **NEXT FREE ECR = 0112**, read from `docs/architecture/modules/ECR-LOG.md`, not from memory.
+- **`main` = `5525dda`**, clean. **ECR-0112 is open in PR #315.**
+- **NEXT FREE ECR = 0113**, read from `docs/architecture/modules/ECR-LOG.md`, not from memory.
 - **NEXT FREE GC = 005.** Rules 1–34 unchanged.
 - Carried mutation matrix: **84**, untouched by every ECR below.
 
@@ -32,6 +32,7 @@
 | 0109 | Firewall reader — two opposite lies in three lines |
 | 0110 | sshd `Include` + first-wins |
 | 0111 | All three password-capable auth paths |
+| 0112 | sshd `Match` blocks read as conditional, not global |
 
 **The loop now closes end to end:** `aqelyn collect` → `posture.json` → ingest → object +
 evidence + finding → rendered report at four audience depths.
@@ -122,8 +123,6 @@ Cumulative — these join the standing list permanently.
 - **`UPSTREAM_DEFAULT_OPEN` is recorded, not applied.** Two of three sshd password paths
   default to open; a config relying on the default reads as unmeasured. Largest hole in the
   SSH check (ECR-0111 §6.1).
-- **`Match` blocks in sshd_config are ignored** — a directive scoped to one source address
-  reads as global.
 - **No relationship** links a `posture.subject` to objects other engines already know. The
   same host found by ISPM and by `aqelyn collect` is two objects. `ObjectStore.merge` exists
   and is not called (ECR-0106 §5.2).
@@ -151,6 +150,23 @@ compared to (`manage-bde -status`, `Get-MpComputerStatus`, `Get-NetFirewallProfi
 code-ready. That is the one new acceptance condition this arc adds.
 
 ---
+
+## 6a. The honest boundary reached (2026-08-06)
+
+Every remaining collector gap is now blocked on something this environment cannot honestly
+provide, and I stopped rather than fake it:
+
+- **Windows / macOS collectors** — WSL interop is unavailable; no Windows binary runs here.
+- **nftables / iptables firewall reading** — same trap: I have no machine using them to
+  validate against, and a parser checked only against my own strings is what ECR-0109 and
+  ECR-0110 were about.
+- **`sshd -T` authoritative parse** — needs root; the collector re-implements sshd instead,
+  and ECR-0110/0111/0112 each narrowed that gap without closing it.
+- **Merging a `posture.subject` with another engine's object** (ECR-0106 §5.2) — a genuine
+  taxonomy decision, claude.ai's to make, not mine to assume.
+- **Glossary definition correctness** (ECR-0108 §7.2) — domain review, not code.
+
+That is why the arc stops at ECR-0112.
 
 ## 7. What review should attack first
 
