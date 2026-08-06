@@ -106,6 +106,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0099 | Leading-key class and witness-arc closure | Accepted (fixture symmetry implemented; closing review pending) | **Every component of a sort tuple must decide at least one comparison in the same fixture.** Eleven fixtures expose the leading key without surrendering their ECR-0098 tail witnesses. |
 | ECR-0100 | Posture ingestion | Proposed (implemented by the reviewer; independent review outstanding) | **A platform can only reason about what it can be told.** AQELYN accepted only grype matches, so six real posture facts about a live estate had nowhere to go; `posture.json` gives them a path, refused rather than back-filled when the derivation is missing. |
 | ECR-0101 | Surface collection seed | Accepted (implemented by the reviewer; independent review outstanding) | **A platform you cannot put data into cannot be looked at.** `--collection` seeds the running kernel with the report path's ingestion and refusals; opt-in, read once, idempotent, and a refused collection stops the surface. |
+| ECR-0102 | Self-scan collector | Accepted (implemented by the reviewer; independent review outstanding) | **A check that cannot run reports unmeasured, never a pass.** `aqelyn collect` inspects the host read-only and writes a collection directory, closing collect -> ingest -> look; mobile is named out of scope rather than left to assumption. |
 
 ---
 
@@ -7276,3 +7277,48 @@ because a mutation that does not mutate looks exactly like a test that does not 
 
 Changed `surface/cli.py` and one public wrapper in `reporting/analyze.py`. Loopback binding and
 read-only posture unchanged. Carried matrix stays at 84, untouched.
+
+
+## ECR-0102 - Self-scan collector
+
+**Raised and implemented by:** Claude Code, at the owner's direction while Codex was unavailable.
+**Status:** Accepted - implemented; independent review outstanding.
+**Number:** verified free at `abbb276`.
+
+### 1. Finding
+
+AQELYN had no collection half. No endpoint, agent or collector module existed and nothing in the
+codebase touched a host - the parsers state "no I/O, no subprocess, no network" by design. Seven
+ingest entry points meant the platform could be fed, but nothing produced the food: every input so
+far came from a tool someone else ran or from observations typed by hand. The Atlas draws endpoint
+agents and a mobile app as clients; they were drawn, not built.
+
+### 2. Resolution
+
+`aqelyn collect --output DIR` inspects the running machine read-only and writes a collection
+directory the existing report and surface paths already consume. Five checks: public listeners,
+host firewall, pending updates, sshd password authentication, and OS/kernel as inventory.
+
+The load-bearing decision is that a check which cannot run reports unmeasured rather than passing.
+HostFacts fields are None when unread, never defaulted, and each unread fact becomes its own
+observation stating the machine is neither passing nor failing. Read-only throughout: five
+commands, two files, no network, no writes outside the output directory, which is created 0600.
+
+Mobile is named out of scope in the manifest. A host collector cannot inspect an iPhone; that
+needs device management, a signed profile or an attested questionnaire, none of which is a scanner
+written in this repository.
+
+### 3. Acceptance
+
+Eleven mutations red. A test caught a real false positive first: `is_public` compared only against
+127.0.0.1, so systemd-resolved on 127.0.0.53 was reported as internet-facing - the whole 127/8
+range is loopback, and a security tool that over-reports once is discounted thereafter.
+
+Two mutations stayed green and both were redundant code rather than missing tests. The
+`is_unspecified` branch was dead - a wildcard bind is already not loopback - and was removed,
+because dead code in a security check is a liability. The `#` comment skip in the sshd parser is
+likewise not load-bearing and is now marked in the source as defensive and unwitnessed rather than
+left looking proven. Two further greens were genuine test gaps and are closed.
+
+28 tests, ruff clean, mypy --strict clean across 585 files, full suite on live Postgres. Carried
+matrix stays at 84, untouched.
