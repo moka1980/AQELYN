@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 from aqelyn.consent.models import ConsentScope
 from aqelyn.consent.store import AuditLog, ConsentStore
 from aqelyn.conventions import ActorRef
+from aqelyn.conventions.errors import AQError
 from aqelyn.findings.models import FindingQuery
 from aqelyn.identity.store import (
     AccountStore,
@@ -36,6 +37,12 @@ from aqelyn.surface.models import SurfaceResponse
 
 COOKIE_NAME = "aq_portal"
 CONSENT_SCOPE: ConsentScope = "store_scan"
+
+# Object-addressed routes: a path prefix that is followed by a single object id. Every entry here
+# MUST answer a cross-tenant or unknown id with the SAME 404 (no existence oracle). ECR-0119's
+# route-census guard walks this tuple and refuses to let a new object-addressed route ship without
+# a cross-tenant isolation test. Adding such a route means adding it here and to that test.
+OBJECT_ADDRESSED_ROUTES: tuple[str, ...] = ("/api/v1/findings/",)
 # The uploaded posture.json is hostile input; bound it before parsing.
 MAX_UPLOAD_BYTES = 1_048_576
 MAX_FINDINGS_RETURNED = 200
@@ -69,6 +76,17 @@ def _session_cookie(token: str) -> str:
 
 
 _CLEAR_COOKIE = f"{COOKIE_NAME}=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0"
+
+
+def _object_id(path: str, prefix: str) -> str | None:
+    """Return the single object id after ``prefix``, or None if ``path`` is not that route."""
+
+    if not path.startswith(prefix):
+        return None
+    rest = path.removeprefix(prefix)
+    if not rest or "/" in rest:
+        return None
+    return rest
 
 
 class PortalApplication:
@@ -124,6 +142,9 @@ class PortalApplication:
             return await self._upload(headers, body)
         if path == "/api/v1/findings" and method == "GET":
             return await self._findings(headers)
+        finding_id = _object_id(path, "/api/v1/findings/")
+        if finding_id is not None and method == "GET":
+            return await self._finding_detail(headers, finding_id)
         return _error(404, "not_found", "portal route not found")
 
     # --- helpers ---------------------------------------------------------------------
@@ -276,6 +297,23 @@ class PortalApplication:
                 "returned": len(found),
             },
         )
+
+    async def _finding_detail(self, headers: Mapping[str, str], finding_id: str) -> SurfaceResponse:
+        session = await self._session(headers)
+        if session is None:
+            return _error(401, "unauthenticated", "a valid session is required")
+        try:
+            finding = await self._runtime.finding_store.get(finding_id)
+        except AQError:
+            # A malformed id is not a valid finding; answer exactly as for "not found"
+            # so the shape of an id is not an oracle either.
+            finding = None
+        # No existence oracle: a finding that belongs to another tenant, one that does
+        # not exist, and one whose id is malformed all return the SAME 404. An attacker
+        # cannot tell "exists but not yours" from "does not exist".
+        if finding is None or finding.tenant_id != session.tenant_id:
+            return _error(404, "not_found", "finding not found")
+        return SurfaceResponse.json(200, {"item": finding.model_dump(mode="json")})
 
 
 class _BadRequest(Exception):

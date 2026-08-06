@@ -123,6 +123,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0116 | Customer-account arc (identity durability) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Same contract, proven on both backends.** Identity moves to the standard async memory+Postgres store pair (asyncpg is the only driver; the ingest app is async), preserving every method's name and the isolation rule. One parametrized test body passes on either backend; 12 mutations red across both. |
 | ECR-0117 | Customer-account arc (consent + audit, UX-005) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Consent before a write; an append-only audit of every one.** New `consent` package (memory+Postgres): a tenant's `ConsentRecord` per scope with `active`/`revoke`, and an `AuditEvent` log offering only append+list. Both strictly tenant-scoped. 8 mutations red across both backends; the tenant-scope mutations fail the cross-tenant tests. |
 | ECR-0118 | Customer-account arc (authenticated portal) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Session, then consent, then a tenant-scoped write.** New `portal` package: register/login/consent/upload/read, all gated by a session whose `tenant_id` is the only tenant an upload can land in. Upload is size-bounded, `validate_posture_shape`-checked (refused, never repaired), ingested into the caller's tenant, audited. 6 mutations red; the load-bearing test is two tenants never seeing each other's findings. |
+| ECR-0119 | Customer-account arc (isolation audit + route census) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **404 with no existence oracle, enforced by a route census.** `GET /findings/{id}` answers cross-tenant, non-existent and malformed ids with a byte-identical 404. `OBJECT_ADDRESSED_ROUTES` + a census refuse to let a by-id route ship without a cross-tenant probe. 3 mutations red (incl. the census firing when a route is added without a probe). **Arc 0115–0119 complete.** |
 
 ---
 
@@ -7767,3 +7768,26 @@ each other's findings. GC-004 cascade (intended): `identity.email`, `consent.tex
 --strict clean across 623 files, full suite on live Postgres. Carried matrix rises to 117. Named for
 review: no in-code rate limit (nginx `limit_req` at the edge); the size bound is checked after the
 body is buffered (a socket-level bound is a follow-up); 0119 is the adversarial isolation audit.
+
+## ECR-0119 — per-tenant isolation, audited adversarially and enforced by a route census
+
+Final ECR of the customer-account arc. The brief names per-tenant isolation the highest-risk
+property and asks for two things: 404 (no existence oracle) on object-addressed routes, and a
+structural guard so a new by-id route cannot ship without an isolation test. New
+`GET /api/v1/findings/{id}` returns the finding only when `finding.tenant_id == session.tenant_id`;
+otherwise a 404 that is byte-identical whether the finding belongs to another tenant, does not
+exist, or has a malformed id (the store's validation error is caught and answered as 404 too, so id
+shape is not an oracle either).
+
+`OBJECT_ADDRESSED_ROUTES` declares every by-id route; one census test asserts each has a registered
+cross-tenant probe, another runs the probes and asserts 404. Adding a by-id route without a probe
+fails the census. The adversarial audit's sharpest test asserts three of A's requests (B's real id,
+a non-existent id, a malformed id) return byte-identical responses; also that a tenant forged into
+the upload body is ignored (the finding lands in the session's tenant).
+
+3 mutations red: tenant check removed (cross-tenant read + oracle broken), session gate removed, and
+a second route added to OBJECT_ADDRESSED_ROUTES without a probe (the census itself fires). 7 new
+tests. ruff + mypy --strict clean across 624 files, full suite 2146 passed / 5 skipped on live
+Postgres. Carried matrix rises to 120. Named for review: the census covers by-id routes (where the
+oracle risk lives), not every surface; the byte-equality no-oracle proof depends on `_error` not
+echoing the request; timing side-channels are out of scope. **The customer-account arc is complete.**
