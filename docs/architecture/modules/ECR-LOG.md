@@ -107,6 +107,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0100 | Posture ingestion | Proposed (implemented by the reviewer; independent review outstanding) | **A platform can only reason about what it can be told.** AQELYN accepted only grype matches, so six real posture facts about a live estate had nowhere to go; `posture.json` gives them a path, refused rather than back-filled when the derivation is missing. |
 | ECR-0101 | Surface collection seed | Accepted (implemented by the reviewer; independent review outstanding) | **A platform you cannot put data into cannot be looked at.** `--collection` seeds the running kernel with the report path's ingestion and refusals; opt-in, read once, idempotent, and a refused collection stops the surface. |
 | ECR-0102 | Self-scan collector | Accepted (implemented by the reviewer; independent review outstanding) | **A check that cannot run reports unmeasured, never a pass.** `aqelyn collect` inspects the host read-only and writes a collection directory, closing collect -> ingest -> look; mobile is named out of scope rather than left to assumption. |
+| ECR-0103 | Charter v2 compliance | Accepted (implemented by the reviewer; independent review outstanding) | **Hollow compliance is worse than a named gap.** Plain-language titles and an expert expansion close UX-001 and UX-002; Affected Assets is left empty rather than filled with an id that resolves to nothing, and owed to ECR-0104. |
 
 ---
 
@@ -7322,3 +7323,47 @@ left looking proven. Two further greens were genuine test gaps and are closed.
 
 28 tests, ruff clean, mypy --strict clean across 585 files, full suite on live Postgres. Carried
 matrix stays at 84, untouched.
+
+
+## ECR-0103 - Charter v2 compliance for posture findings
+
+**Raised and implemented by:** Claude Code, at the owner's direction while Codex was unavailable.
+**Status:** Accepted - implemented; independent review outstanding.
+**Number:** verified free at `9fe94d3`.
+
+### 1. Finding
+
+The owner pointed at the approved Project Charter v2 Product Principles, which had not been read
+before ECR-0100 through ECR-0102 were built. Section 9 states its requirements are mandatory
+architectural requirements applying to every finding, API, report and dashboard.
+
+The audit found the platform already satisfied Principles 1, 3, 6, 7 and 10 by construction - the
+posture schema refuses an observation missing its derivation, every observation carries evidence,
+the manifest states authority and exclusions, collection is local and read-only. That compliance
+arrived without the Charter being consulted, which is luck rather than method, and it did not
+extend to the communication layer: titles were machine strings (UX-001), expert_details was left
+empty (UX-002), Affected Assets was empty, and neither progressive disclosure nor communication
+modes existed.
+
+### 2. Resolution
+
+plain_title derives a readable sentence from what_happened, which is already mandatory, so it
+cannot fall back to a machine string; an operator-supplied title wins. expert_details carries what
+the title gave up - check, observation id, subject, raw measurement - as Progressive Detail levels
+3 and 4, and deliberately does not repeat the narrative.
+
+Affected Assets was not faked. affected_object_ids holds typed obj_ ids and a posture subject is
+not an object until something creates one; the model rejected the raw reference, correctly. Minting
+an id would have produced a reference resolving to nothing, which is worse than an empty list.
+ECR-0104 owes the object-store link.
+
+Progressive disclosure in the UI and UX-008 communication modes remain outstanding and are named
+rather than left to be discovered.
+
+### 3. Acceptance
+
+Six mutations red: machine-string title restored, expert_details dropped, title allowed to run to
+the whole paragraph, empty-title fallback removed, operator-supplied title ignored, raw measurement
+dropped from level 4. Twelve tests, including one asserting that nothing is lost when the title is
+simplified, and a UX-007 check on generated wording. Ruff clean, mypy --strict clean across 586
+files, full suite on live Postgres. Carried matrix stays at 84, untouched.
