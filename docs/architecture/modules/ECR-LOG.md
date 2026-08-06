@@ -121,6 +121,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0114 | The self-scan report speaks to a person | Accepted (implemented by the reviewer; independent review outstanding) | **The report must be understood by everyone, and show what's good too.** A plain-language layer (`plain.py`) gives every check a plain headline / meaning / what-to-do + a 'looking good' line; technical detail is tucked into an expander. Also fixed a real Windows bug: `HtmlEnc` blanked every field (no `(char,string)` Replace overload, swallowed by SilentlyContinue) — found because I'd validated the console, not the report. |
 | ECR-0115 | Customer-account arc (accounts/invites/sessions) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **The tenant comes from the authenticated session, never from client input.** New identity package: Account (scrypt, active\|disabled), single-use TTL Invite, SessionStore binding `tenant_id=account.tenant_id`. Invite-only registration. File-backed bootstrap, Postgres in 0116. 7 mutations red. |
 | ECR-0116 | Customer-account arc (identity durability) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Same contract, proven on both backends.** Identity moves to the standard async memory+Postgres store pair (asyncpg is the only driver; the ingest app is async), preserving every method's name and the isolation rule. One parametrized test body passes on either backend; 12 mutations red across both. |
+| ECR-0117 | Customer-account arc (consent + audit, UX-005) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Consent before a write; an append-only audit of every one.** New `consent` package (memory+Postgres): a tenant's `ConsentRecord` per scope with `active`/`revoke`, and an `AuditEvent` log offering only append+list. Both strictly tenant-scoped. 8 mutations red across both backends; the tenant-scope mutations fail the cross-tenant tests. |
 
 ---
 
@@ -7716,3 +7717,27 @@ on live Postgres. Carried matrix rises to 103.
 This ECR also fixes an ECR-0115 omission the status guard caught: 0115's body section was in the log
 but its index row was not (0115 was merged on local green captured before the log append, and CI did
 not run to catch it). Both index rows are added here.
+
+## ECR-0117 — consent before a write, and an append-only audit of every one
+
+Third ECR of the customer-account arc. ECR-0118 will let a customer upload their scan — a write —
+and Charter UX-005 requires explicit consent for anything automated. New `src/aqelyn/consent/`
+package, built on the identity backend pattern (async protocols, memory + asyncpg, selected by
+`build_consent_stores`): a `ConsentRecord` is a tenant's standing agreement to store scans under a
+closed `scope` (`store_scan`), with `record`/`active`/`revoke`; an `AuditEvent` log offers only
+`append` and `list` — no update or delete path, so it is append-only by construction. Both are
+strictly tenant-scoped; scopes and actions are closed Literals so a typo cannot invent an
+unreviewed one.
+
+Every test runs on both backends. Load-bearing properties: consent gates correctly (none/recorded/
+revoked/re-consented), one tenant never sees another's consent or audit, revoking one tenant never
+disturbs another, and appends never overwrite. 8 mutations red across both backends (active ignores
+revocation; active/revoke/audit-list ignore tenant scope) — the tenant-scope mutations fail the
+cross-tenant tests. GC-004: `actor_account_id`, `revoked_at`, `text_version` exempted (consumers get
+ConsentRecord/AuditEvent envelopes through active()/list(), not the raw fields); guard not weakened.
+ruff + mypy --strict clean across 617 files, full suite 2126 passed / 5 skipped on live Postgres.
+Carried matrix rises to 111.
+
+Named for review: append-only is enforced by omission (no update/delete method + no DDL grant), not
+by a tamper-evident chain — a hash chain like evidence's would make it provable rather than
+conventional.
