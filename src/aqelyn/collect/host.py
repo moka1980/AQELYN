@@ -87,6 +87,9 @@ class HostFacts:
     firewall_tool: str | None = None
     firewall_active: bool | None = None
     pending_updates: int | None = None
+    update_tool: str | None = None
+    disk_encrypted: bool | None = None
+    unattended_upgrades: bool | None = None
     ssh_password_auth: bool | None = None
     unreadable: tuple[str, ...] = field(default_factory=tuple)
 
@@ -125,6 +128,92 @@ def parse_pending_updates(apt_simulate_output: str) -> int:
     return sum(1 for line in apt_simulate_output.splitlines() if line.startswith("Inst "))
 
 
+_UPDATE_TOOLS: tuple[tuple[str, tuple[str, ...], int], ...] = (
+    # (tool, argv, the exit code that means "the command answered")
+    # `dnf check-update` exits 100 when updates exist and 0 when none do, so treating a
+    # non-zero exit as failure would report a machine with pending updates as unreadable -
+    # the one case the check exists for.
+    ("apt", ("apt-get", "-s", "upgrade"), 0),
+    ("dnf", ("dnf", "--quiet", "check-update"), 100),
+    ("zypper", ("zypper", "--quiet", "list-updates"), 0),
+    ("pacman", ("pacman", "-Qu"), 0),
+)
+
+
+def parse_dnf_updates(output: str) -> int:
+    """Count upgradable packages from `dnf check-update`.
+
+    dnf prints a blank-line-separated header and an `Obsoleting Packages` trailer; only
+    the `name.arch version repo` rows are updates.
+    """
+
+    count = 0
+    for raw in output.splitlines():
+        line = raw.rstrip()
+        # Everything after this marker is what the updates replace, not another update.
+        # Counting it inflated the number by one per obsoleted package.
+        if line.startswith("Obsoleting"):
+            break
+        if not line or line.startswith(" "):
+            continue
+        parts = line.split()
+        if len(parts) >= 3 and "." in parts[0]:
+            count += 1
+    return count
+
+
+def parse_zypper_updates(output: str) -> int:
+    """Count rows of `zypper list-updates`, whose table rows begin with `v |`."""
+
+    return sum(1 for line in output.splitlines() if line.strip().startswith("v |"))
+
+
+def parse_pacman_updates(output: str) -> int:
+    """Count lines of `pacman -Qu`; each line is one out-of-date package."""
+
+    return sum(1 for line in output.splitlines() if line.strip())
+
+
+_UPDATE_PARSERS = {
+    "apt": parse_pending_updates,
+    "dnf": parse_dnf_updates,
+    "zypper": parse_zypper_updates,
+    "pacman": parse_pacman_updates,
+}
+
+
+def parse_disk_encryption(lsblk_output: str) -> bool:
+    """Whether any block device on this machine is an encrypted mapping.
+
+    `lsblk -rno TYPE` names a LUKS/dm-crypt mapping `crypt`. Absence of one is a real
+    answer, not an unknown: the command ran and listed every device.
+    """
+
+    return any(line.strip() == "crypt" for line in lsblk_output.splitlines())
+
+
+def parse_unattended_upgrades(conf: str) -> bool:
+    """Whether APT is configured to install updates on its own.
+
+    A value of "0" and an absent directive both mean the same thing operationally, so both
+    read False. The file's absence is handled by the caller as unreadable, not as False -
+    a machine with no APT is not a machine that declined automatic updates.
+    """
+
+    for raw in conf.splitlines():
+        line = raw.strip()
+        if line.startswith("//") or not line:
+            continue
+        if "Unattended-Upgrade" not in line:
+            continue
+        quoted = line.split('"')
+        # `APT::Periodic::Unattended-Upgrade "1";` splits into three parts, and the value
+        # is the middle one. Reading index 3 looked plausible and matched nothing.
+        if len(quoted) >= 2 and quoted[1].strip() not in {"0", ""}:
+            return True
+    return False
+
+
 def parse_ssh_password_auth(sshd_config: str) -> bool | None:
     """Return whether password auth is enabled, or None when the file does not say.
 
@@ -151,6 +240,7 @@ def read_host_facts(
     *,
     os_release: Path = Path("/etc/os-release"),
     sshd_config: Path = Path("/etc/ssh/sshd_config"),
+    auto_upgrades: Path = Path("/etc/apt/apt.conf.d/20auto-upgrades"),
 ) -> HostFacts:
     """Gather what this machine will say about itself. Read-only throughout."""
 
@@ -200,12 +290,34 @@ def read_host_facts(
     if firewall_tool is None:
         unreadable.append("firewall")
 
+    # Try each package manager in turn rather than assuming Debian. The first one present
+    # on the machine answers; the rest are not installed and return None from the runner.
     pending_updates: int | None = None
-    result = runner(["apt-get", "-s", "upgrade"])
-    if result is not None and result[0] == 0:
-        pending_updates = parse_pending_updates(result[1])
-    else:
+    update_tool: str | None = None
+    for tool, command, ok_code in _UPDATE_TOOLS:
+        result = runner(list(command))
+        if result is None:
+            continue
+        if result[0] not in (0, ok_code):
+            continue
+        update_tool = tool
+        pending_updates = _UPDATE_PARSERS[tool](result[1])
+        break
+    if update_tool is None:
         unreadable.append("pending_updates")
+
+    disk_encrypted: bool | None = None
+    result = runner(["lsblk", "-rno", "TYPE"])
+    if result is not None and result[0] == 0:
+        disk_encrypted = parse_disk_encryption(result[1])
+    else:
+        unreadable.append("disk_encryption")
+
+    unattended_upgrades: bool | None = None
+    with contextlib.suppress(OSError):
+        unattended_upgrades = parse_unattended_upgrades(auto_upgrades.read_text(encoding="utf-8"))
+    if unattended_upgrades is None:
+        unreadable.append("unattended_upgrades")
 
     ssh_password_auth: bool | None = None
     with contextlib.suppress(OSError):
@@ -221,6 +333,9 @@ def read_host_facts(
         firewall_tool=firewall_tool,
         firewall_active=firewall_active,
         pending_updates=pending_updates,
+        update_tool=update_tool,
+        disk_encrypted=disk_encrypted,
+        unattended_upgrades=unattended_upgrades,
         ssh_password_auth=ssh_password_auth,
         unreadable=tuple(unreadable),
     )

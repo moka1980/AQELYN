@@ -209,10 +209,77 @@ def check_ssh_password_auth(facts: HostFacts, subject_ref: str) -> dict[str, Any
     )
 
 
+def check_disk_encryption(facts: HostFacts, subject_ref: str) -> dict[str, Any] | None:
+    if facts.disk_encrypted is None:
+        return _unmeasured(subject_ref, "disk_encryption", "disk_encryption_at_rest")
+    if facts.disk_encrypted:
+        return None
+    return _observation(
+        observation_id="obs-disk-encryption",
+        subject_ref=subject_ref,
+        check="disk_encryption_at_rest",
+        severity="medium",
+        severity_score=55.0,
+        what_happened="No encrypted volume was found on this machine.",
+        why_it_matters=(
+            "Every access control on this machine is enforced by the running system. A "
+            "disk read on another machine - a stolen laptop, a returned drive, a disposed "
+            "server - is not subject to any of them."
+        ),
+        how_determined=(
+            "Listed block device types with `lsblk -rno TYPE` and found no `crypt` "
+            "mapping. This reads the device table and changes nothing."
+        ),
+        risk_of_inaction=(
+            "Anyone who obtains the physical drive reads everything on it, including "
+            "credentials cached by the software installed here."
+        ),
+        summary=(
+            "Enable full-disk encryption. On an existing installation this usually means "
+            "a reinstall, so plan it rather than attempting it in place."
+        ),
+        difficulty="high",
+        expected_outcome="A drive removed from this machine is unreadable without the key.",
+        observed={"encrypted_volumes": 0},
+    )
+
+
+def check_unattended_upgrades(facts: HostFacts, subject_ref: str) -> dict[str, Any] | None:
+    if facts.unattended_upgrades is None:
+        return _unmeasured(subject_ref, "unattended_upgrades", "automatic_security_updates")
+    if facts.unattended_upgrades:
+        return None
+    return _observation(
+        observation_id="obs-unattended-upgrades",
+        subject_ref=subject_ref,
+        check="automatic_security_updates",
+        severity="medium",
+        severity_score=45.0,
+        what_happened="This machine does not install security updates on its own.",
+        why_it_matters=(
+            "Patching that depends on someone remembering is patching that stops when "
+            "they are busy. The gap between a fix being published and being installed is "
+            "the window an attacker works in, and it is measured in days here."
+        ),
+        how_determined=(
+            "Read APT::Periodic::Unattended-Upgrade from /etc/apt/apt.conf.d/20auto-upgrades."
+        ),
+        risk_of_inaction=(
+            "Published fixes stay uninstalled for as long as nobody runs the update."
+        ),
+        summary="Install unattended-upgrades and enable it for the security pocket.",
+        difficulty="low",
+        expected_outcome="Security updates install without anyone remembering to.",
+        observed={"unattended_upgrade": False},
+    )
+
+
 CHECKS = (
     check_public_listeners,
     check_firewall,
     check_pending_updates,
+    check_unattended_upgrades,
+    check_disk_encryption,
     check_ssh_password_auth,
 )
 
