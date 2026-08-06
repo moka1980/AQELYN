@@ -3,17 +3,19 @@
 `aqelyn collect` writes a collection directory for the pipeline; this wraps the same
 collector in a friendly one-shot: it scans the host, writes ``posture.json`` (the technical
 record, for the platform) and a plain-language ``report.html`` a non-technical person can
-read, and prints a summary. It is what the downloadable ``aqelyn-selfscan.pyz`` runs (built
-by ``tools/build_selfscan_pyz.py``), so the shipped download is exactly this code.
+read in their own language, and prints a summary. It is what the downloadable
+``aqelyn-selfscan.pyz`` runs (built by ``tools/build_selfscan_pyz.py``).
 
 The report follows Charter Principle 2: it shows what is good as well as what needs a look,
-in words anyone understands, with the technical detail available but not first. Stdlib only.
+in words anyone understands, in the reader's language (auto-selected from the computer's
+locale; English fallback), with the technical detail available but not first. Stdlib only.
 """
 
 from __future__ import annotations
 
 import html as _html
 import json
+import os
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,7 +23,7 @@ from typing import Any
 
 from aqelyn.collect.checks import observations_for
 from aqelyn.collect.host import CommandRunner, read_host_facts
-from aqelyn.collect.plain import LINUX_CHECK_IDS, plain_for, severity_word
+from aqelyn.collect.plain import LINUX_CHECK_IDS, UI, pick_language, plain_for_lang
 
 _ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
 _COLOR = {
@@ -75,9 +77,10 @@ def _is_unmeasured(observation: Mapping[str, Any]) -> bool:
     return bool(isinstance(observed, Mapping) and observed.get("unmeasured"))
 
 
-def _finding_card(observation: Mapping[str, Any]) -> str:
+def _finding_card(observation: Mapping[str, Any], lang: str) -> str:
     sev = str(observation.get("severity", "info"))
-    plain = plain_for(str(observation.get("check", "")))
+    ui = UI[lang]
+    plain = plain_for_lang(str(observation.get("check", "")), lang)
     color = _COLOR.get(sev, "#657790")
     tech = "\n".join(
         s
@@ -87,32 +90,34 @@ def _finding_card(observation: Mapping[str, Any]) -> str:
         )
         if s.strip()
     )
+    sev_word = ui["severity"].get(sev, sev)
     return (
         '<article class="card">'
-        f'<span class="chip" style="--c:{color}">{_html.escape(severity_word(sev))}</span>'
+        f'<span class="chip" style="--c:{color}">{_html.escape(sev_word)}</span>'
         f'<p class="hl">{_html.escape(plain["headline"])}</p>'
         f'<p class="mean">{_html.escape(plain["meaning"])}</p>'
-        f'<p class="act"><b>What to do:</b> {_html.escape(plain["action"])}</p>'
-        f"<details><summary>Show the technical detail</summary>"
+        f'<p class="act"><b>{_html.escape(ui["action"])}</b> {_html.escape(plain["action"])}</p>'
+        f"<details><summary>{_html.escape(ui['detail'])}</summary>"
         f'<p class="tech">{_html.escape(tech)}</p></details></article>'
     )
 
 
-def _good_card(check: str) -> str:
-    plain = plain_for(check)
+def _good_card(check: str, lang: str) -> str:
+    plain = plain_for_lang(check, lang)
     return (
         '<article class="card good"><span class="tick">✓</span>'
         f'<span><span class="g2">{_html.escape(plain["good"])}</span></span></article>'
     )
 
 
-def _unknown_card(observation: Mapping[str, Any]) -> str:
-    plain = plain_for(str(observation.get("check", "")))
+def _unknown_card(observation: Mapping[str, Any], lang: str) -> str:
+    ui = UI[lang]
+    plain = plain_for_lang(str(observation.get("check", "")), lang)
     return (
         '<article class="card good"><span class="g3">•</span>'
-        f'<span class="g3">Could not check: {_html.escape(plain["headline"].lower())}. '
-        "Run the scan with more permission (right-click &rarr; run as administrator, or use "
-        "<code>sudo</code>) to read it.</span></article>"
+        f'<span class="g3">{_html.escape(ui["cannot"])}: '
+        f"{_html.escape(plain['headline'].lower())}. "
+        f"{_html.escape(ui['runadmin'])}</span></article>"
     )
 
 
@@ -122,53 +127,62 @@ def render_report(
     observations: Sequence[Mapping[str, Any]],
     when: str,
     passed: Sequence[str] = (),
+    lang: str = "en",
 ) -> str:
-    """Plain-language report: what needs a look, what is good, what could not be read."""
+    """Plain-language report in the reader's language: needs a look / good / could not read."""
 
+    ui = UI[lang]
     findings = [o for o in observations if not _is_unmeasured(o)]
     unknown = [o for o in observations if _is_unmeasured(o)]
     findings.sort(key=order_key)
 
     parts = []
     if findings:
-        parts.append("<h2>Worth a look</h2>")
-        parts.extend(_finding_card(o) for o in findings)
+        parts.append(f"<h2>{_html.escape(ui['worth'])}</h2>")
+        parts.extend(_finding_card(o, lang) for o in findings)
     if passed:
-        parts.append("<h2>Looking good</h2>")
-        parts.extend(_good_card(c) for c in passed)
+        parts.append(f"<h2>{_html.escape(ui['good'])}</h2>")
+        parts.extend(_good_card(c, lang) for c in passed)
     if unknown:
-        parts.append("<h2>Could not check</h2>")
-        parts.extend(_unknown_card(o) for o in unknown)
-    body = "\n".join(parts) or "<p>Nothing to report.</p>"
+        parts.append(f"<h2>{_html.escape(ui['unknown'])}</h2>")
+        parts.extend(_unknown_card(o, lang) for o in unknown)
+    body = "\n".join(parts) or "<p>—</p>"
 
     summary = (
-        f'<div class="sum"><span class="g">{len(passed)} looking good</span>'
-        f'<span class="a">{len(findings)} worth a look</span>'
-        + (f'<span class="u">{len(unknown)} could not check</span>' if unknown else "")
+        f'<div class="sum"><span class="g">{len(passed)} {_html.escape(ui["s_good"])}</span>'
+        f'<span class="a">{len(findings)} {_html.escape(ui["s_worth"])}</span>'
+        + (
+            f'<span class="u">{len(unknown)} {_html.escape(ui["s_unknown"])}</span>'
+            if unknown
+            else ""
+        )
         + "</div>"
     )
     return (
-        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        f'<!doctype html><html lang="{lang}"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width,initial-scale=1">'
-        f"<title>AQELYN security check — {_html.escape(subject)}</title>"
+        f"<title>AQELYN — {_html.escape(ui['title'])} — {_html.escape(subject)}</title>"
         f"<style>{_STYLE}</style></head><body>"
-        f'<div class="top"><h1>Security check · {_html.escape(subject)}</h1>'
+        f'<div class="top"><h1>{_html.escape(ui["title"])} · {_html.escape(subject)}</h1>'
         f"<p>{_html.escape(os_name or 'this computer')} · {_html.escape(when)} · "
-        f"read-only, nothing left this computer</p>{summary}</div>"
+        f"{_html.escape(ui['readonly'])}</p>{summary}</div>"
         f"<main>{body}</main>"
-        "<footer>This check only reads how your computer is set up — it changes nothing and "
-        "sends nothing anywhere. The report was made entirely on your machine.</footer>"
+        f"<footer>{_html.escape(ui['footer'])}</footer>"
         "</body></html>"
     )
 
 
-def run(output_dir: Path, *, runner: CommandRunner | None = None) -> list[dict[str, Any]]:
-    """Scan the host, write ``posture.json`` + a plain ``report.html``, return the findings.
+def _detect_lang() -> str:
+    return pick_language(os.environ.get("LC_ALL") or os.environ.get("LANG"))
 
-    ``runner`` is injectable so tests can drive a fake host without touching the real machine.
-    """
+
+def run(
+    output_dir: Path, *, runner: CommandRunner | None = None, lang: str | None = None
+) -> list[dict[str, Any]]:
+    """Scan the host, write ``posture.json`` + a plain ``report.html``, return the findings."""
 
     facts = read_host_facts() if runner is None else read_host_facts(runner)
+    language = lang or _detect_lang()
     subject = facts.hostname or "this-computer"
     observations = sorted(observations_for(facts, subject_ref=subject), key=order_key)
     seen = {str(o.get("check", "")) for o in observations}
@@ -180,29 +194,31 @@ def run(output_dir: Path, *, runner: CommandRunner | None = None) -> list[dict[s
     )
     when = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
     (output_dir / "report.html").write_text(
-        render_report(subject, facts.os_name, observations, when, passed), encoding="utf-8"
+        render_report(subject, facts.os_name, observations, when, passed, language),
+        encoding="utf-8",
     )
     return list(observations)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    lang = _detect_lang()
+    ui = UI[lang]
     out = Path("aqelyn-scan")
-    observations = run(out)
+    observations = run(out, lang=lang)
     findings = [o for o in observations if not _is_unmeasured(o)]
     subject = next(
         (str((o.get("subject") or {}).get("ref", "")) for o in observations if o.get("subject")),
         "this-computer",
     )
-    print(f"\n  AQELYN security check — {subject}\n  " + "=" * 44)
+    print(f"\n  {ui['console_title']} — {subject}\n  " + "=" * 44)
     if not findings:
-        print("  Nothing needs attention right now.")
+        print(f"  {ui['console_clean']}")
     for observation in findings:
-        plain = plain_for(str(observation.get("check", "")))
-        print(
-            f"  [{severity_word(str(observation.get('severity', 'info'))):16}] {plain['headline']}"
-        )
-    print("\n  Read-only. Nothing was sent anywhere.")
-    print(f"  Full report: open {out / 'report.html'} in your browser\n")
+        plain = plain_for_lang(str(observation.get("check", "")), lang)
+        word = ui["severity"].get(str(observation.get("severity", "info")), "")
+        print(f"  [{word:18}] {plain['headline']}")
+    print(f"\n  {ui['readonly'].capitalize()}.")
+    print(f"  open {out / 'report.html'}\n")
     return 0
 
 

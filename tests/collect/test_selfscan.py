@@ -80,9 +80,10 @@ def test_the_report_escapes_observation_text() -> None:
     assert "&lt;script&gt;" in html
 
 
-def test_an_empty_scan_reports_nothing_flagged() -> None:
+def test_an_empty_scan_has_no_worth_a_look_section() -> None:
     html = render_report("host", "OS", [], "now")
-    assert "Nothing to report." in html
+    assert "<h2>Worth a look</h2>" not in html
+    assert "0 worth a look" in html
 
 
 def test_main_runs_and_returns_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,3 +151,53 @@ def test_report_shows_a_looking_good_section(tmp_path: Path) -> None:
     html = (tmp_path / "report.html").read_text(encoding="utf-8")
     assert "Looking good" in html
     assert "✓" in html
+
+
+# --- ECR-0114 (i18n): the report speaks the reader's language -------------------------------------
+
+
+def test_norwegian_locale_selects_norwegian() -> None:
+    from aqelyn.collect.plain import pick_language
+
+    assert pick_language("nb_NO.UTF-8") == "nb"
+    assert pick_language("nn_NO") == "nb"
+    assert pick_language("en_US") == "en"
+    assert pick_language(None) == "en"
+
+
+def test_report_renders_in_norwegian() -> None:
+    obs = [
+        {
+            "severity": "high",
+            "check": "listening_sockets_public",
+            "what_happened": "x",
+            "how_determined": "y",
+        }
+    ]
+    html = render_report("host", "OS", obs, "now", passed=["host_firewall_active"], lang="nb")
+    assert '<html lang="nb"' in html
+    assert "Verdt å se på" in html  # section title
+    assert "Hva du bør gjøre:" in html  # action label
+    assert "Brannmuren er på" in html  # a passed check, in Norwegian
+
+
+def test_every_check_has_norwegian_text() -> None:
+    """A check with English but no Norwegian plain text would fall back silently — catch it."""
+    from aqelyn.collect.plain import PLAIN, PLAIN_NB
+
+    for cid in PLAIN:
+        assert cid in PLAIN_NB, f"no Norwegian plain-language for {cid}"
+
+
+def test_english_is_still_the_default(tmp_path: Path) -> None:
+    obs = [
+        {
+            "severity": "high",
+            "check": "listening_sockets_public",
+            "what_happened": "x",
+            "how_determined": "y",
+        }
+    ]
+    html = render_report("host", "OS", obs, "now", lang="en")
+    assert '<html lang="en"' in html
+    assert "What to do:" in html

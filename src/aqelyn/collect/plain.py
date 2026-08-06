@@ -11,6 +11,8 @@ Keyed by the ``check`` id each collector emits, so Linux and Windows share the w
 
 from __future__ import annotations
 
+from typing import Any
+
 # Friendly, non-alarmist severity words (Charter Principle 8: no scare language).
 _SEVERITY_WORD = {
     "critical": "Fix this soon",
@@ -144,3 +146,169 @@ LINUX_CHECK_IDS: tuple[str, ...] = (
     "disk_encryption_at_rest",
     "ssh_password_authentication",
 )
+
+
+# --- Norwegian (bokmål) -----------------------------------------------------------------
+# Charter Principle 2 applies in the reader's language. Auto-selected from the computer's
+# locale; English is the fallback. Same keys as PLAIN, so the renderer is language-agnostic.
+PLAIN_NB: dict[str, dict[str, str]] = {
+    "listening_sockets_public": {
+        "headline": "Noen tjenester på denne datamaskinen kan nås over nettverket",
+        "meaning": (
+            "Programmer på denne datamaskinen venter på tilkoblinger fra andre enheter på samme "
+            "nettverk — ikke bare fra datamaskinen selv. Det er normalt for ting som fil- og "
+            "skriverdeling, men alt du ikke faktisk bruker er tryggere slått av."
+        ),
+        "action": (
+            "På et nettverk du ikke stoler helt på (en kafé, flyplass eller delt kontor), sett "
+            "det nettverket til 'Offentlig' i innstillingene. Slå av fil- og skriverdeling hvis "
+            "du ikke deler filer eller skrivere fra denne datamaskinen."
+        ),
+        "good": "Ingenting på denne datamaskinen er unødvendig åpent mot nettverket.",
+    },
+    "host_firewall_active": {
+        "headline": "Brannmuren er slått av",
+        "meaning": (
+            "En brannmur avviser tilkoblinger du ikke ba om. Med den av kan andre enheter nå "
+            "tjenester på denne datamaskinen lettere."
+        ),
+        "action": "Slå på brannmuren for alle nettverkstyper.",
+        "good": "Brannmuren er på — den avviser tilkoblinger du ikke ba om.",
+    },
+    "disk_encryption_at_rest": {
+        "headline": "Disken er ikke kryptert",
+        "meaning": (
+            "Hvis datamaskinen blir mistet eller stjålet, kan noen ta ut disken og lese alt på "
+            "den, fordi filene ikke er kryptert."
+        ),
+        "action": "Slå på diskkryptering (BitLocker på Windows, eller systemets kryptering).",
+        "good": "Disken er kryptert — hvis maskinen mistes eller stjeles, kan ikke filene leses.",
+    },
+    "pending_package_updates": {
+        "headline": "Noen oppdateringer venter på å bli installert",
+        "meaning": (
+            "Oppdateringer tetter feil som allerede er offentlig kjent. Til de er installert står "
+            "de feilene åpne på denne datamaskinen."
+        ),
+        "action": "Installer oppdateringene som venter.",
+        "good": "Programvaren er oppdatert.",
+    },
+    "automatic_security_updates": {
+        "headline": "Sikkerhetsoppdateringer installeres ikke av seg selv",
+        "meaning": (
+            "Hvis oppdateringer venter på at noen skal huske dem, kommer de ofte for sent. Det "
+            "gapet er tiden en angriper har til å bruke en feil som allerede har en rettelse."
+        ),
+        "action": "Slå på automatiske sikkerhetsoppdateringer.",
+        "good": "Sikkerhetsoppdateringer installeres automatisk.",
+    },
+    "ssh_password_authentication": {
+        "headline": "Denne datamaskinen tillater fjerninnlogging med passord",
+        "meaning": (
+            "Et passord kan gjettes så raskt nettverket tillater; en nøkkelfil kan ikke. Å "
+            "tillate passordinnlogging over nettverket er en vanlig vei inn for angripere."
+        ),
+        "action": "Bruk nøkkelfiler for fjerninnlogging, og slå av passordinnlogging.",
+        "good": "Fjerninnlogging godtar ikke passord som kan gjettes.",
+    },
+    "antivirus_protection": {
+        "headline": "Antivirus eller sanntidsbeskyttelse er av",
+        "meaning": (
+            "Med sanntidsbeskyttelse av blir ikke skadelige filer sjekket når de kommer inn, så "
+            "skadevare kan kjøre uten å bli oppdaget."
+        ),
+        "action": (
+            "Slå på sanntidsbeskyttelse i Microsoft Defender, eller bekreft at et annet "
+            "antivirus er aktivt."
+        ),
+        "good": "Antivirus er på og følger med på skadelige filer.",
+    },
+    "antivirus_signatures_current": {
+        "headline": "Antivirus er utdatert",
+        "meaning": "Gamle antivirusdata går glipp av trusler oppdaget siden sist oppdatering.",
+        "action": "Oppdater antiviruset ditt (se etter oppdateringer i Windows-sikkerhet).",
+        "good": "Antivirusdata er oppdatert.",
+    },
+    "remote_desktop_exposed": {
+        "headline": "Eksternt skrivebord (Remote Desktop) er slått på",
+        "meaning": (
+            "Eksternt skrivebord lar noen logge inn på denne datamaskinen over nettverket. Stående "
+            "åpent er det et stadig mål for folk som gjetter passord."
+        ),
+        "action": (
+            "Slå av Eksternt skrivebord hvis du ikke bruker det; trenger du det, ikke "
+            "eksponer det mot internett."
+        ),
+        "good": (
+            "Eksternt skrivebord er av — ingen kan logge inn på denne datamaskinen over "
+            "nettverket."
+        ),
+    },
+}
+
+# Fixed UI text (section titles, labels) per language.
+UI: dict[str, dict[str, Any]] = {
+    "en": {
+        "title": "Security check",
+        "worth": "Worth a look",
+        "good": "Looking good",
+        "unknown": "Could not check",
+        "action": "What to do:",
+        "detail": "Show the technical detail",
+        "readonly": "read-only, nothing left this computer",
+        "s_good": "looking good",
+        "s_worth": "worth a look",
+        "s_unknown": "could not check",
+        "cannot": "Could not check",
+        "runadmin": "Run with more permission (administrator, or sudo) to read it.",
+        "footer": (
+            "This check only reads how your computer is set up — it changes nothing and sends "
+            "nothing anywhere. The report was made entirely on your machine."
+        ),
+        "console_title": "AQELYN security check",
+        "console_clean": "Nothing needs attention right now.",
+        "severity": _SEVERITY_WORD,
+    },
+    "nb": {
+        "title": "Sikkerhetssjekk",
+        "worth": "Verdt å se på",
+        "good": "Ser bra ut",
+        "unknown": "Kunne ikke sjekke",
+        "action": "Hva du bør gjøre:",
+        "detail": "Vis tekniske detaljer",
+        "readonly": "kun lesing, ingenting forlot denne datamaskinen",
+        "s_good": "ser bra ut",
+        "s_worth": "verdt å se på",
+        "s_unknown": "kunne ikke sjekke",
+        "cannot": "Kunne ikke sjekke",
+        "runadmin": "Kjør med mer tilgang (administrator, eller sudo) for å lese den.",
+        "footer": (
+            "Denne sjekken leser bare hvordan datamaskinen din er satt opp — den endrer "
+            "ingenting og sender ingenting noe sted. Rapporten ble laget helt på din maskin."
+        ),
+        "console_title": "AQELYN sikkerhetssjekk",
+        "console_clean": "Ingenting trenger oppmerksomhet akkurat nå.",
+        "severity": {
+            "critical": "Rett snarest",
+            "high": "Verdt oppmerksomhet",
+            "medium": "Verdt å forbedre",
+            "low": "Mindre",
+            "info": "Til informasjon",
+        },
+    },
+}
+
+
+def pick_language(locale: str | None) -> str:
+    """'nb' for a Norwegian locale, else 'en'. Fallback is always English."""
+
+    low = (locale or "").lower()
+    return "nb" if (low.startswith("nb") or low.startswith("nn") or low.startswith("no")) else "en"
+
+
+def texts(lang: str) -> dict[str, dict[str, str]]:
+    return PLAIN_NB if lang == "nb" else PLAIN
+
+
+def plain_for_lang(check: str, lang: str) -> dict[str, str]:
+    return texts(lang).get(check, _FALLBACK)

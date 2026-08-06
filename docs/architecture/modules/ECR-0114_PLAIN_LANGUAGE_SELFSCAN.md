@@ -78,9 +78,21 @@ proven by the owner's re-run — which is exactly the gap this ECR's §1 lesson 
 4. **"Looking good" hides nuance.** A check that passed shows one green line; a customer cannot
    see *how* it passed (which is often fine, but it is less information than the operator surface).
 
+## 5a. Multilingual (added same session)
+
+Plain-*language* is not plain-*English* — the owner's customers may be Norwegian. The plain
+layer is now bilingual: `plain.py` carries `PLAIN` (en) and `PLAIN_NB` (Norwegian bokmål) plus a
+`UI` table of chrome strings per language, and `pick_language()` selects from the computer's
+locale (`LANG`/`LC_ALL` on Linux, `Get-Culture` on Windows), English as the fallback. A test
+asserts every English check id has a Norwegian entry, so one cannot ship without the other.
+
+One Windows-specific trap handled: the `.ps1` is saved **UTF-8 with BOM**, or PowerShell 5.1
+reads the å/ø/æ in the string literals as the system ANSI codepage and mangles them. English is
+still the default; a Norwegian computer now gets a Norwegian report with no configuration.
+
 ## 6. Scope
 
-New `src/aqelyn/collect/plain.py`; rewritten report in `src/aqelyn/collect/selfscan.py`;
+New `src/aqelyn/collect/plain.py` (bilingual); rewritten report in `src/aqelyn/collect/selfscan.py`;
 `plain.py` added to the zipapp build; the Windows `tools/aqelyn-selfscan.ps1` ported (and its
 `HtmlEnc` bug fixed); tests updated. No change to `posture.json`, the pipeline, or any check
 logic — this is entirely about how the customer-facing report reads.
