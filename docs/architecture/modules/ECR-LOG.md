@@ -109,6 +109,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0102 | Self-scan collector | Accepted (implemented by the reviewer; independent review outstanding) | **A check that cannot run reports unmeasured, never a pass.** `aqelyn collect` inspects the host read-only and writes a collection directory, closing collect -> ingest -> look; mobile is named out of scope rather than left to assumption. |
 | ECR-0103 | Charter v2 compliance | Accepted (implemented by the reviewer; independent review outstanding) | **Hollow compliance is worse than a named gap.** Plain-language titles and an expert expansion close UX-001 and UX-002; Affected Assets is left empty rather than filled with an id that resolves to nothing, and owed to ECR-0104. |
 | ECR-0104 | Progressive disclosure and modes | Accepted (implemented by the reviewer; independent review outstanding) | **A mode narrows what is shown; it never softens what is true.** The Charter's six levels become data a renderer consumes, with witnesses that levels never duplicate and that no audience gets a smaller truth. |
+| ECR-0105 | The disclosure model reaches the page | Accepted (implemented by the reviewer; independent review outstanding) | **A requirement that lives only in a module no caller imports is not implemented.** The Charter's six levels become `<details>` a reader can actually open, and `--mode` selects how many start open. A mutation deleting the level *names* ran green first: the words were rendered and nothing witnessed them. |
 
 ---
 
@@ -7408,3 +7409,21 @@ clean, mypy --strict clean across 588 files, full suite on live Postgres. Carrie
 No renderer consumes the model yet - deliberate scope, and recorded as such rather than left to be
 discovered. UX-008 is half-served: modes change disclosure depth, not vocabulary, which is what
 Principle 2 actually asks for.
+
+## ECR-0105 — the disclosure model reaches the page
+
+ECR-0104 recorded its own dead code in §5 and this closes it. `_posture_section` renders one
+`<details>` per Charter level; `--mode` picks how many open. `<details>` rather than script,
+because a local HTML file opened with JavaScript off must still reach expert depth.
+
+Eleven mutations red. One ran GREEN first and is the point of the exercise: deleting `level.name`
+stripped "Summary", "Evidence" and "Remediation" from every level in the report and the suite
+never noticed. Two further witnesses - the level body, and the CLI actually passing `--mode`
+through - were written before the matrix because I predicted their cells would survive, and all
+three were then proven necessary by deselection.
+
+16 tests, ruff clean, mypy --strict clean across 589 files, full suite on live Postgres. Carried
+matrix stays at 84, untouched.
+
+UX-008 is still half-served: modes change depth, not vocabulary. Recorded a second time rather
+than quietly dropped.
