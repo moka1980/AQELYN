@@ -8,13 +8,19 @@ from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
 from aqelyn.reporting.analyze import CollectionAnalysis, ReportFinding
+from aqelyn.reporting.disclosure import Mode, levels
 
 
-def render_findings_report(analysis: CollectionAnalysis) -> str:
-    """Render an operator report without external assets or network capability."""
+def render_findings_report(analysis: CollectionAnalysis, *, mode: Mode = Mode.ENTERPRISE) -> str:
+    """Render an operator report without external assets or network capability.
+
+    `mode` is Charter UX-008 and governs disclosure depth only. Enterprise is the
+    default because that is who reads a local operator report; a home reader gets the
+    same facts with fewer levels open.
+    """
 
     finding_html = "\n".join(_finding(item, index) for index, item in enumerate(analysis.findings))
-    posture_html = _posture_section(analysis)
+    posture_html = _posture_section(analysis, mode)
     rejected_html = _rejected_matches(analysis)
     source_names = ", ".join(source.name for source in analysis.sources)
     high_attention = sum(
@@ -453,41 +459,50 @@ def _display_score_arithmetic(
     )
 
 
-def _posture_section(analysis: CollectionAnalysis) -> str:
-    """ECR-0100. Posture observations, rendered beside the vulnerability findings.
+def _posture_section(analysis: CollectionAnalysis, mode: Mode) -> str:
+    """ECR-0105. Posture observations, rendered through the Charter's disclosure levels.
 
-    Absent when no posture document was handed in — an empty section would imply the
+    Absent when no posture document was handed in - an empty section would imply the
     collection was checked for posture and found clean, which is a different claim.
+
+    Each finding renders all six levels regardless of mode; `mode` decides only which are
+    open on arrival. Using <details> means every level stays reachable without script, so
+    "expert depth on demand" survives a reader with JavaScript disabled.
     """
 
     if not analysis.posture_findings:
         return ""
-    rows = "\n".join(
-        f"""
+    articles = []
+    for finding in analysis.posture_findings:
+        steps = "\n".join(
+            f"""
+            <details class="level" {"open" if level.open_by_default else ""}>
+              <summary><span class="level-n">{level.number}</span>
+                <span class="level-name">{_e(level.name)}</span>
+                <span class="level-q">{_e(level.question)}</span></summary>
+              <div class="level-body">{_e(level.body)}</div>
+            </details>
+            """
+            for level in levels(finding, mode=mode)
+        )
+        articles.append(
+            f"""
         <article class="posture-finding severity-{_e(finding.severity)}">
           <h3><span class="posture-severity">{_e(finding.severity)}</span>
               {_e(finding.title)}
               <span class="posture-score">{_number(finding.severity_score):.0f}</span></h3>
-          <p class="posture-what">{_e(finding.what_happened)}</p>
-          <dl class="posture-derivation">
-            <dt>Why it matters</dt><dd>{_e(finding.why_it_matters)}</dd>
-            <dt>How determined</dt><dd>{_e(finding.how_determined)}</dd>
-            <dt>Risk of inaction</dt><dd>{_e(finding.risk_of_inaction)}</dd>
-            <dt>Remediation</dt><dd>{_e(finding.remediation.summary)}
-                ({_e(finding.remediation.difficulty)} effort) &mdash;
-                {_e(finding.remediation.expected_outcome)}</dd>
-            <dt>Evidence</dt><dd class="posture-evidence">{_e(", ".join(finding.evidence_ids))}</dd>
-          </dl>
+          {steps}
         </article>
         """
-        for finding in analysis.posture_findings
-    )
+        )
     return f"""
     <section id="posture" class="posture" aria-label="Posture observations">
       <h2>Posture observations ({len(analysis.posture_findings):,})</h2>
       <p class="posture-note">Handed in as <code>posture.json</code>. These are configuration
-      and exposure facts, not vulnerability matches; no CVE is claimed for any of them.</p>
-      {rows}
+      and exposure facts, not vulnerability matches; no CVE is claimed for any of them.
+      Shown in <strong>{_e(mode.value)}</strong> mode: every level is present for every reader,
+      and the mode decides only which open first.</p>
+      {"".join(articles)}
     </section>
     """
 
@@ -555,6 +570,19 @@ def _priority_class(value: str) -> str:
 
 
 _STYLES = """
+.level { border-top: 1px solid #e6ebf1; }
+.level:first-of-type { border-top: 0; }
+.level > summary { cursor: pointer; list-style: none; padding: .45rem 0; display: flex;
+  align-items: baseline; gap: .55rem; font-size: .9rem; }
+.level > summary::-webkit-details-marker { display: none; }
+.level > summary::before { content: "\\25B8"; color: #94a3b8; font-size: .75rem;
+  transition: transform .12s; }
+.level[open] > summary::before { content: "\\25BE"; }
+.level-n { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .72rem;
+  color: #fff; background: #073b6f; border-radius: 3px; padding: .05rem .35rem; }
+.level-name { font-weight: 600; }
+.level-q { color: #6b7280; font-size: .82rem; }
+.level-body { padding: 0 0 .6rem 1.9rem; font-size: .9rem; color: #333; }
 .posture { margin-top: 2rem; }
 .posture > h2 { font-size: 1.1rem; margin-bottom: .25rem; }
 .posture-note { color: #555; font-size: .9rem; margin-top: 0; }

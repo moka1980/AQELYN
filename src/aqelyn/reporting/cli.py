@@ -14,6 +14,7 @@ from aqelyn.reporting.analyze import (
     analyze_collection,
     load_collection_documents,
 )
+from aqelyn.reporting.disclosure import Mode
 from aqelyn.reporting.html import render_findings_report
 
 _DEFAULT_REPORT = "aqelyn-findings.html"
@@ -35,7 +36,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 print(f"Reused local findings report: {output}")
                 return 0
         analysis = asyncio.run(analyze_collection(collection_dir))
-        rendered = render_findings_report(analysis)
+        rendered = render_findings_report(analysis, mode=Mode(args.mode))
         _write_private_report(output, rendered)
     except ReportInputError as exc:
         parser.exit(2, f"aqelyn: {exc}\n")
@@ -63,6 +64,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("collection_dir", help="private directory containing vulns.json")
+    parser.add_argument(
+        "--mode",
+        choices=[m.value for m in Mode],
+        default=Mode.ENTERPRISE.value,
+        help=(
+            "Charter UX-008 communication mode. Governs how many disclosure levels open "
+            "by default; every level is present for every mode (default: enterprise)"
+        ),
+    )
     parser.add_argument(
         "--output",
         help=f"HTML path inside the collection directory (default: {_DEFAULT_REPORT})",
