@@ -17,6 +17,8 @@ PREFIXES: dict[str, str] = {
     "obj": "object",
     "acc": "account",
     "inv": "invite",
+    "con": "consent_record",
+    "aud": "audit_event",
     "rel": "relationship",
     "src": "source",
     "evt": "event",

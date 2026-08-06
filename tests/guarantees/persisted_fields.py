@@ -343,6 +343,14 @@ _EXEMPTION_GROUPS: tuple[tuple[str, tuple[str, ...], str], ...] = (
         "rather than reading the email field, and redeemed_by is read only within the invite "
         "store to refuse reuse. No external consumer references either.",
     ),
+    (
+        "consent",
+        ("actor_account_id", "revoked_at", "text_version"),
+        "ECR-0117 keeps consent lifecycle and audit-actor bookkeeping inside its owner: external "
+        "consumers receive ConsentRecord / AuditEvent envelopes through the store's active() and "
+        "list() methods rather than reading revoked_at, text_version or the acting-account field "
+        "directly.",
+    ),
 )
 
 EXEMPT_FIELDS = {
