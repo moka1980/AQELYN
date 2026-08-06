@@ -122,6 +122,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0115 | Customer-account arc (accounts/invites/sessions) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **The tenant comes from the authenticated session, never from client input.** New identity package: Account (scrypt, active\|disabled), single-use TTL Invite, SessionStore binding `tenant_id=account.tenant_id`. Invite-only registration. File-backed bootstrap, Postgres in 0116. 7 mutations red. |
 | ECR-0116 | Customer-account arc (identity durability) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Same contract, proven on both backends.** Identity moves to the standard async memory+Postgres store pair (asyncpg is the only driver; the ingest app is async), preserving every method's name and the isolation rule. One parametrized test body passes on either backend; 12 mutations red across both. |
 | ECR-0117 | Customer-account arc (consent + audit, UX-005) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Consent before a write; an append-only audit of every one.** New `consent` package (memory+Postgres): a tenant's `ConsentRecord` per scope with `active`/`revoke`, and an `AuditEvent` log offering only append+list. Both strictly tenant-scoped. 8 mutations red across both backends; the tenant-scope mutations fail the cross-tenant tests. |
+| ECR-0118 | Customer-account arc (authenticated portal) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Session, then consent, then a tenant-scoped write.** New `portal` package: register/login/consent/upload/read, all gated by a session whose `tenant_id` is the only tenant an upload can land in. Upload is size-bounded, `validate_posture_shape`-checked (refused, never repaired), ingested into the caller's tenant, audited. 6 mutations red; the load-bearing test is two tenants never seeing each other's findings. |
 
 ---
 
@@ -7741,3 +7742,28 @@ Carried matrix rises to 111.
 Named for review: append-only is enforced by omission (no update/delete method + no DDL grant), not
 by a tamper-evident chain — a hash chain like evidence's would make it provable rather than
 conventional.
+
+## ECR-0118 — the authenticated portal: session, consent, then a tenant-scoped write
+
+Fourth ECR of the customer-account arc; it wires 0115–0117 into gated routes. The operator surface
+cannot be the customer face — it is read-only and refuses bodies (ECR-0088). New
+`src/aqelyn/portal/` package: an async `PortalApplication.handle(method, target, headers, body)`
+(driven directly in tests, like the surface) exposing register / login / logout / consent / scans /
+findings. The session cookie is HttpOnly+Secure+SameSite=Strict.
+
+The upload gate, in order: session required (401), active consent required (403, UX-005), size
+bounded to 1 MiB (413), JSON-parsed and run through `validate_posture_shape` (422 with a located
+reason, never repaired), ingested into the caller's tenant only, audited with the sha-256 digest.
+The one property everything rests on: `tenant_id` comes from `session.tenant_id` and nowhere else —
+a caller cannot name a tenant in a body, query or cookie, and `ingest_posture_document` stamps that
+tenant on every object, evidence record and finding. Because the object store resolves natural keys
+per tenant and the finding store filters by tenant_id, two customers scanning the same host get
+separate assets and findings.
+
+6 mutations red (each gate removed turns its witness red); load-bearing test: two tenants never see
+each other's findings. GC-004 cascade (intended): `identity.email`, `consent.text_version`,
+`consent.actor_account_id` move exempt→consumed once the portal reads them; only
+`identity.redeemed_by` and `consent.revoked_at` stay owner-internal. Guard not weakened. ruff + mypy
+--strict clean across 623 files, full suite on live Postgres. Carried matrix rises to 117. Named for
+review: no in-code rate limit (nginx `limit_req` at the edge); the size bound is checked after the
+body is buffered (a socket-level bound is a follow-up); 0119 is the adversarial isolation audit.
