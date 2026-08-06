@@ -23,6 +23,7 @@ from aqelyn.collect.host import (
     HostFacts,
     _filesystem_include_resolver,
     flatten_sshd_config,
+    match_scoped_password_paths,
     parse_disk_encryption,
     parse_dnf_updates,
     parse_pacman_updates,
@@ -31,6 +32,7 @@ from aqelyn.collect.host import (
     parse_unattended_upgrades,
     parse_zypper_updates,
     read_host_facts,
+    sshd_directive,
 )
 
 _LSBLK_ENCRYPTED = "disk\npart\ncrypt\nlvm\n"
@@ -482,3 +484,65 @@ def test_password_auth_is_derived_from_the_path_set_not_stored_twice() -> None:
     assert HostFacts(ssh_password_paths={"password_authentication": True}).ssh_password_auth
     assert HostFacts().ssh_password_auth is None
     assert HostFacts(ssh_password_paths={"empty_passwords": True}).ssh_password_auth is None
+
+
+# --- ECR-0112: Match blocks make the answer conditional, not global -----------------------
+
+_FALSE_ALL_CLEAR = (
+    "PasswordAuthentication no\nMatch Address 0.0.0.0/0\n    PasswordAuthentication yes\n"
+)
+
+
+def test_a_match_scoped_directive_is_not_read_as_global() -> None:
+    """The false all-clear, proven against a real sshd: global `no`, but the Match block
+    turns password auth ON for those connections. Reading the Match directive as global
+    would report the opposite of the risk."""
+    assert parse_ssh_password_paths(_FALSE_ALL_CLEAR) == {"password_authentication": False}
+    assert match_scoped_password_paths(_FALSE_ALL_CLEAR) == ("password_authentication",)
+
+
+def test_a_plain_config_has_no_match_scoped_paths() -> None:
+    assert match_scoped_password_paths("PasswordAuthentication yes\n") == ()
+
+
+def test_match_all_returns_to_unconditional_scope() -> None:
+    """`sshd -T` on `Match Address ... / Match all` takes the Match all value globally,
+    verified on the live host."""
+    cfg = (
+        "Match Address 10.0.0.0/8\n"
+        "    PasswordAuthentication yes\n"
+        "Match all\n"
+        "    PasswordAuthentication no\n"
+    )
+    assert sshd_directive(cfg, "PasswordAuthentication") == "no"
+
+
+def test_the_check_flags_a_match_hidden_opening_as_conditional() -> None:
+    facts = HostFacts(
+        ssh_password_paths={"password_authentication": False},
+        ssh_password_match_scoped=("password_authentication",),
+    )
+    observation = check_ssh_password_auth(facts, "host-1")
+    assert observation is not None
+    assert "depends on who is connecting" in observation["what_happened"]
+    assert observation["observed"]["match_scoped"] == ["password_authentication"]
+
+
+def test_a_config_that_only_opens_a_path_in_a_match_block_is_not_silent() -> None:
+    """Nothing global, one Match-scoped opening: must not read as unmeasured-and-quiet."""
+    facts = HostFacts(
+        ssh_password_paths=None,
+        ssh_password_match_scoped=("password_authentication",),
+    )
+    observation = check_ssh_password_auth(facts, "host-1")
+    assert observation is not None
+    assert observation["check"] == "ssh_password_authentication"
+    assert observation["severity"] == "high"
+
+
+def test_no_match_block_leaves_the_finding_exactly_as_ecr_0111_left_it() -> None:
+    facts = HostFacts(ssh_password_paths={"password_authentication": True})
+    observation = check_ssh_password_auth(facts, "host-1")
+    assert observation is not None
+    assert "depends on who is connecting" not in observation["what_happened"]
+    assert observation["observed"]["match_scoped"] == []

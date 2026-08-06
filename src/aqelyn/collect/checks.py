@@ -195,23 +195,42 @@ _PATH_LABELS = {
 
 
 def check_ssh_password_auth(facts: HostFacts, subject_ref: str) -> dict[str, Any] | None:
-    if facts.ssh_password_paths is None:
+    open_paths = sorted(fact for fact, value in (facts.ssh_password_paths or {}).items() if value)
+    conditional = sorted(facts.ssh_password_match_scoped)
+    # Nothing global and nothing conditional means the config named none of these directives,
+    # which ECR-0111 records as unmeasured rather than clean.
+    if facts.ssh_password_paths is None and not conditional:
         return _unmeasured(subject_ref, "ssh_password_auth", "ssh_password_authentication")
-    open_paths = sorted(fact for fact, value in facts.ssh_password_paths.items() if value)
-    if not open_paths:
+    if not open_paths and not conditional:
         return None
+
     described = "; ".join(_PATH_LABELS.get(fact, fact) for fact in open_paths)
-    plural = "paths" if len(open_paths) > 1 else "path"
+    # ECR-0112: a Match block decides the value for some connections and we cannot read
+    # which without `sshd -T -C`. Reported as conditional rather than folded into the global
+    # yes/no, so a Match-hidden opening is never mistaken for an all-clear.
+    conditional_clause = ""
+    if conditional:
+        names = "; ".join(_PATH_LABELS.get(fact, fact) for fact in conditional)
+        conditional_clause = (
+            f" A Match block sets {names} for some connections, so the effective answer "
+            "depends on who is connecting; this was not fully measured."
+        )
+    if open_paths:
+        opener = (
+            f"The SSH server accepts {len(open_paths)} authentication "
+            f"{'paths' if len(open_paths) > 1 else 'path'} that a person can type: {described}."
+        )
+    else:
+        opener = (
+            "The SSH server's password authentication is decided by a Match block, not globally."
+        )
     return _observation(
         observation_id="obs-ssh-password-auth",
         subject_ref=subject_ref,
         check="ssh_password_authentication",
         severity="high",
         severity_score=68.0,
-        what_happened=(
-            f"The SSH server accepts {len(open_paths)} authentication {plural} that a person "
-            f"can type: {described}."
-        ),
+        what_happened=opener + conditional_clause,
         why_it_matters=(
             "A password can be guessed at whatever rate the network allows; a key cannot. "
             "Each of these is a separate door, and closing only the obvious one leaves the "
@@ -219,7 +238,8 @@ def check_ssh_password_auth(facts: HostFacts, subject_ref: str) -> dict[str, Any
         ),
         how_determined=(
             "Read the effective sshd directives, following Include files in the order sshd "
-            "reads them and taking the first value of each keyword."
+            "reads them and taking the first value of each keyword in unconditional scope. "
+            "Match blocks are reported as conditional, not evaluated."
         ),
         risk_of_inaction="Remote access is exposed to credential guessing.",
         summary=(
@@ -231,12 +251,13 @@ def check_ssh_password_auth(facts: HostFacts, subject_ref: str) -> dict[str, Any
         expected_outcome="Only key holders can open a session.",
         observed={
             "open_paths": open_paths,
-            "paths": dict(facts.ssh_password_paths),
+            "paths": dict(facts.ssh_password_paths or {}),
+            "match_scoped": conditional,
             # Directives the config never sets, where the upstream default leaves the door
             # open. Reported so the reader sees them; not counted as findings, because the
             # default belongs to how this sshd was built and we have not read that.
             "unset_and_open_by_default": sorted(
-                UPSTREAM_DEFAULT_OPEN - set(facts.ssh_password_paths)
+                UPSTREAM_DEFAULT_OPEN - set(facts.ssh_password_paths or {})
             ),
         },
     )
