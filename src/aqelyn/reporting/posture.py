@@ -114,6 +114,36 @@ def posture_dedup_key(observation: Mapping[str, Any]) -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:32]
 
 
+def plain_title(observation: Mapping[str, Any]) -> str:
+    """Charter v2 UX-001: a title a non-expert can read.
+
+    The machine identifiers - check name, subject reference, raw measurements - move to
+    `expert_details`, which UX-002 requires anyway. Nothing is lost; it stops being the
+    first thing a home user sees.
+    """
+
+    supplied = observation.get("title")
+    if isinstance(supplied, str) and supplied.strip():
+        return supplied.strip()
+    # Derive from the sentence the collector already had to write. `what_happened` is
+    # mandatory, so this cannot fall through to a machine string.
+    what = str(observation.get("what_happened", "")).strip()
+    sentence = what.split(". ")[0].rstrip(".")
+    return sentence or "Security observation"
+
+
+def expert_details(observation: Mapping[str, Any]) -> dict[str, Any]:
+    """Charter v2 UX-002 / Progressive Detail levels 3-4: the technical expansion."""
+
+    return {
+        "check": observation.get("check"),
+        "observation_id": observation.get("observation_id"),
+        "subject": observation.get("subject"),
+        "observed": observation.get("observed", {}),
+        "collection_method": observation.get("method"),
+    }
+
+
 def observation_to_finding(
     observation: Mapping[str, Any],
     *,
@@ -128,15 +158,20 @@ def observation_to_finding(
     """
 
     remediation = observation.get("remediation") or {}
-    subject_ref = str((observation.get("subject") or {}).get("ref", ""))
-    check = str(observation.get("check", "observation"))
 
     return Finding(
         id=finding_id,
         finding_type=POSTURE_FINDING_TYPE,
         schema_version=1,
         dedup_key=posture_dedup_key(observation),
-        title=f"{check} on {subject_ref}",
+        title=plain_title(observation),
+        expert_details=expert_details(observation),
+        # Charter section 5 requires Affected Assets, and `affected_object_ids` is where
+        # they belong - but it holds typed `obj_` ids, and a posture subject ("wcagvakt.no",
+        # "203.0.113.10") is not an object until something creates one. Minting an id here
+        # would satisfy the field with a reference that resolves to nothing, which is worse
+        # than leaving it empty. The subject travels in `expert_details` meanwhile, and
+        # ECR-0104 owes the object-store link.
         severity=str(observation["severity"]),
         severity_score=float(observation["severity_score"]),
         what_happened=str(observation["what_happened"]),
