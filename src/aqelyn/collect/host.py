@@ -91,6 +91,7 @@ class HostFacts:
     disk_encrypted: bool | None = None
     unattended_upgrades: bool | None = None
     ssh_password_paths: dict[str, bool] | None = None
+    ssh_password_match_scoped: tuple[str, ...] = ()
     unreadable: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -291,15 +292,58 @@ def sshd_directive(sshd_config: str, keyword: str) -> str | None:
     else here exists to support.
     """
 
+    return _directive_scopes(sshd_config, keyword)[0]
+
+
+def _directive_scopes(sshd_config: str, keyword: str) -> tuple[str | None, bool]:
+    """`(global_value, match_scoped)` for one keyword.
+
+    `global_value` is the connection-independent value: the first occurrence in
+    unconditional scope, which is what `sshd -T` (no `-C`) reports. `match_scoped` is True
+    when the keyword also appears inside a `Match` block that is not `Match all`, meaning the
+    effective value differs for some connections and a single global boolean would mislead.
+
+    ECR-0112: reading a `Match`-scoped directive as if it were global under-reports a config
+    like `PasswordAuthentication no` + `Match Address 0.0.0.0/0 { PasswordAuthentication
+    yes }` - a false all-clear on the finding that matters most. `Match all` returns to
+    unconditional scope, verified against a real `sshd -T`.
+    """
+
     wanted = keyword.lower()
+    global_value: str | None = None
+    match_scoped = False
+    conditional = False
     for raw in sshd_config.splitlines():
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
         parts = line.split()
-        if len(parts) >= 2 and parts[0].lower() == wanted:
-            return parts[1].lower()
-    return None
+        head = parts[0].lower()
+        if head == "match":
+            conditional = [token.lower() for token in parts[1:]] != ["all"]
+            continue
+        if len(parts) >= 2 and head == wanted:
+            if conditional:
+                match_scoped = True
+            elif global_value is None:
+                global_value = parts[1].lower()
+    return global_value, match_scoped
+
+
+def match_scoped_password_paths(sshd_config: str) -> tuple[str, ...]:
+    """Password facts whose effective value is decided inside a `Match` block.
+
+    These are conditional: `sshd -T -C addr=…` is the only way to know the value for a
+    given connection, and this collector cannot run it. Reported as conditional rather than
+    folded into a global yes/no, so a `Match`-hidden opening is never mistaken for an
+    all-clear.
+    """
+
+    return tuple(
+        fact
+        for keyword, _enabled, fact in _PASSWORD_PATHS
+        if _directive_scopes(sshd_config, keyword)[1]
+    )
 
 
 # Every way an sshd can end up accepting something a human typed rather than a key.
@@ -481,13 +525,14 @@ def read_host_facts(
         unreadable.append("unattended_upgrades")
 
     ssh_password_paths: dict[str, bool] | None = None
+    ssh_password_match_scoped: tuple[str, ...] = ()
     with contextlib.suppress(OSError):
-        ssh_password_paths = parse_ssh_password_paths(
-            flatten_sshd_config(
-                sshd_config.read_text(encoding="utf-8"),
-                resolve=include_resolver or _filesystem_include_resolver(sshd_config.parent),
-            )
+        flattened = flatten_sshd_config(
+            sshd_config.read_text(encoding="utf-8"),
+            resolve=include_resolver or _filesystem_include_resolver(sshd_config.parent),
         )
+        ssh_password_paths = parse_ssh_password_paths(flattened)
+        ssh_password_match_scoped = match_scoped_password_paths(flattened)
     if ssh_password_paths is None:
         unreadable.append("ssh_password_auth")
 
@@ -503,5 +548,6 @@ def read_host_facts(
         disk_encrypted=disk_encrypted,
         unattended_upgrades=unattended_upgrades,
         ssh_password_paths=ssh_password_paths,
+        ssh_password_match_scoped=ssh_password_match_scoped,
         unreadable=tuple(unreadable),
     )
