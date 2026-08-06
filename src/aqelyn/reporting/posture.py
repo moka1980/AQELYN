@@ -18,11 +18,16 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
+from aqelyn.conventions import ActorRef
 from aqelyn.findings.models import Automation, Finding, Remediation
+from aqelyn.objects.models import AQObject, NaturalKey, SourceRef
+from aqelyn.objects.registry import ObjectTypeRegistry
 
 POSTURE_DOCUMENT = "posture.json"
 POSTURE_SOURCE_ENGINE = "posture_collector"
 POSTURE_FINDING_TYPE = "posture.observation"
+POSTURE_SUBJECT_OBJECT_TYPE = "posture.subject"
+POSTURE_SUBJECT_NAMESPACE = "posture"
 
 _SEVERITIES = ("critical", "high", "medium", "low", "info")
 _DIFFICULTIES = ("low", "medium", "high")
@@ -144,17 +149,86 @@ def expert_details(observation: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+def subject_natural_key(observation: Mapping[str, Any]) -> NaturalKey:
+    """The identity a posture subject is known by, independent of any object id.
+
+    Two observations about the same host must resolve to the same asset even when they
+    come from different collections on different days, so identity has to live in the
+    subject itself and not in an id we happen to have minted.
+    """
+
+    subject = observation.get("subject") or {}
+    kind = str(subject.get("kind", "")).strip() or "unknown"
+    ref = str(subject.get("ref", "")).strip()
+    if not ref:
+        raise PostureDocumentError("observation subject has no ref to identify an asset by")
+    return NaturalKey(namespace=f"{POSTURE_SUBJECT_NAMESPACE}:{kind}", value=ref)
+
+
+def subject_object(
+    observation: Mapping[str, Any],
+    *,
+    source_id: str,
+    observed_at: datetime,
+    actor: ActorRef,
+) -> AQObject:
+    """The asset a posture observation is about, as an object the store can resolve.
+
+    `id` is left empty on purpose: `ObjectStore.upsert` resolves by natural key and mints
+    the id itself, so the same host observed twice is one asset rather than two. Minting
+    here would defeat exactly the deduplication that makes the link worth having.
+    """
+
+    subject = observation.get("subject") or {}
+    key = subject_natural_key(observation)
+    return AQObject(
+        id="",
+        object_type=POSTURE_SUBJECT_OBJECT_TYPE,
+        schema_version=1,
+        display_name=key.value,
+        attributes={"kind": str(subject.get("kind", "")).strip() or "unknown"},
+        natural_keys=[key],
+        sources=[
+            SourceRef(
+                source_id=source_id,
+                observed_at=observed_at,
+                method=str(observation.get("check", "posture observation")),
+            )
+        ],
+        first_seen_at=observed_at,
+        last_seen_at=observed_at,
+        created_at=observed_at,
+        updated_at=observed_at,
+        created_by=actor,
+        updated_by=actor,
+    )
+
+
+def ensure_posture_object_type(object_store: object) -> None:
+    """Register the posture subject type on whichever store the runtime is using."""
+
+    registry = getattr(object_store, "registry", None)
+    if isinstance(registry, ObjectTypeRegistry):
+        registry.register(POSTURE_SUBJECT_OBJECT_TYPE, 1, None)
+
+
 def observation_to_finding(
     observation: Mapping[str, Any],
     *,
     finding_id: str,
     evidence_id: str,
     observed_at: datetime,
+    affected_object_ids: Sequence[str] = (),
 ) -> Finding:
     """Build a Finding that carries its own derivation.
 
     `severity_score` is taken from the observation and never recomputed downstream:
     ECR-0063 keeps it fixed under escalation so the keyset cursor stays stable.
+
+    `affected_object_ids` is Charter section 5's Affected Assets. It stays a parameter
+    rather than something derived here: this function cannot reach an object store, and
+    ECR-0100 refused to mint an id that resolves to nothing. The caller upserts the
+    subject and passes back what the store actually returned.
     """
 
     remediation = observation.get("remediation") or {}
@@ -166,12 +240,7 @@ def observation_to_finding(
         dedup_key=posture_dedup_key(observation),
         title=plain_title(observation),
         expert_details=expert_details(observation),
-        # Charter section 5 requires Affected Assets, and `affected_object_ids` is where
-        # they belong - but it holds typed `obj_` ids, and a posture subject ("wcagvakt.no",
-        # "203.0.113.10") is not an object until something creates one. Minting an id here
-        # would satisfy the field with a reference that resolves to nothing, which is worse
-        # than leaving it empty. The subject travels in `expert_details` meanwhile, and
-        # ECR-0104 owes the object-store link.
+        affected_object_ids=list(affected_object_ids),
         severity=str(observation["severity"]),
         severity_score=float(observation["severity_score"]),
         what_happened=str(observation["what_happened"]),

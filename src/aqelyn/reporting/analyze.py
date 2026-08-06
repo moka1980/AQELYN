@@ -19,7 +19,9 @@ from aqelyn.kernel import AQELYNConfig, Runtime, create_inmemory_runtime
 from aqelyn.reporting.posture import (
     POSTURE_DOCUMENT,
     PostureDocumentError,
+    ensure_posture_object_type,
     observation_to_finding,
+    subject_object,
     validate_posture_shape,
 )
 from aqelyn.threat.parse import KevExploitationProvider, parse_kev
@@ -357,11 +359,25 @@ async def _ingest_posture(
     posture_source = next(source for source in sources if source.name == POSTURE_DOCUMENT)
     evidence_store = runtime.evidence_store
     finding_store = runtime.finding_store
+    object_store = runtime.object_store
     collector = ActorRef(actor_type="system", actor_id="aqelyn-report")
+    ensure_posture_object_type(object_store)
 
     raised: list[Finding] = []
     for observation in observations:
-        subject_id = new_id("obj")
+        # ECR-0106: the subject becomes a real object before anything references it.
+        # `upsert` resolves by natural key, so two observations about one host converge on
+        # one asset and the id below is one the store will actually return on lookup.
+        subject_id = (
+            await object_store.upsert(
+                subject_object(
+                    observation,
+                    source_id=_REPORT_SOURCE_ID,
+                    observed_at=observed_at,
+                    actor=collector,
+                )
+            )
+        ).id
         evidence = await evidence_store.add(
             EvidenceRecord(
                 id="",
@@ -392,6 +408,7 @@ async def _ingest_posture(
                     finding_id=new_id("fnd"),
                     evidence_id=evidence.id,
                     observed_at=observed_at,
+                    affected_object_ids=[subject_id],
                 )
             )
         )
