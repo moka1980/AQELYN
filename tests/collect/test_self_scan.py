@@ -133,7 +133,16 @@ def test_every_unreadable_fact_produces_its_own_unmeasured_observation() -> None
     facts_reported = {
         item["observed"]["fact"] for item in observations if item["observed"].get("unmeasured")
     }
-    assert facts_reported == {"listeners", "firewall", "pending_updates", "ssh_password_auth"}
+    # ECR-0107 added two facts and this equality is what forced the list to be updated
+    # rather than quietly under-reporting. That is the whole point of asserting the set.
+    assert facts_reported == {
+        "listeners",
+        "firewall",
+        "pending_updates",
+        "unattended_upgrades",
+        "disk_encryption",
+        "ssh_password_auth",
+    }
 
 
 def test_an_unparsable_bind_address_is_treated_as_public() -> None:

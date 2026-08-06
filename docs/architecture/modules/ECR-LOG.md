@@ -111,6 +111,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0104 | Progressive disclosure and modes | Accepted (implemented by the reviewer; independent review outstanding) | **A mode narrows what is shown; it never softens what is true.** The Charter's six levels become data a renderer consumes, with witnesses that levels never duplicate and that no audience gets a smaller truth. |
 | ECR-0105 | The disclosure model reaches the page | Accepted (implemented by the reviewer; independent review outstanding) | **A requirement that lives only in a module no caller imports is not implemented.** The Charter's six levels become `<details>` a reader can actually open, and `--mode` selects how many start open. A mutation deleting the level *names* ran green first: the words were rendered and nothing witnessed them. |
 | ECR-0106 | A posture subject becomes an asset | Accepted (implemented by the reviewer; independent review outstanding) | **Identity belongs to the subject, not to an id we minted.** `upsert` resolves by natural key, so Affected Assets now points at an object the store returns and four observations of this machine are one asset. Found while reading my own deferral: the dangling id ECR-0100 refused to put in the Finding was already in the EvidenceRecord. |
+| ECR-0107 | The collector stops assuming Debian | Accepted (implemented by the reviewer; independent review outstanding) | **A check that reports "unreadable" on every machine that needs it is not a check.** dnf/zypper/pacman, disk encryption and automatic updates. Two of my own parsers were wrong and my own witnesses caught them - one would have reported automatic updates disabled on every machine, including ones that had them on. |
 
 ---
 
@@ -7450,3 +7451,27 @@ Measured on this machine's real self-scan: four observations, four findings, one
 Open and named: one object type for every subject kind, no relationship to objects other engines
 already know, tenant is None throughout, and the renderer reads the subject name from
 `expert_details` rather than from the resolved object.
+
+## ECR-0107 — the collector stops assuming Debian
+
+ECR-0102 named three blind spots and this closes them: package managers other than APT, disk
+encryption, and automatic updates. `dnf check-update` exits 100 when updates exist, so each tool
+carries the exit code that means "the command answered" - treating non-zero as failure would have
+called exactly the machines that need patching unreadable.
+
+Two of my own parsers were wrong. `parse_unattended_upgrades` read the wrong split index and
+matched nothing, so every machine would have reported automatic updates disabled - a confident
+false positive. `parse_dnf_updates` counted the Obsoleting trailer. Both were caught by the
+witnesses written in the same commit, which is the situation where a test most often passes for
+the wrong reason.
+
+ECR-0102's `test_every_unreadable_fact_produces_its_own_unmeasured_observation` earned its keep:
+it asserts set equality rather than a count, so two new facts made it fail until the list was
+updated. A count would have passed silently.
+
+Eleven mutations red; one of them exposed that a new check had only an indirect catcher, and a
+direct witness was added. Five necessity runs, all green. Measured on this machine: six
+observations, up from four - no encrypted volume, no automatic updates, 31 pending packages.
+
+Open and named: `lsblk` sees mappings not policy, Windows and macOS remain invisible, and the
+zypper and pacman parsers have no real-output fixture.
