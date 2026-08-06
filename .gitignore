@@ -14,3 +14,4 @@ venv/
 htmlcov/
 *.log
 *:Zone.Identifier
+dist/*.pyz

@@ -117,6 +117,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0110 | The SSH reader read the wrong file, in the wrong order | Accepted (implemented by the reviewer; independent review outstanding) | **A green test that encodes a misunderstanding is the misunderstanding, notarised.** The reader ignored `Include` and kept the LAST directive; sshd takes the FIRST, proven against a real sshd. On the live VPS the two drop-ins disagree, and the effective answer is that password auth is ENABLED on a port open to the internet - reported until now as unmeasured. |
 | ECR-0111 | Every door a password can walk through | Accepted (implemented by the reviewer; independent review outstanding) | **An unset directive is not a neutral one.** Keyboard-interactive and empty passwords are password paths too. Measured on a real sshd: TWO of the three upstream defaults are OPEN, so "the config does not mention it" is not the neutral state ECR-0102 treated it as. Recorded rather than acted on, because a build default belongs to the sshd being examined. |
 | ECR-0112 | A Match block makes the answer conditional | Accepted (implemented by the reviewer; independent review outstanding) | **A Match-scoped directive is not a global one.** `PasswordAuthentication no` + `Match Address 0.0.0.0/0 {yes}` reads as `no` globally but is `yes` for those connections - a false all-clear, proven with `sshd -T -C`. The collector reads global scope on its own and flags Match-governed paths as conditional rather than folding them in. `Match all` returns to unconditional scope, verified. |
+| ECR-0113 | The self-scan download is the shipped collector | Accepted (implemented by the reviewer; independent review outstanding) | **A shipped download that isn't built from tested source will silently rot.** The Linux `.pyz` is now assembled from `src/aqelyn/collect` by a repo build script with a build-and-run test; the Windows `.ps1` (validated on a real Win11 box) is now version-controlled. Report output is HTML-escaped. |
 
 ---
 
@@ -7626,3 +7627,19 @@ silent. `Match all` returns to unconditional scope, verified against `sshd -T`.
 Six mutations red, six new tests, validated on the live host. This is the third ECR
 re-implementing sshd's parser; each narrows the gap, none closes it - the authoritative path
 needs `sshd -T` and root, and is named as the standing limit.
+
+## ECR-0113 — the self-scan download is the shipped collector
+
+The customer downloads at aqelyn.com/scan went live built ad-hoc, tracked nowhere, tested by
+nothing - so a collector change would leave the hosted Linux download silently stale. This makes it
+reproducible and tested: `src/aqelyn/collect/selfscan.py` is the one-shot runner (stdlib-only, wraps
+the same read_host_facts/observations_for), `tools/build_selfscan_pyz.py` assembles the zipapp from
+source, and a test builds the artifact and runs it in a fresh process, asserting a posture.json that
+passes the platform's own validate_posture_shape. The Windows `.ps1` (validated on a real Win11
+machine) is now version-controlled at `tools/aqelyn-selfscan.ps1`. Report values are HTML-escaped.
+
+Three mutations red (severity ordering, HTML escaping, the build omitting the runner). Seven tests,
+ruff + mypy --strict clean across 595 files, full suite on live Postgres. Carried matrix stays 84.
+
+Open and named: the zipapp isn't byte-reproducible (mtimes) so the page SHA-256 is per-build; the
+Windows .ps1 has no automated test (Linux CI can't run it) and is only as safe as the next manual run.
