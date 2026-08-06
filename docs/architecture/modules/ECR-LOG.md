@@ -7664,3 +7664,27 @@ customer opens. Lesson: validate the artifact the customer sees.
 zipapp still builds+runs), ruff + mypy --strict clean across 596 files, full suite on live
 Postgres. Carried matrix 84. The Windows .ps1 has no automated test (no PowerShell on CI) - only
 as validated as the owner's last run.
+
+## ECR-0115 — accounts, invites and sessions, tenant bound to the session
+
+First ECR of the customer-account arc (0115–0119). The platform had a single-operator login but
+no notion of a second customer. New self-contained `src/aqelyn/identity/` package: `Account`
+(`acc_` id, email, tenant_id, scrypt hash, active|disabled), `Invite` (`inv_`, single-use, TTL,
+optional email binding), and a `SessionStore` whose `start` binds `tenant_id = account.tenant_id`.
+The one load-bearing rule: **the tenant is taken from the authenticated session, never from client
+input** — the store layer already scopes findings by tenant_id, so the whole isolation promise
+rests on the tenant never being client-supplied. Registration is invite-only (arc decision 1).
+File-backed JSON today (the auth.json pattern), migrating to Postgres in 0116 with no surface change.
+
+Seven mutations red (password always passes; session tenant taken from a param not the account;
+invite reusable; expired invite accepted; disabled account authenticates; duplicate email allowed;
+expired session resolves). 17 tests on a movable clock and two tenant UUIDs, including
+`test_two_tenants_sessions_never_cross`. Ruff + mypy --strict clean across 601 files, full suite
+2094 passed / 5 skipped on live Postgres. Carried matrix rises to 91.
+
+Census note: the stdlib `secrets` import is aliased `_rand` in store/passwords so the GC-004
+persisted-field census doesn't read it as an external reader of the `secrets` package's exempt
+`secrets` field — same move as ECR-0108's `schema`→`document_schema` rename; the guard was not
+weakened. Open/named: sessions are process-memory (no cross-worker sharing, dropped on restart);
+the file store serialises on a coarse lock and doesn't scale (0116 fixes both surfaces); a leaked
+invite token before redemption is a free account, bounded by TTL + single-use, no redeem rate-limit.

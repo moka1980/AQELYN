@@ -26,7 +26,9 @@ The scan capability is real and shipped. The gap is **accounts + upload**, not s
 - **Subjects already become objects.** ECR-0106 gives each posture subject a natural-key `AQObject`
   via `upsert`, so Affected Assets resolve and re-uploads dedupe.
 - **Presentation exists.** Progressive disclosure (ECR-0104/0105), the plain-words glossary
-  (ECR-0108), and the HTML report all render findings already.
+  (ECR-0108), and the HTML report all render findings already. The customer self-scan report is
+  plain-language and **bilingual (English + Norwegian, auto by locale)** as of ECR-0114 — reuse that
+  register for the in-account view; do not regress to operator wording.
 - **A secure session login exists (built 2026-08-06).** The platform now has real auth:
   scrypt-hashed password in `auth.json`, an HttpOnly+Secure+SameSite=Strict session cookie, every
   data route gated, nginx `limit_req` on `/login`. **This is single-operator.** The customer flow
@@ -39,7 +41,7 @@ per-tenant isolation.** Everything downstream of "a validated posture.json for t
 
 ## 2. Current runtime state (accurate as of this brief)
 
-- `main` at the latest tip (read the ECR-LOG for the SHA and next free ECR — never from memory).
+- `main` at `363818c` (2026-08-06); **next free ECR = 0115** — but re-read `ECR-LOG.md` at build time, never trust a memorised counter.
 - The platform runs on the aqelyn.com VPS as two loopback systemd services: `aqelyn-surface`
   (:8765, the kernel + data API) and `aqelyn-platform` (:8800, the frontend). nginx is the only
   public face. **Backend is `memory` / `tenant_mode=local`** — nothing persists across a restart.
