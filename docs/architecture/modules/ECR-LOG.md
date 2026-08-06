@@ -113,6 +113,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0106 | A posture subject becomes an asset | Accepted (implemented by the reviewer; independent review outstanding) | **Identity belongs to the subject, not to an id we minted.** `upsert` resolves by natural key, so Affected Assets now points at an object the store returns and four observations of this machine are one asset. Found while reading my own deferral: the dangling id ECR-0100 refused to put in the Finding was already in the EvidenceRecord. |
 | ECR-0107 | The collector stops assuming Debian | Accepted (implemented by the reviewer; independent review outstanding) | **A check that reports "unreadable" on every machine that needs it is not a check.** dnf/zypper/pacman, disk encryption and automatic updates. Two of my own parsers were wrong and my own witnesses caught them - one would have reported automatic updates disabled on every machine, including ones that had them on. |
 | ECR-0108 | Plain words beside the finding | Accepted (implemented by the reviewer; independent review outstanding) | **The reason I deferred it twice became the design.** A rewritten sentence has no witness for its drift, so the plain language is additive: the finding's own words are byte-identical in all four modes and the jargon is annotated beneath them. Also caught a second mutation-that-did-not-mutate - an empty line number read as GREEN. |
+| ECR-0109 | The firewall reader told the truth in neither direction | Accepted (implemented by the reviewer; independent review outstanding) | **A fixture proves the code does what the fixture says; only a real machine says what the inputs look like.** Pointed at the live VPS, the collector reported an ACTIVE firewall as inactive - `ufw status` needs root. The same three lines also read a STOPPED firewalld as running, because "running" is a substring of "not running". |
 
 ---
 
@@ -7511,3 +7512,32 @@ genuine check output at all.
 
 Open and named: nothing measures the reverse direction (a word the checks use and the glossary
 lacks is still invisible), definitions whose correctness no test can check, and English only.
+
+## ECR-0109 — the firewall reader told the truth in neither direction
+
+Running the ECR-0107 collector against the live one.com VPS, rather than a fixture, produced
+"a host firewall (ufw) is installed but not active" for a machine whose firewall is active with
+seven rules. `ufw status` needs root; without it the tool prints an error, and the reader asked
+only whether the output contained "status: active".
+
+`collect/host.py`'s own docstring already said a firewall whose state could not be determined
+must not become "no firewall". The doctrine was written and the code three hundred lines below
+it did the opposite.
+
+The same three lines held the mirror-image defect: the firewalld branch tested `"running" in
+output`, and `firewall-cmd --state` prints "not running" when stopped. A stopped firewall would
+have read as active. Nobody had run it on a firewalld host, so it had never been seen.
+
+The fix separates "did the command answer" from "what did it say". The exit code is deliberately
+not the test - firewalld exits 252 when stopped, which is a real answer.
+
+ECR-0107's matrix was 11/11 red and contained neither defect, because both live in code it did
+not touch and no fixture exercised the failing input. What found them was pointing the collector
+at a machine that was not mine - one script, because `read_host_facts` already takes an
+injectable runner and that injection point works for ssh as well as for a test double.
+
+Five mutations red, two necessity runs green, six new tests. All six firewall states verified
+directly.
+
+Open and named: nftables and iptables remain invisible, "active" is not "default-deny", and no
+test runs the real ufw binary - which is exactly how the original defect survived.
