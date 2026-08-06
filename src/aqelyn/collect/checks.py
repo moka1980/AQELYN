@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any
 
-from aqelyn.collect.host import HostFacts
+from aqelyn.collect.host import UPSTREAM_DEFAULT_OPEN, HostFacts
 
 SUBJECT_KIND = "host"
 
@@ -185,27 +185,60 @@ def check_pending_updates(facts: HostFacts, subject_ref: str) -> dict[str, Any] 
     )
 
 
+_PATH_LABELS = {
+    "password_authentication": "password login",
+    "keyboard_interactive_authentication": (
+        "keyboard-interactive login, which with PAM is a password prompt under another name"
+    ),
+    "empty_passwords": "accounts with an empty password",
+}
+
+
 def check_ssh_password_auth(facts: HostFacts, subject_ref: str) -> dict[str, Any] | None:
-    if facts.ssh_password_auth is None:
+    if facts.ssh_password_paths is None:
         return _unmeasured(subject_ref, "ssh_password_auth", "ssh_password_authentication")
-    if not facts.ssh_password_auth:
+    open_paths = sorted(fact for fact, value in facts.ssh_password_paths.items() if value)
+    if not open_paths:
         return None
+    described = "; ".join(_PATH_LABELS.get(fact, fact) for fact in open_paths)
+    plural = "paths" if len(open_paths) > 1 else "path"
     return _observation(
         observation_id="obs-ssh-password-auth",
         subject_ref=subject_ref,
         check="ssh_password_authentication",
         severity="high",
         severity_score=68.0,
-        what_happened="The SSH server accepts password authentication.",
-        why_it_matters=(
-            "A password can be guessed at whatever rate the network allows; a key cannot."
+        what_happened=(
+            f"The SSH server accepts {len(open_paths)} authentication {plural} that a person "
+            f"can type: {described}."
         ),
-        how_determined="Read the effective PasswordAuthentication directive from sshd_config.",
+        why_it_matters=(
+            "A password can be guessed at whatever rate the network allows; a key cannot. "
+            "Each of these is a separate door, and closing only the obvious one leaves the "
+            "others open."
+        ),
+        how_determined=(
+            "Read the effective sshd directives, following Include files in the order sshd "
+            "reads them and taking the first value of each keyword."
+        ),
         risk_of_inaction="Remote access is exposed to credential guessing.",
-        summary="Set PasswordAuthentication no and use keys.",
+        summary=(
+            "Set PasswordAuthentication no, KbdInteractiveAuthentication no and "
+            "PermitEmptyPasswords no, and use keys. Confirm a key works in a second session "
+            "before closing the first."
+        ),
         difficulty="medium",
         expected_outcome="Only key holders can open a session.",
-        observed={"password_authentication": True},
+        observed={
+            "open_paths": open_paths,
+            "paths": dict(facts.ssh_password_paths),
+            # Directives the config never sets, where the upstream default leaves the door
+            # open. Reported so the reader sees them; not counted as findings, because the
+            # default belongs to how this sshd was built and we have not read that.
+            "unset_and_open_by_default": sorted(
+                UPSTREAM_DEFAULT_OPEN - set(facts.ssh_password_paths)
+            ),
+        },
     )
 
 

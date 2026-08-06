@@ -150,7 +150,7 @@ def test_the_glossary_only_explains_words_the_product_can_emit() -> None:
         pending_updates=31,
         disk_encrypted=False,
         unattended_upgrades=False,
-        ssh_password_auth=True,
+        ssh_password_paths={"password_authentication": True},
     )
     emitted = " ".join(
         str(value)

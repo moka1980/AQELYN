@@ -210,7 +210,7 @@ def test_zero_pending_updates_produces_no_finding() -> None:
 
 
 def test_ssh_password_auth_enabled_is_high() -> None:
-    facts = HostFacts(ssh_password_auth=True)
+    facts = HostFacts(ssh_password_paths={"password_authentication": True})
     finding = next(
         item
         for item in observations_for(facts, subject_ref="box")

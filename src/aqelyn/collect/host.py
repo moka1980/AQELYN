@@ -90,8 +90,21 @@ class HostFacts:
     update_tool: str | None = None
     disk_encrypted: bool | None = None
     unattended_upgrades: bool | None = None
-    ssh_password_auth: bool | None = None
+    ssh_password_paths: dict[str, bool] | None = None
     unreadable: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def ssh_password_auth(self) -> bool | None:
+        """ECR-0111: derived, not stored.
+
+        This was its own field alongside `ssh_password_paths`, which is two records of one
+        fact and therefore two records that can disagree. Deriving it makes that
+        impossible.
+        """
+
+        if self.ssh_password_paths is None:
+            return None
+        return self.ssh_password_paths.get("password_authentication")
 
 
 _ADDR = re.compile(r"^(?P<bind>.*):(?P<port>\d+)$")
@@ -270,6 +283,69 @@ def flatten_sshd_config(text: str, *, resolve: IncludeResolver, _depth: int = 0)
     return "\n".join(out)
 
 
+def sshd_directive(sshd_config: str, keyword: str) -> str | None:
+    """The effective value of one sshd keyword, or None when the config never sets it.
+
+    First match wins, per sshd_config(5). Comments are skipped. This is the general form of
+    `parse_ssh_password_auth`, which stays because password auth is the finding everything
+    else here exists to support.
+    """
+
+    wanted = keyword.lower()
+    for raw in sshd_config.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].lower() == wanted:
+            return parts[1].lower()
+    return None
+
+
+# Every way an sshd can end up accepting something a human typed rather than a key.
+# `KbdInteractiveAuthentication` with PAM is a password prompt by another name, and
+# `PermitEmptyPasswords` is worse than either. ECR-0110 read only the first of the three
+# and said so; on the live VPS the other two happen to be safe, which is luck, not coverage.
+#
+# The third element is the upstream default, MEASURED by running `sshd -T -f` against a
+# config containing nothing but `Port 22` on a real OpenSSH:
+#
+#     passwordauthentication yes    <- open
+#     kbdinteractiveauthentication yes    <- open
+#     permitemptypasswords no
+#
+# Two of the three default to OPEN, so an unset directive is not neutral. It is recorded
+# rather than acted on: the default is a property of how a given sshd was built, and
+# claiming it for every machine would be guessing with a citation. See ECR-0111 §5.
+_PASSWORD_PATHS: tuple[tuple[str, str, str], ...] = (
+    ("PasswordAuthentication", "yes", "password_authentication"),
+    ("KbdInteractiveAuthentication", "yes", "keyboard_interactive_authentication"),
+    ("PermitEmptyPasswords", "yes", "empty_passwords"),
+)
+
+# Measured, not assumed. Used only to say "unset, and upstream leaves this open" - never to
+# synthesise a value the config did not state.
+UPSTREAM_DEFAULT_OPEN: frozenset[str] = frozenset(
+    {"password_authentication", "keyboard_interactive_authentication"}
+)
+
+
+def parse_ssh_password_paths(sshd_config: str) -> dict[str, bool] | None:
+    """Which password-capable auth paths are open, or None when the config sets none of them.
+
+    A path the config never mentions is omitted rather than defaulted: sshd's build default
+    for `KbdInteractiveAuthentication` is `yes`, so guessing here would either invent a
+    finding or hide one.
+    """
+
+    found = {
+        fact: sshd_directive(sshd_config, keyword) == enabled_value
+        for keyword, enabled_value, fact in _PASSWORD_PATHS
+        if sshd_directive(sshd_config, keyword) is not None
+    }
+    return found or None
+
+
 def parse_ssh_password_auth(sshd_config: str) -> bool | None:
     """Return whether password auth is enabled, or None when the config does not say.
 
@@ -404,15 +480,15 @@ def read_host_facts(
     if unattended_upgrades is None:
         unreadable.append("unattended_upgrades")
 
-    ssh_password_auth: bool | None = None
+    ssh_password_paths: dict[str, bool] | None = None
     with contextlib.suppress(OSError):
-        ssh_password_auth = parse_ssh_password_auth(
+        ssh_password_paths = parse_ssh_password_paths(
             flatten_sshd_config(
                 sshd_config.read_text(encoding="utf-8"),
                 resolve=include_resolver or _filesystem_include_resolver(sshd_config.parent),
             )
         )
-    if ssh_password_auth is None:
+    if ssh_password_paths is None:
         unreadable.append("ssh_password_auth")
 
     return HostFacts(
@@ -426,6 +502,6 @@ def read_host_facts(
         update_tool=update_tool,
         disk_encrypted=disk_encrypted,
         unattended_upgrades=unattended_upgrades,
-        ssh_password_auth=ssh_password_auth,
+        ssh_password_paths=ssh_password_paths,
         unreadable=tuple(unreadable),
     )
