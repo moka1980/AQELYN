@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from decimal import ROUND_FLOOR, Decimal
 from typing import Any
 
+from aqelyn.findings import Finding
 from aqelyn.reporting.analyze import CollectionAnalysis, ReportFinding
 from aqelyn.reporting.disclosure import Mode, levels
 
@@ -491,6 +492,7 @@ def _posture_section(analysis: CollectionAnalysis, mode: Mode) -> str:
           <h3><span class="posture-severity">{_e(finding.severity)}</span>
               {_e(finding.title)}
               <span class="posture-score">{_number(finding.severity_score):.0f}</span></h3>
+          {_affected_assets(finding)}
           {steps}
         </article>
         """
@@ -505,6 +507,32 @@ def _posture_section(analysis: CollectionAnalysis, mode: Mode) -> str:
       {"".join(articles)}
     </section>
     """
+
+
+def _affected_assets(finding: Finding) -> str:
+    """Charter section 5's Affected Assets, shown to every reader in every mode.
+
+    The human reference and the object id are both printed. The name is what a person
+    recognises; the id is what makes the claim checkable, and printing it is the only
+    thing that would expose a link that resolves to nothing.
+    """
+
+    details = finding.expert_details or {}
+    subject = details.get("subject") if isinstance(details, Mapping) else None
+    ref = str(subject.get("ref", "")).strip() if isinstance(subject, Mapping) else ""
+    if not finding.affected_object_ids:
+        # Not reassurance: a posture finding without a linked asset is incomplete, and the
+        # report says so rather than quietly omitting the row.
+        return (
+            '<p class="affected none">Affected asset: <em>not linked to an object</em>'
+            f"{f' &mdash; observed on <code>{_e(ref)}</code>' if ref else ''}</p>"
+        )
+    ids = " ".join(
+        f'<code class="objid">{_e(object_id)}</code>'
+        for object_id in sorted(finding.affected_object_ids)
+    )
+    label = _e(ref) if ref else "asset"
+    return f'<p class="affected">Affected asset: <strong>{label}</strong> {ids}</p>'
 
 
 def _rejected_matches(analysis: CollectionAnalysis) -> str:
@@ -583,6 +611,10 @@ _STYLES = """
 .level-name { font-weight: 600; }
 .level-q { color: #6b7280; font-size: .82rem; }
 .level-body { padding: 0 0 .6rem 1.9rem; font-size: .9rem; color: #333; }
+.affected { margin: .2rem 0 .5rem; font-size: .9rem; }
+.affected.none { color: #8a4b00; }
+.objid { font-size: .78rem; color: #555; background: #f1f1f1;
+         padding: .05rem .3rem; border-radius: 3px; }
 .posture { margin-top: 2rem; }
 .posture > h2 { font-size: 1.1rem; margin-bottom: .25rem; }
 .posture-note { color: #555; font-size: .9rem; margin-top: 0; }

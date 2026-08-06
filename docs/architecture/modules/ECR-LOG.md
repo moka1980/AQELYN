@@ -110,6 +110,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0103 | Charter v2 compliance | Accepted (implemented by the reviewer; independent review outstanding) | **Hollow compliance is worse than a named gap.** Plain-language titles and an expert expansion close UX-001 and UX-002; Affected Assets is left empty rather than filled with an id that resolves to nothing, and owed to ECR-0104. |
 | ECR-0104 | Progressive disclosure and modes | Accepted (implemented by the reviewer; independent review outstanding) | **A mode narrows what is shown; it never softens what is true.** The Charter's six levels become data a renderer consumes, with witnesses that levels never duplicate and that no audience gets a smaller truth. |
 | ECR-0105 | The disclosure model reaches the page | Accepted (implemented by the reviewer; independent review outstanding) | **A requirement that lives only in a module no caller imports is not implemented.** The Charter's six levels become `<details>` a reader can actually open, and `--mode` selects how many start open. A mutation deleting the level *names* ran green first: the words were rendered and nothing witnessed them. |
+| ECR-0106 | A posture subject becomes an asset | Accepted (implemented by the reviewer; independent review outstanding) | **Identity belongs to the subject, not to an id we minted.** `upsert` resolves by natural key, so Affected Assets now points at an object the store returns and four observations of this machine are one asset. Found while reading my own deferral: the dangling id ECR-0100 refused to put in the Finding was already in the EvidenceRecord. |
 
 ---
 
@@ -7427,3 +7428,25 @@ matrix stays at 84, untouched.
 
 UX-008 is still half-served: modes change depth, not vocabulary. Recorded a second time rather
 than quietly dropped.
+
+## ECR-0106 — a posture subject becomes an asset
+
+ECR-0100 refused to mint an `obj_` id for a posture subject and recorded the object-store link
+as owed. This pays it. `subject_natural_key` gives the subject an identity independent of any
+id; `subject_object` builds the object with `id=""` so `upsert` resolves by that key and mints
+the id itself; `_ingest_posture` uses what the store returns. The same host observed twice is
+one asset, and a re-run updates rather than clones.
+
+Reading the deferral carefully found more than it claimed: `_ingest_posture` was already putting
+a freshly minted `obj_` id into the EvidenceRecord's Subject. The reference ECR-0100 refused to
+write into the Finding was being written one field over.
+
+Eight mutations red, including the ECR-0100 anti-pattern itself. Necessity measured by four
+deselection runs, all green. The three id-witnesses are correlated by construction - they assert
+through the same returned id - so they are recorded as jointly necessary, not individually.
+
+Measured on this machine's real self-scan: four observations, four findings, one asset.
+
+Open and named: one object type for every subject kind, no relationship to objects other engines
+already know, tenant is None throughout, and the renderer reads the subject name from
+`expert_details` rather than from the resolved object.
