@@ -20,9 +20,12 @@ from aqelyn.collect.checks import (
 from aqelyn.collect.host import (
     CommandRunner,
     HostFacts,
+    _filesystem_include_resolver,
+    flatten_sshd_config,
     parse_disk_encryption,
     parse_dnf_updates,
     parse_pacman_updates,
+    parse_ssh_password_auth,
     parse_unattended_upgrades,
     parse_zypper_updates,
     read_host_facts,
@@ -301,3 +304,106 @@ def test_an_unreadable_firewall_produces_an_unmeasured_observation(tmp_path: Pat
     assert observation is not None
     assert observation["severity"] == "info"
     assert "not active" not in observation["what_happened"]
+
+
+# --- ECR-0110: sshd Include and first-wins, found on the live VPS -------------------------
+
+_MAIN = """# main config
+Include /etc/ssh/sshd_config.d/*.conf
+#PasswordAuthentication yes
+PermitRootLogin prohibit-password
+"""
+
+
+def test_a_drop_in_is_read_at_all(tmp_path: Path) -> None:
+    """The main file's directive is commented out, so a parser that ignores Include reads
+    a config that says nothing. Measured on the live VPS."""
+    flat = flatten_sshd_config(_MAIN, resolve=lambda _: ["PasswordAuthentication no\n"])
+    assert parse_ssh_password_auth(flat) is False
+
+
+def test_two_drop_ins_that_disagree_resolve_the_way_sshd_resolves_them() -> None:
+    """The live VPS has exactly this: 50-cloud-init says yes, 60-cloudimg says no. sshd
+    takes the FIRST value, 50 sorts before 60, and `sshd -T` reports yes."""
+    flat = flatten_sshd_config(
+        _MAIN,
+        resolve=lambda _: ["PasswordAuthentication yes\n", "PasswordAuthentication no\n"],
+    )
+    assert parse_ssh_password_auth(flat) is True
+
+
+def test_the_first_value_wins_not_the_last() -> None:
+    assert (
+        parse_ssh_password_auth("PasswordAuthentication no\nPasswordAuthentication yes\n") is False
+    )
+
+
+def test_a_directive_in_the_main_file_before_the_include_wins() -> None:
+    """Position matters, not which file it came from."""
+    text = "PasswordAuthentication yes\nInclude drop.conf\n"
+    flat = flatten_sshd_config(text, resolve=lambda _: ["PasswordAuthentication no\n"])
+    assert parse_ssh_password_auth(flat) is True
+
+
+def test_a_commented_include_is_not_followed() -> None:
+    flat = flatten_sshd_config(
+        "#Include /etc/ssh/sshd_config.d/*.conf\n",
+        resolve=lambda _: ["PasswordAuthentication no\n"],
+    )
+    assert parse_ssh_password_auth(flat) is None
+
+
+def test_a_self_including_config_terminates() -> None:
+    """A config that includes itself must not hang a collector."""
+    flat = flatten_sshd_config("Include self\n", resolve=lambda _: ["Include self\n"])
+    assert isinstance(flat, str)
+
+
+def test_the_disk_resolver_returns_drop_ins_in_sorted_name_order(tmp_path: Path) -> None:
+    """Asserted on the resolver's own output order, not on a value derived from it.
+
+    ECR-0110/M3 first ran GREEN: `sorted()` swapped for `list()` changed nothing, because
+    the filesystem happened to hand back the files in the order the test wanted. A witness
+    whose verdict depends on directory iteration order is not a witness."""
+    conf_d = tmp_path / "sshd_config.d"
+    conf_d.mkdir()
+    for name in ("90-z.conf", "10-a.conf", "50-m.conf"):
+        (conf_d / name).write_text(f"# {name}\n", encoding="utf-8")
+    resolve = _filesystem_include_resolver(tmp_path)
+    assert [text.strip() for text in resolve("sshd_config.d/*.conf")] == [
+        "# 10-a.conf",
+        "# 50-m.conf",
+        "# 90-z.conf",
+    ]
+
+
+def test_includes_are_read_off_disk_in_sorted_order(tmp_path: Path) -> None:
+    """The real resolver end to end: sorted glob order decides which drop-in wins."""
+    conf_d = tmp_path / "sshd_config.d"
+    conf_d.mkdir()
+    (conf_d / "60-second.conf").write_text("PasswordAuthentication no\n", encoding="utf-8")
+    (conf_d / "50-first.conf").write_text("PasswordAuthentication yes\n", encoding="utf-8")
+    main = tmp_path / "sshd_config"
+    main.write_text("Include sshd_config.d/*.conf\n", encoding="utf-8")
+    facts = read_host_facts(
+        _runner({}),
+        os_release=tmp_path / "absent",
+        sshd_config=main,
+        auto_upgrades=tmp_path / "absent",
+    )
+    assert facts.ssh_password_auth is True
+    assert "ssh_password_auth" not in facts.unreadable
+
+
+def test_an_unreadable_drop_in_does_not_crash_the_collector(tmp_path: Path) -> None:
+    conf_d = tmp_path / "sshd_config.d"
+    conf_d.mkdir()
+    main = tmp_path / "sshd_config"
+    main.write_text("Include sshd_config.d/*.conf\nPasswordAuthentication yes\n", encoding="utf-8")
+    facts = read_host_facts(
+        _runner({}),
+        os_release=tmp_path / "absent",
+        sshd_config=main,
+        auto_upgrades=tmp_path / "absent",
+    )
+    assert facts.ssh_password_auth is True
