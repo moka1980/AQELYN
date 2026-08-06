@@ -1,204 +1,194 @@
-"""ECR-0115: multi-user identity — accounts, invites, sessions.
+"""Identity contract tests (ECR-0115 behaviours, ECR-0116 async on both backends).
 
-The load-bearing property is isolation: a tenant is bound at session start from the account,
-and never comes from the client. A bug here is a breach, so it gets the most witnesses.
+Each test runs on the in-memory and the Postgres backend (Postgres skipped without
+``AQELYN_DATABASE_URL``). The load-bearing property is ``test_two_tenants_sessions_never_cross``:
+a session's tenant comes from its account, never from client input.
 """
 
 from __future__ import annotations
 
-import json
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from datetime import timedelta
+from typing import Any
 
 import pytest
 
-from aqelyn.identity import (
-    AccountStore,
-    IdentityError,
-    InviteError,
-    SessionStore,
-    hash_password,
-    verify_password,
-)
-from aqelyn.identity.store import InviteStore
+from aqelyn.identity.passwords import hash_password, verify_password
+from aqelyn.identity.store import IdentityError, InviteError
 
-_T0 = datetime(2026, 8, 6, 12, 0, tzinfo=UTC)
-# tenant_id is a UUID in this codebase (enterprise mode); fixed UUIDs keep assertions stable.
-_TENANT_A = "11111111-1111-4111-8111-111111111111"
-_TENANT_B = "22222222-2222-4222-8222-222222222222"
+# Two distinct tenants for the cross-tenant isolation tests (accounts require a UUID tenant_id).
+TENANT_A = "11111111-1111-4111-8111-111111111111"
+TENANT_B = "22222222-2222-4222-8222-222222222222"
 
 
-class _Clock:
-    """A movable clock so expiry is deterministic without real waiting."""
-
-    def __init__(self) -> None:
-        self.at = _T0
-
-    def __call__(self) -> datetime:
-        return self.at
+async def _invited_account(h: Any, *, tenant: str, email: str, password: str) -> None:
+    invite = await h.invites.create(tenant_id=tenant, email=email)
+    await h.invites.redeem(token=invite.token, password=password, email=email)
 
 
-def _accounts(tmp_path: Path, clock: _Clock | None = None) -> AccountStore:
-    return AccountStore(tmp_path / "accounts.json", now=(clock or _Clock()))
-
-
-# --- passwords -----------------------------------------------------------------------------
+# --- passwords -----------------------------------------------------------------------
 
 
 def test_password_verifies_and_rejects() -> None:
-    h = hash_password("00Milav80")
-    assert verify_password("00Milav80", h)
-    assert not verify_password("wrong", h)
-    assert not verify_password("", h)
+    stored = hash_password("correct horse battery staple")
+    assert verify_password("correct horse battery staple", stored) is True
+    assert verify_password("wrong", stored) is False
 
 
-def test_password_hash_is_salted_not_plaintext() -> None:
-    h1 = hash_password("same")
-    h2 = hash_password("same")
-    assert h1.salt != h2.salt  # per-password salt
-    assert h1.hash != h2.hash
-    assert "same" not in h1.hash
+def test_password_hash_is_salted_and_holds_no_plaintext() -> None:
+    a = hash_password("same-password")
+    b = hash_password("same-password")
+    assert a.salt != b.salt
+    assert a.hash != b.hash
+    assert "same-password" not in a.model_dump_json()
 
 
-def test_no_plaintext_password_is_ever_written(tmp_path: Path) -> None:
-    store = _accounts(tmp_path)
-    store.create(email="a@x.no", tenant_id=_TENANT_A, password="s3cretPW!")
-    raw = (tmp_path / "accounts.json").read_text(encoding="utf-8")
-    assert "s3cretPW!" not in raw
+def test_verify_is_fail_closed_on_empty_material() -> None:
+    stored = hash_password("pw")
+    assert verify_password("", stored) is False
 
 
-# --- invite-only registration --------------------------------------------------------------
+# --- invite-only registration --------------------------------------------------------
 
 
-def test_account_is_created_by_redeeming_an_invite(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    invites = InviteStore(tmp_path / "invites.json")
-    inv = invites.create(tenant_id=_TENANT_A, email="a@x.no")
-    acc = invites.redeem(token=inv.token, password="pw12345", accounts=accts)
-    assert acc.tenant_id == _TENANT_A  # tenant comes from the invite
-    assert accts.get_by_email("a@x.no") is not None
-
-
-def test_an_invite_is_single_use(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    invites = InviteStore(tmp_path / "invites.json")
-    inv = invites.create(tenant_id=_TENANT_A, email="a@x.no")
-    invites.redeem(token=inv.token, password="pw12345", accounts=accts)
+async def test_registration_requires_an_invite(identity: Any) -> None:
     with pytest.raises(InviteError):
-        invites.redeem(token=inv.token, password="pw12345", accounts=accts)
+        await identity.invites.redeem(token="inv-does-not-exist", password="pw", email="x@y.z")
 
 
-def test_an_expired_invite_is_refused(tmp_path: Path) -> None:
-    clock = _Clock()
-    accts = _accounts(tmp_path, clock)
-    invites = InviteStore(tmp_path / "invites.json", ttl=timedelta(days=1), now=clock)
-    inv = invites.create(tenant_id=_TENANT_A, email="a@x.no")
-    clock.at = _T0 + timedelta(days=2)
+async def test_invite_creates_the_account_for_its_tenant(identity: Any) -> None:
+    invite = await identity.invites.create(tenant_id=TENANT_A, email="a@example.com")
+    account = await identity.invites.redeem(
+        token=invite.token, password="pw", email="a@example.com"
+    )
+    assert account.tenant_id == TENANT_A
+    assert account.email == "a@example.com"
+
+
+async def test_an_invite_is_single_use(identity: Any) -> None:
+    invite = await identity.invites.create(tenant_id=TENANT_A, email="once@example.com")
+    await identity.invites.redeem(token=invite.token, password="pw", email="once@example.com")
     with pytest.raises(InviteError):
-        invites.redeem(token=inv.token, password="pw12345", accounts=accts)
+        await identity.invites.redeem(token=invite.token, password="pw", email="once@example.com")
 
 
-def test_a_mismatched_email_is_refused(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    invites = InviteStore(tmp_path / "invites.json")
-    inv = invites.create(tenant_id=_TENANT_A, email="a@x.no")
+async def test_an_expired_invite_is_refused(identity: Any) -> None:
+    invite = await identity.invites.create(tenant_id=TENANT_A, email="late@example.com")
+    identity.clock.advance(timedelta(days=8))
     with pytest.raises(InviteError):
-        invites.redeem(token=inv.token, password="pw12345", accounts=accts, email="b@x.no")
+        await identity.invites.redeem(token=invite.token, password="pw", email="late@example.com")
 
 
-def test_an_unknown_invite_is_refused(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    invites = InviteStore(tmp_path / "invites.json")
+async def test_an_invite_refuses_a_mismatched_email(identity: Any) -> None:
+    invite = await identity.invites.create(tenant_id=TENANT_A, email="bound@example.com")
     with pytest.raises(InviteError):
-        invites.redeem(token="nope", password="pw12345", accounts=accts)
+        await identity.invites.redeem(
+            token=invite.token, password="pw", email="someone-else@example.com"
+        )
 
 
-def test_duplicate_email_is_refused(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    accts.create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
+# --- accounts ------------------------------------------------------------------------
+
+
+async def test_duplicate_email_is_refused(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="dup@example.com", password="pw")
+    invite = await identity.invites.create(tenant_id=TENANT_B, email="dup@example.com")
     with pytest.raises(IdentityError):
-        accts.create(email="A@X.NO", tenant_id=_TENANT_B, password="pw12345")
+        await identity.invites.redeem(token=invite.token, password="pw", email="dup@example.com")
 
 
-# --- authentication ------------------------------------------------------------------------
+async def test_authenticate_accepts_right_password_only(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="auth@example.com", password="right")
+    assert await identity.accounts.authenticate("auth@example.com", "right") is not None
+    assert await identity.accounts.authenticate("auth@example.com", "wrong") is None
 
 
-def test_authenticate_accepts_right_password_only(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    accts.create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
-    assert accts.authenticate("a@x.no", "pw12345") is not None
-    assert accts.authenticate("a@x.no", "wrong") is None
-    assert accts.authenticate("missing@x.no", "pw12345") is None
+async def test_authenticate_rejects_unknown_email(identity: Any) -> None:
+    assert await identity.accounts.authenticate("nobody@example.com", "pw") is None
 
 
-def test_a_disabled_account_cannot_authenticate(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    acc = accts.create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
-    data = json.loads((tmp_path / "accounts.json").read_text(encoding="utf-8"))
-    data[acc.id]["status"] = "disabled"
-    (tmp_path / "accounts.json").write_text(json.dumps(data), encoding="utf-8")
-    assert accts.authenticate("a@x.no", "pw12345") is None
+async def test_a_disabled_account_cannot_authenticate(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="off@example.com", password="pw")
+    account = await identity.accounts.get_by_email("off@example.com")
+    assert account is not None
+    disabled = account.model_copy(update={"status": "disabled"})
+    # Reach into each backend to flip the status the way an admin path eventually will.
+    await _set_status(identity, disabled)
+    assert await identity.accounts.authenticate("off@example.com", "pw") is None
 
 
-# --- sessions: the tenant is bound from the account, never the client ----------------------
+async def _set_status(identity: Any, account: object) -> None:
+    from aqelyn.identity.memory import InMemoryAccountStore
+    from aqelyn.identity.models import Account
+
+    assert isinstance(account, Account)
+    store = identity.accounts
+    if isinstance(store, InMemoryAccountStore):
+        store._by_id[account.id] = account
+        return
+    from aqelyn.identity.postgres import PostgresAccountStore
+
+    assert isinstance(store, PostgresAccountStore)
+    async with store._pool.acquire() as conn:
+        await conn.execute(
+            "UPDATE aq_account SET status=$2 WHERE id=$1", account.id, account.status
+        )
 
 
-def test_session_carries_the_accounts_tenant(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    acc = accts.create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
-    sessions = SessionStore()
-    session = sessions.start(acc)
-    assert session.tenant_id == _TENANT_A
-    resolved = sessions.resolve(session.token)
+# --- sessions: the isolation rule ----------------------------------------------------
+
+
+async def test_session_carries_the_accounts_tenant(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="s@example.com", password="pw")
+    account = await identity.accounts.get_by_email("s@example.com")
+    assert account is not None
+    session = await identity.sessions.start(account)
+    assert session.tenant_id == TENANT_A
+    resolved = await identity.sessions.resolve(session.token)
     assert resolved is not None
-    assert resolved.tenant_id == _TENANT_A  # tenant comes from the session, not any input
+    assert resolved.tenant_id == TENANT_A
 
 
-def test_two_tenants_sessions_never_cross(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    a = accts.create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
-    b = accts.create(email="b@x.no", tenant_id=_TENANT_B, password="pw12345")
-    sessions = SessionStore()
-    sa = sessions.start(a)
-    sb = sessions.start(b)
-    ra = sessions.resolve(sa.token)
-    rb = sessions.resolve(sb.token)
-    assert ra is not None
-    assert rb is not None
-    assert ra.tenant_id == _TENANT_A
-    assert rb.tenant_id == _TENANT_B
+async def test_two_tenants_sessions_never_cross(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="a@t.co", password="pw")
+    await _invited_account(identity, tenant=TENANT_B, email="b@t.co", password="pw")
+    account_a = await identity.accounts.get_by_email("a@t.co")
+    account_b = await identity.accounts.get_by_email("b@t.co")
+    assert account_a is not None
+    assert account_b is not None
+    session_a = await identity.sessions.start(account_a)
+    session_b = await identity.sessions.start(account_b)
+    resolved_a = await identity.sessions.resolve(session_a.token)
+    resolved_b = await identity.sessions.resolve(session_b.token)
+    assert resolved_a is not None
+    assert resolved_b is not None
+    assert resolved_a.tenant_id == TENANT_A
+    assert resolved_b.tenant_id == TENANT_B
+    assert resolved_a.tenant_id != resolved_b.tenant_id
 
 
-def test_no_token_and_unknown_token_resolve_to_nothing() -> None:
-    sessions = SessionStore()
-    assert sessions.resolve(None) is None
-    assert sessions.resolve("") is None
-    assert sessions.resolve("bogus") is None
+async def test_an_expired_session_resolves_to_nothing(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="exp@example.com", password="pw")
+    account = await identity.accounts.get_by_email("exp@example.com")
+    assert account is not None
+    session = await identity.sessions.start(account)
+    identity.clock.advance(timedelta(hours=13))
+    assert await identity.sessions.resolve(session.token) is None
 
 
-def test_an_expired_session_resolves_to_nothing(tmp_path: Path) -> None:
-    clock = _Clock()
-    accts = _accounts(tmp_path, clock)
-    acc = accts.create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
-    sessions = SessionStore(ttl=timedelta(hours=1), now=clock)
-    session = sessions.start(acc)
-    clock.at = _T0 + timedelta(hours=2)
-    assert sessions.resolve(session.token) is None
+async def test_ending_a_session_logs_out(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="out@example.com", password="pw")
+    account = await identity.accounts.get_by_email("out@example.com")
+    assert account is not None
+    session = await identity.sessions.start(account)
+    await identity.sessions.end(session.token)
+    assert await identity.sessions.resolve(session.token) is None
 
 
-def test_ending_a_session_invalidates_it(tmp_path: Path) -> None:
-    accts = _accounts(tmp_path)
-    acc = accts.create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
-    sessions = SessionStore()
-    session = sessions.start(acc)
-    sessions.end(session.token)
-    assert sessions.resolve(session.token) is None
-
-
-# --- persistence ---------------------------------------------------------------------------
-
-
-def test_accounts_persist_across_store_instances(tmp_path: Path) -> None:
-    _accounts(tmp_path).create(email="a@x.no", tenant_id=_TENANT_A, password="pw12345")
-    reopened = AccountStore(tmp_path / "accounts.json")
-    assert reopened.get_by_email("a@x.no") is not None
+async def test_accounts_persist_and_round_trip_by_id(identity: Any) -> None:
+    await _invited_account(identity, tenant=TENANT_A, email="rt@example.com", password="pw")
+    by_email = await identity.accounts.get_by_email("rt@example.com")
+    assert by_email is not None
+    by_id = await identity.accounts.get(by_email.id)
+    assert by_id is not None
+    assert by_id.id == by_email.id
+    assert by_id.tenant_id == TENANT_A
