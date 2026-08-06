@@ -503,5 +503,13 @@ def _expected_exempt_fields() -> dict[str, str]:
             "EA-0008 owns approval history and evaluates it internally before any action; "
             "external consumers use workflow state and outcomes.",
         ),
+        (
+            "identity",
+            ("email", "redeemed_by"),
+            "ECR-0116 keeps the login address and single-use invite bookkeeping inside the "
+            "identity owner: callers authenticate through the store methods (get_by_email / "
+            "authenticate) rather than reading the email field, and redeemed_by is read only "
+            "within the invite store to refuse reuse. No external consumer references either.",
+        ),
     )
     return {f"{owner}.{field}": reason for owner, fields, reason in groups for field in fields}

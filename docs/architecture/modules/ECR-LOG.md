@@ -119,6 +119,8 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0112 | A Match block makes the answer conditional | Accepted (implemented by the reviewer; independent review outstanding) | **A Match-scoped directive is not a global one.** `PasswordAuthentication no` + `Match Address 0.0.0.0/0 {yes}` reads as `no` globally but is `yes` for those connections - a false all-clear, proven with `sshd -T -C`. The collector reads global scope on its own and flags Match-governed paths as conditional rather than folding them in. `Match all` returns to unconditional scope, verified. |
 | ECR-0113 | The self-scan download is the shipped collector | Accepted (implemented by the reviewer; independent review outstanding) | **A shipped download that isn't built from tested source will silently rot.** The Linux `.pyz` is now assembled from `src/aqelyn/collect` by a repo build script with a build-and-run test; the Windows `.ps1` (validated on a real Win11 box) is now version-controlled. Report output is HTML-escaped. |
 | ECR-0114 | The self-scan report speaks to a person | Accepted (implemented by the reviewer; independent review outstanding) | **The report must be understood by everyone, and show what's good too.** A plain-language layer (`plain.py`) gives every check a plain headline / meaning / what-to-do + a 'looking good' line; technical detail is tucked into an expander. Also fixed a real Windows bug: `HtmlEnc` blanked every field (no `(char,string)` Replace overload, swallowed by SilentlyContinue) — found because I'd validated the console, not the report. |
+| ECR-0115 | Customer-account arc (accounts/invites/sessions) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **The tenant comes from the authenticated session, never from client input.** New identity package: Account (scrypt, active\|disabled), single-use TTL Invite, SessionStore binding `tenant_id=account.tenant_id`. Invite-only registration. File-backed bootstrap, Postgres in 0116. 7 mutations red. |
+| ECR-0116 | Customer-account arc (identity durability) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Same contract, proven on both backends.** Identity moves to the standard async memory+Postgres store pair (asyncpg is the only driver; the ingest app is async), preserving every method's name and the isolation rule. One parametrized test body passes on either backend; 12 mutations red across both. |
 
 ---
 
@@ -7688,3 +7690,29 @@ persisted-field census doesn't read it as an external reader of the `secrets` pa
 weakened. Open/named: sessions are process-memory (no cross-worker sharing, dropped on restart);
 the file store serialises on a coarse lock and doesn't scale (0116 fixes both surfaces); a leaked
 invite token before redemption is a free account, bounded by TTL + single-use, no redeem rate-limit.
+
+## ECR-0116 — identity moves to Postgres, same contract on both backends
+
+Second ECR of the customer-account arc. ECR-0115 shipped a file-backed, synchronous bootstrap to
+pin the model and the isolation rule; this moves identity onto the backend pair every other domain
+uses — `InMemory*` for local/tests, `Postgres*` (asyncpg) for durable production — behind async
+protocols in `identity/store.py`, selected by `build_identity_stores`. The store methods keep their
+names and semantics; the one honest deviation from the spec's letter is sync→async, forced because
+asyncpg is the only driver present and the ingest app (ECR-0118) is itself async. Accounts and
+invites share one pool; the one-account-per-email rule is now a `lower(email)` unique index (raises
+even under a race), and redeeming an invite is a single `FOR UPDATE` transaction so a token is spent
+exactly once under concurrency.
+
+The test body is written once and run against both backends (Postgres skipped without
+`AQELYN_DATABASE_URL`) — that parametrization *is* the proof of "no API change." 12 mutations red,
+split across the two backends (memory: password/tenant-bind/single-use/expiry/disabled/dup-email/
+session-expiry; postgres: password/single-use/expiry/disabled/dup-email-translation). GC-004:
+`email` and `redeemed_by` are newly visible as persisted once the Postgres INSERTs exist and have no
+external reader, so they are added to EXEMPT_FIELDS (login address is an internal lookup key reached
+through `authenticate`/`get_by_email`; `redeemed_by` is single-use bookkeeping read only inside the
+invite store) — the guard was not weakened. ruff + mypy --strict clean across 607 files, full suite
+on live Postgres. Carried matrix rises to 103.
+
+This ECR also fixes an ECR-0115 omission the status guard caught: 0115's body section was in the log
+but its index row was not (0115 was merged on local green captured before the log append, and CI did
+not run to catch it). Both index rows are added here.
