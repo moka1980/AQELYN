@@ -22,7 +22,7 @@ from aqelyn.conventions.errors import StoreUnavailable
 from aqelyn.conventions.ids import new_id
 from aqelyn.identity.ddl import DDL
 from aqelyn.identity.models import Account, Invite, PasswordHash
-from aqelyn.identity.store import IdentityError, InviteError
+from aqelyn.identity.store import IdentityError, InviteError, Session
 
 
 def _utcnow() -> datetime:
@@ -199,3 +199,58 @@ class PostgresInviteStore:
                 "UPDATE aq_invite SET redeemed_by=$2 WHERE token=$1", token, account.id
             )
         return account
+
+
+class PostgresSessionStore:
+    """Durable, cross-worker sessions (ECR-0120). Same contract as the in-memory store."""
+
+    def __init__(
+        self,
+        pool: asyncpg.Pool,
+        *,
+        ttl: timedelta = timedelta(hours=12),
+        now: Callable[[], datetime] = _utcnow,
+    ) -> None:
+        self._pool = pool
+        self._ttl = ttl
+        self._now = now
+
+    async def start(self, account: Account) -> Session:
+        session = Session(
+            token=_rand.token_urlsafe(32),
+            account_id=account.id,
+            # tenant is bound here from the account, never from the client
+            tenant_id=account.tenant_id,
+            expires_at=self._now() + self._ttl,
+        )
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO aq_session (token, account_id, tenant_id, expires_at) "
+                "VALUES ($1, $2, $3, $4)",
+                session.token,
+                session.account_id,
+                session.tenant_id,
+                session.expires_at,
+            )
+        return session
+
+    async def resolve(self, token: str | None) -> Session | None:
+        if not token:
+            return None
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM aq_session WHERE token=$1", token)
+            if row is None:
+                return None
+            if self._now() > row["expires_at"]:
+                await conn.execute("DELETE FROM aq_session WHERE token=$1", token)
+                return None
+            return Session(
+                token=row["token"],
+                account_id=row["account_id"],
+                tenant_id=row["tenant_id"],
+                expires_at=row["expires_at"],
+            )
+
+    async def end(self, token: str) -> None:
+        async with self._pool.acquire() as conn:
+            await conn.execute("DELETE FROM aq_session WHERE token=$1", token)

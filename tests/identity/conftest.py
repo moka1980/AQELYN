@@ -67,17 +67,18 @@ async def identity(request: pytest.FixtureRequest) -> AsyncIterator[IdentityHarn
     from aqelyn.identity.postgres import (
         PostgresAccountStore,
         PostgresInviteStore,
+        PostgresSessionStore,
         connect_pool,
     )
 
     pool = await connect_pool(PG_URL)
     async with pool.acquire() as conn:
-        await conn.execute("TRUNCATE aq_account, aq_invite")
+        await conn.execute("TRUNCATE aq_account, aq_invite, aq_session")
     try:
         yield IdentityHarness(
             accounts=PostgresAccountStore(pool, now=clock),
             invites=PostgresInviteStore(pool, now=clock),
-            sessions=InMemorySessionStore(now=clock),
+            sessions=PostgresSessionStore(pool, now=clock),
             clock=clock,
         )
     finally:

@@ -32,4 +32,15 @@ CREATE TABLE IF NOT EXISTS aq_invite (
     redeemed_by text NULL
 );
 CREATE INDEX IF NOT EXISTS aq_invite_tenant ON aq_invite (tenant_id, token);
+
+-- ECR-0120: sessions live in Postgres so they survive a restart and are shared across
+-- workers (the in-memory store is a hard single-worker constraint). tenant_id is bound from
+-- the account at start, never from the client, exactly as the in-memory store does.
+CREATE TABLE IF NOT EXISTS aq_session (
+    token      text PRIMARY KEY,
+    account_id text NOT NULL,
+    tenant_id  text NOT NULL,
+    expires_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS aq_session_expires ON aq_session (expires_at);
 """
