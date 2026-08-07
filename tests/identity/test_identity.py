@@ -184,6 +184,24 @@ async def test_ending_a_session_logs_out(identity: Any) -> None:
     assert await identity.sessions.resolve(session.token) is None
 
 
+async def test_sessions_survive_a_new_store_instance(identity: Any) -> None:
+    # The cross-worker / survives-restart property is the Postgres backend's job; the
+    # in-memory backend is intentionally per-process, so this asserts only where it applies.
+    from aqelyn.identity.postgres import PostgresSessionStore
+
+    if not isinstance(identity.sessions, PostgresSessionStore):
+        pytest.skip("cross-instance session durability is a Postgres-backend property")
+    await _invited_account(identity, tenant=TENANT_A, email="dur@example.com", password="pw")
+    account = await identity.accounts.get_by_email("dur@example.com")
+    assert account is not None
+    session = await identity.sessions.start(account)
+    # A DIFFERENT store instance on the same database — i.e. another worker — resolves it.
+    fresh = PostgresSessionStore(identity.sessions._pool, now=identity.clock)
+    resolved = await fresh.resolve(session.token)
+    assert resolved is not None
+    assert resolved.tenant_id == TENANT_A
+
+
 async def test_accounts_persist_and_round_trip_by_id(identity: Any) -> None:
     await _invited_account(identity, tenant=TENANT_A, email="rt@example.com", password="pw")
     by_email = await identity.accounts.get_by_email("rt@example.com")

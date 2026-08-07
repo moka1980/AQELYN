@@ -124,6 +124,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0117 | Customer-account arc (consent + audit, UX-005) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Consent before a write; an append-only audit of every one.** New `consent` package (memory+Postgres): a tenant's `ConsentRecord` per scope with `active`/`revoke`, and an `AuditEvent` log offering only append+list. Both strictly tenant-scoped. 8 mutations red across both backends; the tenant-scope mutations fail the cross-tenant tests. |
 | ECR-0118 | Customer-account arc (authenticated portal) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Session, then consent, then a tenant-scoped write.** New `portal` package: register/login/consent/upload/read, all gated by a session whose `tenant_id` is the only tenant an upload can land in. Upload is size-bounded, `validate_posture_shape`-checked (refused, never repaired), ingested into the caller's tenant, audited. 6 mutations red; the load-bearing test is two tenants never seeing each other's findings. |
 | ECR-0119 | Customer-account arc (isolation audit + route census) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **404 with no existence oracle, enforced by a route census.** `GET /findings/{id}` answers cross-tenant, non-existent and malformed ids with a byte-identical 404. `OBJECT_ADDRESSED_ROUTES` + a census refuse to let a by-id route ship without a cross-tenant probe. 3 mutations red (incl. the census firing when a route is added without a probe). **Arc 0115–0119 complete.** |
+| ECR-0120 | Post-arc hardening (shared session store) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Sessions in Postgres — lifting the single-worker constraint.** Process-memory sessions meant a session minted on worker A was invisible to worker B, so the deploy could not run >1 worker. `PostgresSessionStore` behind the same protocol (in-memory kept for tests); tenant still bound from the account. The identity suite's Postgres param now runs against it; load-bearing test: a session resolves on a *different* store instance. 3 mutations red. |
 
 ---
 
@@ -7791,3 +7792,25 @@ tests. ruff + mypy --strict clean across 624 files, full suite 2146 passed / 5 s
 Postgres. Carried matrix rises to 120. Named for review: the census covers by-id routes (where the
 oracle risk lives), not every surface; the byte-equality no-oracle proof depends on `_error` not
 echoing the request; timing side-channels are out of scope. **The customer-account arc is complete.**
+
+## ECR-0120 — sessions in Postgres, lifting the single-worker constraint
+
+Post-arc hardening; claude.ai (spec author) flagged this as load-bearing, not optional. ECR-0116
+kept sessions in process memory in every backend — which is not merely "dropped on restart": a
+session minted on worker A is invisible to worker B, so the deployment could not run more than one
+worker without silently breaking login. `PostgresSessionStore` (asyncpg) now sits behind the
+existing `SessionStore` protocol, selected by `build_identity_stores` for the Postgres backend (the
+in-memory store stays for tests/local, per-process by design). New `aq_session` table on the shared
+identity pool; `start` still binds `tenant_id = account.tenant_id`, never the client. No new
+persisted field names (token/account_id/tenant_id/expires_at were already classified), so GC-004 was
+untouched.
+
+The identity contract suite now runs its Postgres parametrization against the Postgres session store
+(it previously used the in-memory one even under the Postgres param). New load-bearing test:
+`test_sessions_survive_a_new_store_instance` — a session started on one instance resolves on a
+different instance on the same database (i.e. another worker); skipped on the in-memory backend. 3
+mutations red (tenant not bound; expired session resolves; end() does not delete). ruff + mypy
+--strict clean across 624 files, full suite on live Postgres. Carried matrix rises to 123. Named for
+review: expired rows are reaped only on access (a periodic sweep is the clean fix); session tokens
+are stored in the clear (DB read access = session compromise, same trust as the other stores). This
+makes a multi-worker deploy possible; standing it up is the owner-gated deploy step.

@@ -46,6 +46,7 @@ async def build_identity_stores(*, backend: str, database_url: str | None = None
         from aqelyn.identity.postgres import (
             PostgresAccountStore,
             PostgresInviteStore,
+            PostgresSessionStore,
             connect_pool,
         )
 
@@ -53,7 +54,9 @@ async def build_identity_stores(*, backend: str, database_url: str | None = None
         return IdentityStores(
             accounts=PostgresAccountStore(pool),
             invites=PostgresInviteStore(pool),
-            sessions=sessions,
+            # ECR-0120: durable, cross-worker sessions in the Postgres backend, so the
+            # deployment is not silently pinned to a single worker.
+            sessions=PostgresSessionStore(pool),
             _closable=pool,
         )
     raise ConfigError(f"unknown identity backend: {backend}")
