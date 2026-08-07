@@ -125,6 +125,7 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0118 | Customer-account arc (authenticated portal) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Session, then consent, then a tenant-scoped write.** New `portal` package: register/login/consent/upload/read, all gated by a session whose `tenant_id` is the only tenant an upload can land in. Upload is size-bounded, `validate_posture_shape`-checked (refused, never repaired), ingested into the caller's tenant, audited. 6 mutations red; the load-bearing test is two tenants never seeing each other's findings. |
 | ECR-0119 | Customer-account arc (isolation audit + route census) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **404 with no existence oracle, enforced by a route census.** `GET /findings/{id}` answers cross-tenant, non-existent and malformed ids with a byte-identical 404. `OBJECT_ADDRESSED_ROUTES` + a census refuse to let a by-id route ship without a cross-tenant probe. 3 mutations red (incl. the census firing when a route is added without a probe). **Arc 0115–0119 complete.** |
 | ECR-0120 | Post-arc hardening (shared session store) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Sessions in Postgres — lifting the single-worker constraint.** Process-memory sessions meant a session minted on worker A was invisible to worker B, so the deploy could not run >1 worker. `PostgresSessionStore` behind the same protocol (in-memory kept for tests); tenant still bound from the account. The identity suite's Postgres param now runs against it; load-bearing test: a session resolves on a *different* store instance. 3 mutations red. |
+| ECR-0121 | Post-arc hardening (portal server, at-socket body bound) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **The upload bound moves to the socket.** ECR-0118 checked 1 MiB after buffering the whole body (an authenticated memory-exhaustion DoS); the portal had no server. New `PortalServer` (asyncio, loopback) refuses an over-limit `Content-Length` with 413 *before reading the body* and caps the read. Load-bearing test over a real socket: a 100 MiB declared length + 2 bytes sent → prompt 413. 3 mutations red (incl. guard-removed → refuse-before-read). |
 
 ---
 
@@ -7814,3 +7815,23 @@ mutations red (tenant not bound; expired session resolves; end() does not delete
 review: expired rows are reaped only on access (a periodic sweep is the clean fix); session tokens
 are stored in the clear (DB read access = session compromise, same trust as the other stores). This
 makes a multi-worker deploy possible; standing it up is the owner-gated deploy step.
+
+## ECR-0121 — the portal's HTTP server bounds the upload at the socket
+
+Post-arc hardening; claude.ai named the at-socket bound load-bearing, not a refinement. ECR-0118
+enforced the 1 MiB upload bound inside `handle`, AFTER the whole body was in memory, and the portal
+had no server of its own — an authenticated memory-exhaustion DoS on a small box. New `PortalServer`
+(asyncio, loopback, no host knob — nginx is the public face and proxies here): it parses
+`Content-Length` and returns 413 BEFORE reading a byte of the body if it exceeds the 1 MiB bound,
+then reads exactly that many bytes (already ≤ bound). The app's own len(body) check stays as defence
+in depth; head is capped (431); incomplete/timed-out → 408; `Connection: close` per request.
+
+Tests speak raw HTTP over a real loopback socket. Load-bearing:
+`test_oversized_content_length_is_refused_before_the_body` declares a 100 MiB Content-Length, sends
+2 body bytes, asserts a prompt 413 — only possible if the server refused on the length and never
+waited for the body. 3 mutations red: wrong threshold (`>0`, any body refused → login test), refusal
+not surfaced as 413 (→200), and guard removed (`if False` → server waits for a body that never
+arrives, before-body test times out — proving refuse-before-read). ruff + mypy --strict clean, full
+suite on live Postgres. Carried matrix rises to 126. Named: chunked encoding isn't parsed (nginx
+normalizes; a direct chunked upload reads as empty → 422); no rate limit here (nginx `limit_req`);
+not wired into the deployment yet (owner-gated deploy step).

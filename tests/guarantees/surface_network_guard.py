@@ -17,11 +17,23 @@ LISTENER_CALLS = frozenset(
 )
 NETWORK_LITERALS = OUTBOUND_MODULES | LISTENER_MODULES
 
+# ECR-0088 relocated the one inbound listener to the surface. ECR-0121 adds a SECOND, deliberate
+# listener: the customer portal's server (loopback, behind nginx). These two files are the entire
+# allow-list — a listener anywhere else is still a boundary violation.
+LISTENER_BOUNDARY = frozenset(("surface.py", "surface/", "portal/server.py"))
+
+
+def _in_listener_boundary(relative: str) -> bool:
+    return any(
+        relative == entry or (entry.endswith("/") and relative.startswith(entry))
+        for entry in LISTENER_BOUNDARY
+    )
+
 
 @dataclass(frozen=True)
 class NetworkBoundarySignals:
     outbound_clients: tuple[str, ...]
-    listeners_outside_surface: tuple[str, ...]
+    listeners_outside_boundary: tuple[str, ...]
     network_literals: tuple[str, ...]
 
 
@@ -35,12 +47,12 @@ def discover_network_boundary(
     literals: list[str] = []
     for path in sorted(root.rglob("*.py")):
         relative = path.relative_to(root).as_posix()
-        in_surface = relative == "surface.py" or relative.startswith("surface/")
+        in_boundary = _in_listener_boundary(relative)
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if "outbound" in branches:
                 outbound.extend(_outbound_hits(node, relative))
-            if "listener" in branches and not in_surface:
+            if "listener" in branches and not in_boundary:
                 listeners.extend(_listener_hits(node, relative))
             if (
                 "literal" in branches
@@ -51,7 +63,7 @@ def discover_network_boundary(
                 literals.append(f"{relative}:{node.lineno}: {node.value}")
     return NetworkBoundarySignals(
         outbound_clients=tuple(outbound),
-        listeners_outside_surface=tuple(listeners),
+        listeners_outside_boundary=tuple(listeners),
         network_literals=tuple(literals),
     )
 

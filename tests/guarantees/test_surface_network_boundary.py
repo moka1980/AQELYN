@@ -21,7 +21,7 @@ def test_surface_network_boundary_holds_in_shipped_source() -> None:
     signals = discover_network_boundary(SRC)
 
     assert signals.outbound_clients == ()
-    assert signals.listeners_outside_surface == ()
+    assert signals.listeners_outside_boundary == ()
     assert signals.network_literals == ()
 
 
@@ -39,28 +39,28 @@ def test_surface_network_guard_branch_roster_pinned() -> None:
                 "import asyncio\nasync def run():\n"
                 "    await asyncio.start_server(None, '127.0.0.1', 1)\n"
             ),
-            "listeners_outside_surface",
+            "listeners_outside_boundary",
         ),
         (
             "listener",
             "from http.server import HTTPServer\n",
-            "listeners_outside_surface",
+            "listeners_outside_boundary",
         ),
-        ("listener", "import socketserver\n", "listeners_outside_surface"),
+        ("listener", "import socketserver\n", "listeners_outside_boundary"),
         (
             "listener",
             "async def run(loop):\n    await loop.create_server(None, '127.0.0.1', 1)\n",
-            "listeners_outside_surface",
+            "listeners_outside_boundary",
         ),
         (
             "listener",
             "from asyncio import start_unix_server\n",
-            "listeners_outside_surface",
+            "listeners_outside_boundary",
         ),
         (
             "listener",
             "async def run(loop):\n    await loop.create_unix_server(None, '/tmp/aqelyn')\n",
-            "listeners_outside_surface",
+            "listeners_outside_boundary",
         ),
         ("literal", 'transport = "requests"\n', "network_literals"),
         ("literal", 'transport = "socketserver"\n', "network_literals"),
@@ -80,7 +80,7 @@ def test_surface_network_guard_each_branch_has_a_unique_witness(
     selected = getattr(signals, attribute)
     others = [
         getattr(signals, name)
-        for name in ("outbound_clients", "listeners_outside_surface", "network_literals")
+        for name in ("outbound_clients", "listeners_outside_boundary", "network_literals")
         if name != attribute
     ]
     disabled = discover_network_boundary(tmp_path, branches=BRANCHES - {branch})
@@ -93,6 +93,15 @@ def test_surface_network_guard_each_branch_has_a_unique_witness(
 def test_surface_listener_is_loopback_without_a_configuration_knob() -> None:
     assert LOOPBACK_HOST == "127.0.0.1"
     assert not {"host", "bind_address", "surface_host"} & set(AQELYNConfig.model_fields)
+
+
+def test_portal_listener_is_loopback_without_a_configuration_knob() -> None:
+    # ECR-0121: the portal is the second allowed listener; it must also be loopback-only with no
+    # host knob (nginx is the public face). The boundary widened; it did not open.
+    from aqelyn.portal.server import LOOPBACK_HOST as PORTAL_LOOPBACK_HOST
+
+    assert PORTAL_LOOPBACK_HOST == "127.0.0.1"
+    assert not {"host", "bind_address", "portal_host"} & set(AQELYNConfig.model_fields)
 
 
 def test_surface_route_table_contains_no_write_command() -> None:

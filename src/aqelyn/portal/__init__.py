@@ -6,9 +6,11 @@ tenant. This is the customer write boundary; the operator surface stays read-onl
 
 from aqelyn.portal.app import PortalApplication
 from aqelyn.portal.ingest import UploadRefused, ingest_posture_document
+from aqelyn.portal.server import PortalServer
 
 __all__ = [
     "PortalApplication",
+    "PortalServer",
     "UploadRefused",
     "ingest_posture_document",
 ]
