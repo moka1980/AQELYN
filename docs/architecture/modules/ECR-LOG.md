@@ -119,13 +119,17 @@ under change control rather than silent edits (per `START_HERE.md`).
 | ECR-0112 | A Match block makes the answer conditional | Accepted (implemented by the reviewer; independent review outstanding) | **A Match-scoped directive is not a global one.** `PasswordAuthentication no` + `Match Address 0.0.0.0/0 {yes}` reads as `no` globally but is `yes` for those connections - a false all-clear, proven with `sshd -T -C`. The collector reads global scope on its own and flags Match-governed paths as conditional rather than folding them in. `Match all` returns to unconditional scope, verified. |
 | ECR-0113 | The self-scan download is the shipped collector | Accepted (implemented by the reviewer; independent review outstanding) | **A shipped download that isn't built from tested source will silently rot.** The Linux `.pyz` is now assembled from `src/aqelyn/collect` by a repo build script with a build-and-run test; the Windows `.ps1` (validated on a real Win11 box) is now version-controlled. Report output is HTML-escaped. |
 | ECR-0114 | The self-scan report speaks to a person | Accepted (implemented by the reviewer; independent review outstanding) | **The report must be understood by everyone, and show what's good too.** A plain-language layer (`plain.py`) gives every check a plain headline / meaning / what-to-do + a 'looking good' line; technical detail is tucked into an expander. Also fixed a real Windows bug: `HtmlEnc` blanked every field (no `(char,string)` Replace overload, swallowed by SilentlyContinue) — found because I'd validated the console, not the report. |
-| ECR-0115 | Customer-account arc (accounts/invites/sessions) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **The tenant comes from the authenticated session, never from client input.** New identity package: Account (scrypt, active\|disabled), single-use TTL Invite, SessionStore binding `tenant_id=account.tenant_id`. Invite-only registration. File-backed bootstrap, Postgres in 0116. 7 mutations red. |
-| ECR-0116 | Customer-account arc (identity durability) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Same contract, proven on both backends.** Identity moves to the standard async memory+Postgres store pair (asyncpg is the only driver; the ingest app is async), preserving every method's name and the isolation rule. One parametrized test body passes on either backend; 12 mutations red across both. |
-| ECR-0117 | Customer-account arc (consent + audit, UX-005) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Consent before a write; an append-only audit of every one.** New `consent` package (memory+Postgres): a tenant's `ConsentRecord` per scope with `active`/`revoke`, and an `AuditEvent` log offering only append+list. Both strictly tenant-scoped. 8 mutations red across both backends; the tenant-scope mutations fail the cross-tenant tests. |
-| ECR-0118 | Customer-account arc (authenticated portal) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Session, then consent, then a tenant-scoped write.** New `portal` package: register/login/consent/upload/read, all gated by a session whose `tenant_id` is the only tenant an upload can land in. Upload is size-bounded, `validate_posture_shape`-checked (refused, never repaired), ingested into the caller's tenant, audited. 6 mutations red; the load-bearing test is two tenants never seeing each other's findings. |
-| ECR-0119 | Customer-account arc (isolation audit + route census) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **404 with no existence oracle, enforced by a route census.** `GET /findings/{id}` answers cross-tenant, non-existent and malformed ids with a byte-identical 404. `OBJECT_ADDRESSED_ROUTES` + a census refuse to let a by-id route ship without a cross-tenant probe. 3 mutations red (incl. the census firing when a route is added without a probe). **Arc 0115–0119 complete.** |
-| ECR-0120 | Post-arc hardening (shared session store) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **Sessions in Postgres — lifting the single-worker constraint.** Process-memory sessions meant a session minted on worker A was invisible to worker B, so the deploy could not run >1 worker. `PostgresSessionStore` behind the same protocol (in-memory kept for tests); tenant still bound from the account. The identity suite's Postgres param now runs against it; load-bearing test: a session resolves on a *different* store instance. 3 mutations red. |
-| ECR-0121 | Post-arc hardening (portal server, at-socket body bound) | Accepted (implemented by the reviewer while Codex is out; independent review outstanding) | **The upload bound moves to the socket.** ECR-0118 checked 1 MiB after buffering the whole body (an authenticated memory-exhaustion DoS); the portal had no server. New `PortalServer` (asyncio, loopback) refuses an over-limit `Content-Length` with 413 *before reading the body* and caps the read. Load-bearing test over a real socket: a 100 MiB declared length + 2 bytes sent → prompt 413. 3 mutations red (incl. guard-removed → refuse-before-read). |
+| ECR-0115 | Customer-account arc (accounts/invites/sessions) | Accepted (Codex independent review 2026-08-08: accept) | **The tenant comes from the authenticated session, never from client input.** New identity package: Account (scrypt, active\|disabled), single-use TTL Invite, SessionStore binding `tenant_id=account.tenant_id`. Invite-only registration. File-backed bootstrap, Postgres in 0116. 7 mutations red. |
+| ECR-0116 | Customer-account arc (identity durability) | Accepted (Codex review 2026-08-08: accept — async deviation justified, no in-repo sync caller) | **Same contract, proven on both backends.** Identity moves to the standard async memory+Postgres store pair (asyncpg is the only driver; the ingest app is async), preserving every method's name and the isolation rule. One parametrized test body passes on either backend; 12 mutations red across both. |
+| ECR-0117 | Customer-account arc (consent + audit, UX-005) | Accepted (Codex review 2026-08-08: accept with follow-up — tamper-evident audit chain still absent; pre-deploy obligation in the deploy-gate ECR) | **Consent before a write; an append-only audit of every one.** New `consent` package (memory+Postgres): a tenant's `ConsentRecord` per scope with `active`/`revoke`, and an `AuditEvent` log offering only append+list. Both strictly tenant-scoped. 8 mutations red across both backends; the tenant-scope mutations fail the cross-tenant tests. |
+| ECR-0118 | Customer-account arc (authenticated portal) | Accepted (Codex review 2026-08-08: REOPENED — audited-write guarantee demonstrably failed; resolved by ECR-0124) | **Session, then consent, then a tenant-scoped write.** New `portal` package: register/login/consent/upload/read, all gated by a session whose `tenant_id` is the only tenant an upload can land in. Upload is size-bounded, `validate_posture_shape`-checked (refused, never repaired), ingested into the caller's tenant, audited. 6 mutations red; the load-bearing test is two tenants never seeing each other's findings. |
+| ECR-0119 | Customer-account arc (isolation audit + route census) | Accepted (Codex review 2026-08-08: accept with follow-up — status-only census; strengthened by ECR-0125) | **404 with no existence oracle, enforced by a route census.** `GET /findings/{id}` answers cross-tenant, non-existent and malformed ids with a byte-identical 404. `OBJECT_ADDRESSED_ROUTES` + a census refuse to let a by-id route ship without a cross-tenant probe. 3 mutations red (incl. the census firing when a route is added without a probe). **Arc 0115–0119 complete.** |
+| ECR-0120 | Post-arc hardening (shared session store) | Accepted (Codex review 2026-08-08: REOPENED — shared sessions alone did not make the portal multi-worker safe; resolved by ECR-0123) | **Sessions in Postgres — lifting the single-worker constraint.** Process-memory sessions meant a session minted on worker A was invisible to worker B, so the deploy could not run >1 worker. `PostgresSessionStore` behind the same protocol (in-memory kept for tests); tenant still bound from the account. The identity suite's Postgres param now runs against it; load-bearing test: a session resolves on a *different* store instance. 3 mutations red. |
+| ECR-0121 | Post-arc hardening (portal server, at-socket body bound) | Accepted (Codex review 2026-08-08: accept — socket bound and exact listener allow-list hold) | **The upload bound moves to the socket.** ECR-0118 checked 1 MiB after buffering the whole body (an authenticated memory-exhaustion DoS); the portal had no server. New `PortalServer` (asyncio, loopback) refuses an over-limit `Content-Length` with 413 *before reading the body* and caps the read. Load-bearing test over a real socket: a 100 MiB declared length + 2 bytes sent → prompt 413. 3 mutations red (incl. guard-removed → refuse-before-read). |
+| ECR-0122 | Deploy gate (R5 cutover) | Proposed | **The deploy as ONE atomic gate — owner-triggered, spec with claude.ai.** Postgres-with-verified-backups + the repo portal behind `PortalServer` + nginx `limit_req` land together; the isolation matrix and upload attack list re-run against the DEPLOYED portal. Codex's review (2026-08-08) adds the pre-deploy obligations: the audit tamper-evident hash chain, the general `_error` no-oracle guard, and an independent CI green on `main` (no runs exist for #318–#324). ECR-0123 (durable stores) and ECR-0124 (atomic audited writes) already closed the review's two blockers; ECR-0125 strengthened the census. R5 is the first irreversible step — the owner says "go". |
+| ECR-0123 | Codex review response (durable portal data) | Accepted | **The Postgres runtime's evidence/finding stores are durable.** ECR-0120's "multi-worker possible" claim was wrong while the runtime factory still built in-memory evidence/finding stores on the Postgres path: an upload ingested on worker A was invisible to worker B and lost on restart. The conformance-tested `PostgresEvidenceStore`/`PostgresFindingStore` are now wired in (with a real `exists()` lookup), and two witnesses hold: fresh store instances on the same database read back an ingest, and two tenants uploading the SAME hostname get disjoint object ids on both backends (the review's adversarial probe, now a repo test). |
+| ECR-0124 | Codex review response (atomic audited writes) | Accepted | **An audited write and its audit event are one atomic unit.** ECR-0118 wrote state first and audited second; a failing audit left persisted-but-unaudited state (demonstrated by the review's probe). The portal now writes only through an `AuditedWrites` composite: on Postgres, consent+audit and the whole ingest+audit run on ONE connection in ONE transaction (conn-scoped store internals; events emitted only post-commit; the evidence gate checks the same uncommitted transaction); on memory, snapshot/restore under a lock gives the same all-or-nothing property. The app holds no direct audit-log reference, so the two-step shape cannot quietly return. |
+| ECR-0125 | Codex review response (census byte-comparison) | Accepted | **The route census byte-compares its 404s.** The census's probers returned only a status int, so a future object-addressed route could emit distinguishing 404 bodies and still pass. Probers now return the three responses an attacker compares (cross-tenant / nonexistent / malformed) and the census asserts byte-identical bodies and content types — proven with a 404 that echoes the requested id: the status-only census passed it, this one fails it. |
 
 ---
 
@@ -7816,6 +7820,12 @@ review: expired rows are reaped only on access (a periodic sweep is the clean fi
 are stored in the clear (DB read access = session compromise, same trust as the other stores). This
 makes a multi-worker deploy possible; standing it up is the owner-gated deploy step.
 
+**Review correction (Codex, 2026-08-08 — reopened, resolved by ECR-0123):** the claim above was
+too strong. Sessions moved between workers, but the runtime factory still built in-memory
+evidence/finding stores on the Postgres path, so worker B could authenticate a session and not see
+worker A's upload — and a restart lost the data. The multi-worker property required ECR-0123's
+durable stores as well.
+
 ## ECR-0121 — the portal's HTTP server bounds the upload at the socket
 
 Post-arc hardening; claude.ai named the at-socket bound load-bearing, not a refinement. ECR-0118
@@ -7835,3 +7845,83 @@ arrives, before-body test times out — proving refuse-before-read). ruff + mypy
 suite on live Postgres. Carried matrix rises to 126. Named: chunked encoding isn't parsed (nginx
 normalizes; a direct chunked upload reads as empty → 422); no rate limit here (nginx `limit_req`);
 not wired into the deployment yet (owner-gated deploy step).
+
+## ECR-0123 — the Postgres runtime's evidence/finding stores are durable
+
+Codex's independent review of the 0115–0121 line (2026-08-08) reopened ECR-0120: `create_runtime`'s
+Postgres path still constructed `InMemoryEvidenceStore`/`InMemoryFindingStore`, so shared sessions
+notwithstanding, uploaded findings and evidence lived in one process's memory — invisible to a
+second worker, gone on restart. The fix wires the existing, conformance-tested
+`PostgresEvidenceStore`/`PostgresFindingStore` into the Postgres runtime (`PostgresEvidenceStore`
+gains the `exists()` lookup the finding store's evidence gate needs, now on the `EvidenceStore`
+protocol), retypes `Runtime` to the store protocols, and registers evidence/finding runtime
+services so the new pools close with the kernel.
+
+Witnesses: `test_ingested_findings_survive_a_new_store_instance` (the ECR-0120 witness shape —
+fresh store instances on the same database read back a full ingest, plus a negative `exists`
+probe), and `test_same_hostname_from_two_tenants_gets_separate_objects` on BOTH backends — the
+object-convergence adversarial case the review asked for (cross-cutting #4). 3 mutations red:
+factory reverted to in-memory stores (the exact reopened bug); `exists()` returns True
+unconditionally; ingest's tenant stamp removed (both backends converge on one object). ruff + mypy
+--strict clean, affected suites on live Postgres. Named, not built: the runtime's blob store and
+several auxiliary stores remain in-memory on the Postgres path (no portal writes flow through
+them); object-store events still publish inside the store's own transaction.
+
+## ECR-0124 — an audited write and its audit event are one atomic unit
+
+The review's executable probe demonstrated ECR-0118's central gap: consent was persisted before
+`audit.append()`, and scan objects/evidence/findings were committed before their audit event — a
+poisoned audit log returned 500 and left persisted-but-unaudited state behind. UX-005's "no write
+without recorded consent, everything audited" is only real if the write and its record share one
+fate.
+
+The portal application now performs audited writes ONLY through an `AuditedWrites` seam
+(`portal/writes.py`) and holds no direct audit-log reference. `PostgresAuditedWrites` runs
+consent+audit, and the entire ingest (object upsert, chained evidence add, finding raise) +audit,
+on ONE connection inside ONE transaction, via new conn-scoped store internals
+(`_record_on`/`_append_on`/`_upsert_on`/`_add_on`/`_raise_on`/`_exists_on`) — the public store
+methods now delegate to the same internals, so there is no duplicated SQL. Evidence/finding events
+are emitted only after the commit (the stores' own post-commit convention); the finding store's
+evidence gate checks the SAME uncommitted transaction (a cross-connection check would refuse
+every same-unit ingest). `MemoryAuditedWrites` gives the test/dev backend the same all-or-nothing
+property by snapshot/restore of the in-process stores, serialized by a lock so a restore cannot
+revert a concurrent request's writes.
+
+Tests poison the audit log and the finding store on both backends and assert nothing survives in
+either direction — no unaudited state, no audit event for work that never happened — each paired
+with a positive control. 5 mutations red: audit moved outside the ingest transaction; memory
+ingest rollback removed; memory consent rollback removed; consent composite back to two
+independent steps; evidence gate switched to a cross-connection check (positive control refuses).
+Named, not built: object-store events still publish inside the transaction (a rolled-back unit can
+have announced object updates to in-process engines — pre-existing store behavior, now disclosed;
+the clean fix is a transactional event outbox); the memory composite serializes uploads.
+
+## ECR-0125 — the route census byte-compares its 404s
+
+The review's P2: ECR-0119's census walked `OBJECT_ADDRESSED_ROUTES` but its registered prober
+returned only an integer status, and the census checked only `status == 404` — so the structural
+guarantee enforced less than the adversarial tests proved for the one existing route. A future
+object-addressed route could emit `{"error": "finding fnd_… not found"}` and pass the census while
+reintroducing the existence oracle.
+
+Each prober now returns a `RouteProbe` carrying the three responses an attacker compares — a
+real-but-cross-tenant id, a nonexistent id, a malformed id — and the census asserts all three are
+404 with byte-identical bodies and content types. Mutation: the finding-detail 404 was made to echo
+the requested id; the status-only census passed it, the byte-comparing census fails it (1 mutation
+red; test-only ECR). This also narrows the open `_error` concern from ECR-0119: an echoing 404 on
+any censused route is now caught structurally; the general "`_error` never reflects request
+content" guard remains a deploy-gate obligation.
+
+## ECR-0122 — the deploy as one atomic gate (Proposed)
+
+**Status:** Proposed. The spec lives with claude.ai (pipeline: claude.ai → Codex → implementation);
+the cutover is owner-gated because R5 is the first irreversible step — real accounts and real scans
+persist. Scope per the spec author's reframing plus Codex's review outcome (2026-08-08): Postgres
+with verified backups, the repo portal behind `PortalServer` and nginx (`limit_req`), the isolation
+matrix + upload attack list re-run against the DEPLOYED portal (not just the repo), and the review's
+named pre-deploy obligations — the audit tamper-evident hash chain (ECR-0117 follow-up), the general
+"`_error` never reflects request content" guard (ECR-0119 follow-up beyond ECR-0125's census), and an
+independent CI green on `main` (GitHub Actions produced no runs for #318–#324; every merge in that
+line is on verified local green only). The review's two P1 blockers are already closed in the repo:
+ECR-0123 (durable evidence/finding stores — the single-worker disclosure is no longer needed) and
+ECR-0124 (atomic audited writes).
