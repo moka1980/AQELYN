@@ -199,50 +199,54 @@ class PostgresObjectStore:
             return obj
 
     async def upsert(self, obj: AQObject) -> AQObject:
+        async with self._pool.acquire() as conn, conn.transaction():
+            result, event_type, actor, payload = await self._upsert_on(conn, obj)
+        # Only a committed row announces itself (ECR-0124: no phantom events).
+        await self._emit(event_type, result, actor, payload)
+        return result
+
+    async def _upsert_on(
+        self, conn: asyncpg.Connection, obj: AQObject
+    ) -> tuple[AQObject, str, ActorRef, dict[str, Any]]:
+        """The upsert on an externally-held transaction, so a caller can make the object part
+        of one atomic unit with the evidence, finding, and audit rows it anchors (ECR-0124).
+        Returns the event to publish instead of publishing it — the caller emits only after
+        its transaction commits, so a rolled-back unit never announced anything."""
+
         if not obj.sources:
             raise MissingProvenance("object requires at least one source")
         self.registry.validate(obj.object_type, obj.attributes)
         now = utc_now()
-        async with self._pool.acquire() as conn, conn.transaction():
-            match_id = await self._find_by_nk(
-                conn, obj.tenant_id, obj.object_type, obj.natural_keys
+        match_id = await self._find_by_nk(conn, obj.tenant_id, obj.object_type, obj.natural_keys)
+        if match_id is not None:
+            row = await conn.fetchrow(
+                f"SELECT {_COLS} FROM aq_object WHERE id=$1 FOR UPDATE", match_id
             )
-            if match_id is not None:
-                row = await conn.fetchrow(
-                    f"SELECT {_COLS} FROM aq_object WHERE id=$1 FOR UPDATE", match_id
-                )
-                assert row is not None
-                existing = _row_to_obj(row)
-                existing.attributes = merge_attributes(existing.attributes, obj.attributes)
-                existing.labels = {**existing.labels, **obj.labels}
-                existing.sources = dedupe_sources([*existing.sources, *obj.sources])
-                existing.last_seen_at = max(existing.last_seen_at, obj.last_seen_at)
-                existing.display_name = obj.display_name or existing.display_name
-                existing.version += 1
-                existing.updated_at = now
-                existing.updated_by = obj.updated_by
-                await self._save(conn, existing)
-                await self._emit(
-                    "aqelyn.object.updated",
-                    existing,
-                    existing.updated_by,
-                    {"changed_fields": ["*"]},
-                )
-                return existing
-            created = obj.model_copy(deep=True)
-            if not created.id:
-                created.id = new_id("obj")
-            created.version = 1
-            created.created_at = now
-            created.updated_at = now
-            await self._insert(conn, created)
-            await self._emit(
-                "aqelyn.object.created",
-                created,
-                created.created_by,
-                {"object_type": created.object_type},
-            )
-            return created
+            assert row is not None
+            existing = _row_to_obj(row)
+            existing.attributes = merge_attributes(existing.attributes, obj.attributes)
+            existing.labels = {**existing.labels, **obj.labels}
+            existing.sources = dedupe_sources([*existing.sources, *obj.sources])
+            existing.last_seen_at = max(existing.last_seen_at, obj.last_seen_at)
+            existing.display_name = obj.display_name or existing.display_name
+            existing.version += 1
+            existing.updated_at = now
+            existing.updated_by = obj.updated_by
+            await self._save(conn, existing)
+            return existing, "aqelyn.object.updated", existing.updated_by, {"changed_fields": ["*"]}
+        created = obj.model_copy(deep=True)
+        if not created.id:
+            created.id = new_id("obj")
+        created.version = 1
+        created.created_at = now
+        created.updated_at = now
+        await self._insert(conn, created)
+        return (
+            created,
+            "aqelyn.object.created",
+            created.created_by,
+            {"object_type": created.object_type},
+        )
 
     async def update(self, obj: AQObject, *, expected_version: int) -> AQObject:
         async with self._pool.acquire() as conn, conn.transaction():

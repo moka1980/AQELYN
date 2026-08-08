@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections.abc import Callable
 
 from aqelyn.conventions import ActorRef, new_id, utc_now
 from aqelyn.conventions.errors import (
@@ -68,6 +69,19 @@ class InMemoryFindingStore:
         )
 
     async def raise_finding(self, f: Finding) -> Finding:
+        live, event_type, payload, _undo = await self._raise_quiet(f)
+        if event_type is not None:
+            await self._emit(event_type, live, payload)
+        return copy.deepcopy(live)
+
+    async def _raise_quiet(
+        self, f: Finding
+    ) -> tuple[Finding, str | None, dict[str, object], Callable[[], None]]:
+        """The raise without its event, plus a precise undo of THIS write only (ECR-0124).
+
+        An atomic composite defers the returned event until its whole unit succeeds and calls
+        the undo if it does not — touching nothing but the one finding this call wrote."""
+
         validate_finding(f)
         await self._check_evidence(f)
         key = (f.tenant_id, f.finding_type, f.dedup_key)
@@ -75,6 +89,17 @@ class InMemoryFindingStore:
         now = utc_now()
         if existing_id is not None:
             existing = self._by_id[existing_id]
+            before = copy.deepcopy(existing)
+            written_version = before.version + 1
+
+            def _undo_update() -> None:
+                current = self._by_id.get(existing_id)
+                # Restore the pre-image ONLY if the row is exactly as this unit left it;
+                # a concurrent writer's later update must survive our rollback.
+                if current is None or current.version != written_version:
+                    return
+                self._by_id[existing_id] = before
+
             existing.last_detected_at = now
             existing.evidence_ids = list(dict.fromkeys([*existing.evidence_ids, *f.evidence_ids]))
             existing.affected_object_ids = list(
@@ -85,6 +110,8 @@ class InMemoryFindingStore:
             # keeps its original `severity_score` -- which is what keeps ECR-0062's
             # cursor safe -- while `current_severity_score` follows the latest emission.
             existing.current_severity_score = f.severity_score
+            event_type: str | None = None
+            payload: dict[str, object] = {}
             if existing.status == "resolved":
                 existing.status = "open"
                 existing.resolved_at = None
@@ -97,10 +124,9 @@ class InMemoryFindingStore:
                         to_status="open",
                     )
                 )
-                await self._emit(
-                    "aqelyn.finding.regressed", existing, {"dedup_key": existing.dedup_key}
-                )
-            return copy.deepcopy(existing)
+                event_type = "aqelyn.finding.regressed"
+                payload = {"dedup_key": existing.dedup_key}
+            return existing, event_type, payload, _undo_update
         created = f.model_copy(deep=True)
         if not created.id:
             created.id = new_id("fnd")
@@ -119,12 +145,23 @@ class InMemoryFindingStore:
         ]
         self._by_id[created.id] = created
         self._dedup[key] = created.id
-        await self._emit(
-            "aqelyn.finding.raised",
+        created_id = created.id
+
+        def _undo_create() -> None:
+            current = self._by_id.get(created_id)
+            # Delete ONLY if nobody has built on the finding since this unit raised it.
+            if current is None or current.version != 1:
+                return
+            del self._by_id[created_id]
+            if self._dedup.get(key) == created_id:
+                del self._dedup[key]
+
+        return (
             created,
+            "aqelyn.finding.raised",
             {"finding_type": created.finding_type, "severity": created.severity},
+            _undo_create,
         )
-        return copy.deepcopy(created)
 
     async def get(self, finding_id: str) -> Finding | None:
         validate_finding_id(finding_id)

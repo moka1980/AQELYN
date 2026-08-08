@@ -19,13 +19,6 @@ from datetime import datetime
 from typing import Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
-from tools.first_run import FactorReading, RoadmapDependency
-from tools.s003_estate import (
-    EstateAsset,
-    ListenerObservation,
-    ServiceSurfaceDocument,
-    UnitInventoryDocument,
-)
 
 from aqelyn.conventions import new_id, require_typed_id
 from aqelyn.exposure import (
@@ -43,6 +36,13 @@ from aqelyn.inventory import (
     ObservedHostSurface,
 )
 from aqelyn.vuln import FactorUnknownCause
+from tools.first_run import FactorReading, RoadmapDependency
+from tools.s003_estate import (
+    EstateAsset,
+    ListenerObservation,
+    ServiceSurfaceDocument,
+    UnitInventoryDocument,
+)
 
 NO_SURFACE_EVIDENCE = "no surface evidence"
 OBSERVED_JOIN_UNAVAILABLE = "surface observed, join key unavailable"

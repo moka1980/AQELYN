@@ -56,6 +56,12 @@ class InMemoryConsentStore:
                 ):
                     self._records[index] = record.model_copy(update={"revoked_at": now})
 
+    def _discard(self, record_id: str) -> None:
+        """Precise undo of one `record` call — ECR-0124's composite rolls back only the
+        consent row its own unit wrote, never anything a concurrent writer added."""
+
+        self._records = [r for r in self._records if r.id != record_id]
+
 
 class InMemoryAuditLog:
     def __init__(self, *, now: Callable[[], datetime] = _utcnow) -> None:

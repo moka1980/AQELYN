@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from bisect import bisect_right, insort
+from collections.abc import Callable
 from typing import Any
 
 from aqelyn.conventions import ActorRef, new_id, utc_now
@@ -102,6 +103,19 @@ class InMemoryObjectStore:
         return copy.deepcopy(obj)
 
     async def upsert(self, obj: AQObject) -> AQObject:
+        live, event_type, actor, payload, _undo = await self._upsert_quiet(obj)
+        await self._emit(event_type, live, actor, payload)
+        return copy.deepcopy(live)
+
+    async def _upsert_quiet(
+        self, obj: AQObject
+    ) -> tuple[AQObject, str, ActorRef, dict[str, Any], Callable[[], None]]:
+        """The upsert without its event, plus a precise undo of THIS write only (ECR-0124).
+
+        An atomic composite defers the returned event until its whole unit succeeds and calls
+        the undo if it does not — touching nothing but the one row this call wrote, so an
+        unrelated concurrent write is never rolled back with it."""
+
         if not obj.sources:
             raise MissingProvenance("object requires at least one source")
         self.registry.validate(obj.object_type, obj.attributes)
@@ -109,6 +123,7 @@ class InMemoryObjectStore:
         now = utc_now()
         if match_id is not None:
             existing = self._objs[match_id]
+            before = copy.deepcopy(existing)
             existing.attributes = merge_attributes(existing.attributes, obj.attributes)
             existing.labels = {**existing.labels, **obj.labels}
             existing.sources = dedupe_sources([*existing.sources, *obj.sources])
@@ -119,10 +134,28 @@ class InMemoryObjectStore:
             existing.updated_by = obj.updated_by
             self._index_nk(existing)
             self._write_history(existing)
-            await self._emit(
-                "aqelyn.object.updated", existing, existing.updated_by, {"changed_fields": ["*"]}
+
+            written_version = existing.version
+
+            def _undo_update() -> None:
+                current = self._objs.get(match_id)
+                # Restore the pre-image ONLY if the row is exactly as this unit left it.
+                # A concurrent writer who advanced it since must not be overwritten by a
+                # rollback that isn't theirs (Codex re-review, 2026-08-08).
+                if current is None or current.version != written_version:
+                    return
+                self._objs[match_id] = before
+                history = self._history.get(match_id)
+                if history:
+                    history.pop()
+
+            return (
+                existing,
+                "aqelyn.object.updated",
+                existing.updated_by,
+                {"changed_fields": ["*"]},
+                _undo_update,
             )
-            return copy.deepcopy(existing)
         created = obj.model_copy(deep=True)
         if not created.id:
             created.id = new_id("obj")
@@ -133,13 +166,30 @@ class InMemoryObjectStore:
         insort(self._object_ids, created.id)
         self._index_nk(created)
         self._write_history(created)
-        await self._emit(
-            "aqelyn.object.created",
+        created_id = created.id
+
+        def _undo_create() -> None:
+            current = self._objs.get(created_id)
+            # Delete ONLY if nobody has built on the row since this unit created it; a
+            # concurrent writer's update must survive our rollback (their data, not ours).
+            if current is None or current.version != 1:
+                return
+            del self._objs[created_id]
+            if created_id in self._object_ids:
+                self._object_ids.remove(created_id)
+            for key in created.natural_keys:
+                nk_key = (created.tenant_id, key.namespace, key.value)
+                if self._nk.get(nk_key) == created_id:
+                    del self._nk[nk_key]
+            self._history.pop(created_id, None)
+
+        return (
             created,
+            "aqelyn.object.created",
             created.created_by,
             {"object_type": created.object_type},
+            _undo_create,
         )
-        return copy.deepcopy(created)
 
     async def update(self, obj: AQObject, *, expected_version: int) -> AQObject:
         existing = self._objs.get(obj.id)

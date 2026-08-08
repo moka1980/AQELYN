@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from typing import Any
 
 from aqelyn.conventions import ActorRef, new_id, sha256_hex, utc_now
@@ -56,6 +57,16 @@ class InMemoryEvidenceStore:
         return sha256_hex(record.content if record.content is not None else record.content_ref)
 
     async def add(self, record: EvidenceRecord) -> EvidenceRecord:
+        rec, _undo = await self._add_quiet(record)
+        if self._bus is not None:
+            await self._emit(rec)
+        return rec
+
+    async def _add_quiet(self, record: EvidenceRecord) -> tuple[EvidenceRecord, Callable[[], None]]:
+        """The chained add without its event, plus a precise undo of THIS record only
+        (ECR-0124). An atomic composite defers the event until its whole unit succeeds and
+        calls the undo if it does not — removing only the record this call appended."""
+
         chain = self._chains.setdefault(record.tenant_id, [])
         seq = len(chain) + 1
         prev_hash = chain[-1].record_hash if chain else None
@@ -75,17 +86,26 @@ class InMemoryEvidenceStore:
         )
         chain.append(rec)
         self._by_id[rec.id] = rec
-        self._custody.append(
-            {
-                "evidence_id": rec.id,
-                "action": "intake",
-                "actor": rec.collector.model_dump(),
-                "at": rec.recorded_at.isoformat(),
-            }
-        )
-        if self._bus is not None:
-            await self._emit(rec)
-        return rec
+        custody_entry = {
+            "evidence_id": rec.id,
+            "action": "intake",
+            "actor": rec.collector.model_dump(),
+            "at": rec.recorded_at.isoformat(),
+        }
+        self._custody.append(custody_entry)
+
+        def _undo() -> None:
+            # Remove ONLY while this record is still the chain tail. If a concurrent append
+            # has already chained onto it, removing it would corrupt THEIR record's
+            # prev_hash — the phantom row is disclosed, the corruption is not acceptable.
+            if not (chain and chain[-1] is rec):
+                return
+            chain.pop()
+            self._by_id.pop(rec.id, None)
+            if custody_entry in self._custody:
+                self._custody.remove(custody_entry)
+
+        return rec, _undo
 
     async def _emit(self, rec: EvidenceRecord) -> None:
         assert self._bus is not None

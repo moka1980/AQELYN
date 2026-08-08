@@ -74,6 +74,27 @@ class PostgresConsentStore:
     async def record(
         self, *, tenant_id: str, account_id: str, scope: ConsentScope, text_version: str
     ) -> ConsentRecord:
+        async with self._pool.acquire() as conn:
+            return await self._record_on(
+                conn,
+                tenant_id=tenant_id,
+                account_id=account_id,
+                scope=scope,
+                text_version=text_version,
+            )
+
+    async def _record_on(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        tenant_id: str,
+        account_id: str,
+        scope: ConsentScope,
+        text_version: str,
+    ) -> ConsentRecord:
+        """The insert on an externally-held connection, so a caller can make it part of one
+        transaction with the audit event that records it (ECR-0124)."""
+
         record = ConsentRecord(
             id=new_id("con"),
             tenant_id=tenant_id,
@@ -82,19 +103,18 @@ class PostgresConsentStore:
             text_version=text_version,
             granted_at=self._now(),
         )
-        async with self._pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO aq_consent_record "
-                "(id, tenant_id, account_id, scope, text_version, granted_at, revoked_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                record.id,
-                record.tenant_id,
-                record.account_id,
-                record.scope,
-                record.text_version,
-                record.granted_at,
-                record.revoked_at,
-            )
+        await conn.execute(
+            "INSERT INTO aq_consent_record "
+            "(id, tenant_id, account_id, scope, text_version, granted_at, revoked_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            record.id,
+            record.tenant_id,
+            record.account_id,
+            record.scope,
+            record.text_version,
+            record.granted_at,
+            record.revoked_at,
+        )
         return record
 
     async def active(self, *, tenant_id: str, scope: ConsentScope) -> ConsentRecord | None:
@@ -127,6 +147,27 @@ class PostgresAuditLog:
     async def append(
         self, *, tenant_id: str, actor_account_id: str, action: AuditAction, detail: str
     ) -> AuditEvent:
+        async with self._pool.acquire() as conn:
+            return await self._append_on(
+                conn,
+                tenant_id=tenant_id,
+                actor_account_id=actor_account_id,
+                action=action,
+                detail=detail,
+            )
+
+    async def _append_on(
+        self,
+        conn: asyncpg.Connection,
+        *,
+        tenant_id: str,
+        actor_account_id: str,
+        action: AuditAction,
+        detail: str,
+    ) -> AuditEvent:
+        """The insert on an externally-held connection, so the audit event commits or rolls
+        back together with the write it records (ECR-0124)."""
+
         event = AuditEvent(
             id=new_id("aud"),
             tenant_id=tenant_id,
@@ -135,18 +176,17 @@ class PostgresAuditLog:
             detail=detail,
             at=self._now(),
         )
-        async with self._pool.acquire() as conn:
-            await conn.execute(
-                "INSERT INTO aq_audit_event "
-                "(id, tenant_id, actor_account_id, action, detail, at) "
-                "VALUES ($1, $2, $3, $4, $5, $6)",
-                event.id,
-                event.tenant_id,
-                event.actor_account_id,
-                event.action,
-                event.detail,
-                event.at,
-            )
+        await conn.execute(
+            "INSERT INTO aq_audit_event "
+            "(id, tenant_id, actor_account_id, action, detail, at) "
+            "VALUES ($1, $2, $3, $4, $5, $6)",
+            event.id,
+            event.tenant_id,
+            event.actor_account_id,
+            event.action,
+            event.detail,
+            event.at,
+        )
         return event
 
     async def list(self, *, tenant_id: str) -> list[AuditEvent]:

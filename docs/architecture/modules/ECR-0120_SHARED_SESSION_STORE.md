@@ -69,3 +69,9 @@ ruff + `mypy --strict` clean across 624 files; full suite on live Postgres. Carr
 param uses it, plus one cross-instance durability test. No change to accounts, invites, consent, the
 portal, or any other domain. This does **not** touch the deployment — it makes the multi-worker
 deploy *possible*; standing it up is the owner-gated deploy step (the forthcoming deploy-gate ECR).
+
+> **Review correction (Codex, 2026-08-08 — reopened, resolved by ECR-0123).** "Multi-worker
+> possible" was too strong: the runtime factory still built in-memory evidence/finding stores on
+> the Postgres path, so a session could move between workers while the uploaded findings and
+> evidence could not. ECR-0123 wires the Postgres evidence/finding stores; only with both does the
+> multi-worker property hold.

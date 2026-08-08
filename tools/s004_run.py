@@ -7,6 +7,10 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
+from aqelyn.exposure import ExposureConfig, ExposureStore
+from aqelyn.inventory import DiscoverySource
+from aqelyn.objects import ObjectStore
+from aqelyn.vuln import CoverageReport
 from tools.first_run import RunReport, coverage_factor_readings, measure_kev_join
 from tools.s003_baseline import (
     BaselineAssessment,
@@ -33,11 +37,6 @@ from tools.s004_route import (
     derive_s004_topology,
     topology_factor_readings,
 )
-
-from aqelyn.exposure import ExposureConfig, ExposureStore
-from aqelyn.inventory import DiscoverySource
-from aqelyn.objects import ObjectStore
-from aqelyn.vuln import CoverageReport
 
 
 async def assemble_s004_report(

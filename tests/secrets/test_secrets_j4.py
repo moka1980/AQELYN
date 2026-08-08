@@ -118,7 +118,7 @@ async def _harness(kind: str) -> AsyncIterator[_Harness]:
 
 
 async def _evidence(
-    store: InMemoryEvidenceStore,
+    store: EvidenceStore,
     *,
     source_id: str,
     fingerprint: str,

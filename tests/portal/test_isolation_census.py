@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from aqelyn.portal.app import OBJECT_ADDRESSED_ROUTES
@@ -138,15 +139,34 @@ async def test_a_forged_tenant_in_the_body_is_ignored(portal: Any) -> None:
 # --- the structural route census ----------------------------------------------------
 
 
-async def _probe_finding_route(portal: Any, cookie_a: str, cookie_b: str) -> int:
+@dataclass
+class RouteProbe:
+    """The three requests an attacker compares: a real-but-not-yours id, an id that does not
+    exist, and a malformed id. ECR-0125: the census asserts these are byte-identical — a
+    status-only census would let a future route leak existence through a distinguishing 404
+    body (Codex review of ECR-0119, 2026-08-08)."""
+
+    cross_tenant: Any
+    nonexistent: Any
+    malformed: Any
+
+
+async def _probe_finding_route(portal: Any, cookie_a: str, cookie_b: str) -> RouteProbe:
     await _consent_and_upload(portal, cookie_b, "b-obs", "host-b")
     b_finding_id = await _one_finding_id(portal, cookie_b)
-    response = await portal.app.handle("GET", f"/api/v1/findings/{b_finding_id}", _auth(cookie_a))
-    return int(response.status)
+    return RouteProbe(
+        cross_tenant=await portal.app.handle(
+            "GET", f"/api/v1/findings/{b_finding_id}", _auth(cookie_a)
+        ),
+        nonexistent=await portal.app.handle(
+            "GET", "/api/v1/findings/fnd_00000000000000000000000000000000", _auth(cookie_a)
+        ),
+        malformed=await portal.app.handle("GET", "/api/v1/findings/not-an-id", _auth(cookie_a)),
+    )
 
 
 # Every object-addressed route the app declares MUST have a prober here.
-_PROBERS: dict[str, Callable[[Any, str, str], Awaitable[int]]] = {
+_PROBERS: dict[str, Callable[[Any, str, str], Awaitable[RouteProbe]]] = {
     "/api/v1/findings/": _probe_finding_route,
 }
 
@@ -157,9 +177,20 @@ def test_every_object_addressed_route_has_a_cross_tenant_probe() -> None:
     assert set(OBJECT_ADDRESSED_ROUTES) == set(_PROBERS)
 
 
-async def test_route_census_every_object_route_refuses_cross_tenant(portal: Any) -> None:
+async def test_route_census_every_object_route_refuses_with_no_oracle(portal: Any) -> None:
     cookie_a = await portal.account_cookie(tenant_id=TENANT_A, email="a@example.com")
     cookie_b = await portal.account_cookie(tenant_id=TENANT_B, email="b@example.com")
     for route in OBJECT_ADDRESSED_ROUTES:
-        status = await _PROBERS[route](portal, cookie_a, cookie_b)
-        assert status == 404, f"{route} leaked cross-tenant (got {status})"
+        probe = await _PROBERS[route](portal, cookie_a, cookie_b)
+        responses = (probe.cross_tenant, probe.nonexistent, probe.malformed)
+        for response in responses:
+            assert response.status == 404, f"{route} leaked cross-tenant (got {response.status})"
+        # Byte-for-byte, not status-for-status: a distinguishing 404 body IS an oracle.
+        assert probe.cross_tenant.body == probe.nonexistent.body == probe.malformed.body, (
+            f"{route} answers the three cases with distinguishable bodies"
+        )
+        assert (
+            probe.cross_tenant.content_type
+            == probe.nonexistent.content_type
+            == probe.malformed.content_type
+        ), f"{route} answers the three cases with distinguishable content types"

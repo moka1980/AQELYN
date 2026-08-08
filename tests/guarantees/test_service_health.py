@@ -84,7 +84,9 @@ async def test_gc_health_discovery_covers_the_whole_registry() -> None:
         for attribute, service in vars(enterprise).items()
         if attribute.endswith("_service")
     }
-    infrastructure_services = {"event_bus", "object_store"}
+    # ECR-0123: evidence/finding joined the registry so their Postgres pools close with
+    # the kernel; like object_store they are stores, not *_service attributes.
+    infrastructure_services = {"event_bus", "object_store", "evidence_store", "finding_store"}
 
     assert local_registry == enterprise_registry
     assert local_runtime_services == enterprise_runtime_services

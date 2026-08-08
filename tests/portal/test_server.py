@@ -24,19 +24,22 @@ from aqelyn.kernel.config import AQELYNConfig
 from aqelyn.kernel.factory import create_inmemory_runtime
 from aqelyn.portal.app import MAX_UPLOAD_BYTES, PortalApplication
 from aqelyn.portal.server import PortalServer
+from aqelyn.portal.writes import MemoryAuditedWrites
 
 
 @pytest.fixture
 async def server() -> AsyncIterator[PortalServer]:
     runtime = create_inmemory_runtime(AQELYNConfig(tenant_mode="enterprise"))
     accounts = InMemoryAccountStore()
+    consent = InMemoryConsentStore()
+    audit = InMemoryAuditLog()
     app = PortalApplication(
         runtime,
         accounts=accounts,
         invites=InMemoryInviteStore(accounts),
         sessions=InMemorySessionStore(),
-        consent=InMemoryConsentStore(),
-        audit=InMemoryAuditLog(),
+        consent=consent,
+        writes=MemoryAuditedWrites(runtime, consent=consent, audit=audit),
     )
     srv = PortalServer(app, port=0)
     await srv.start()

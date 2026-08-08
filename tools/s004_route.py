@@ -15,17 +15,6 @@ from typing import Literal, cast
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, model_validator
-from tools.first_run import FactorReading
-from tools.s003_estate import EstateAsset, ListenerObservation
-from tools.s003_surface import (
-    InventorySurfaceOwner,
-    SurfaceApplication,
-    attribute_listener_observations,
-    build_surface_application_from_observations,
-    classify_bind,
-    register_service_assets,
-)
-from tools.s004_handin import HandedInCaptureSet, ProxyRouteDeclaration
 
 from aqelyn.exposure import (
     AssetRef,
@@ -40,6 +29,17 @@ from aqelyn.exposure import (
 )
 from aqelyn.inventory import DiscoverySource, InventoryKnownSurfaceSource
 from aqelyn.vuln import FactorUnknownCause
+from tools.first_run import FactorReading
+from tools.s003_estate import EstateAsset, ListenerObservation
+from tools.s003_surface import (
+    InventorySurfaceOwner,
+    SurfaceApplication,
+    attribute_listener_observations,
+    build_surface_application_from_observations,
+    classify_bind,
+    register_service_assets,
+)
+from tools.s004_handin import HandedInCaptureSet, ProxyRouteDeclaration
 
 TopologyState = Literal["derived", "off_estate", "join_unavailable"]
 
