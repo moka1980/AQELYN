@@ -9,18 +9,20 @@ instances* on the same database — another worker, or the process after a resta
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import asyncpg
 import pytest
 
 from aqelyn.conventions import ActorRef, new_id
 from aqelyn.evidence.postgres import PostgresEvidenceStore
 from aqelyn.findings.models import FindingQuery
 from aqelyn.findings.postgres import PostgresFindingStore
-from aqelyn.kernel import AQELYNConfig, Runtime, create_runtime
+from aqelyn.kernel import AQELYNConfig, create_runtime
 from aqelyn.portal.ingest import ingest_posture_document
 
 PG_URL = os.getenv("AQELYN_DATABASE_URL")
@@ -49,15 +51,6 @@ def _valid_posture(observation_id: str, *, ref: str) -> dict[str, Any]:
             }
         ]
     }
-
-
-async def _close_stores(runtime: Runtime) -> None:
-    # The stores are exercised directly (a full kernel start needs seeded engine providers);
-    # close the pools this test opened.
-    assert isinstance(runtime.evidence_store, PostgresEvidenceStore)
-    assert isinstance(runtime.finding_store, PostgresFindingStore)
-    await runtime.evidence_store.close()
-    await runtime.finding_store.close()
 
 
 async def test_ingested_findings_survive_a_new_store_instance() -> None:
@@ -96,4 +89,13 @@ async def test_ingested_findings_survive_a_new_store_instance() -> None:
         # The positive control's twin: exists() must be a real lookup, not a yes-machine.
         assert not await fresh_evidence.exists(new_id("evd"))
     finally:
-        await _close_stores(runtime)
+        # Close EVERY pool the factory opened — leaking all but two exhausted the CI
+        # Postgres server's connections (Codex review; run 31267942064).
+        await runtime.close()
+    open_pools = [
+        field.name
+        for field in dataclasses.fields(runtime)
+        if isinstance(getattr(getattr(runtime, field.name), "_pool", None), asyncpg.Pool)
+        and not getattr(runtime, field.name)._pool.is_closing()
+    ]
+    assert open_pools == []

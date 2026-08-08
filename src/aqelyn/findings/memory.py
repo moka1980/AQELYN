@@ -90,8 +90,14 @@ class InMemoryFindingStore:
         if existing_id is not None:
             existing = self._by_id[existing_id]
             before = copy.deepcopy(existing)
+            written_version = before.version + 1
 
             def _undo_update() -> None:
+                current = self._by_id.get(existing_id)
+                # Restore the pre-image ONLY if the row is exactly as this unit left it;
+                # a concurrent writer's later update must survive our rollback.
+                if current is None or current.version != written_version:
+                    return
                 self._by_id[existing_id] = before
 
             existing.last_detected_at = now
@@ -142,7 +148,11 @@ class InMemoryFindingStore:
         created_id = created.id
 
         def _undo_create() -> None:
-            self._by_id.pop(created_id, None)
+            current = self._by_id.get(created_id)
+            # Delete ONLY if nobody has built on the finding since this unit raised it.
+            if current is None or current.version != 1:
+                return
+            del self._by_id[created_id]
             if self._dedup.get(key) == created_id:
                 del self._dedup[key]
 

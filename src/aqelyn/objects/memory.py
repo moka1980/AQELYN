@@ -135,7 +135,15 @@ class InMemoryObjectStore:
             self._index_nk(existing)
             self._write_history(existing)
 
+            written_version = existing.version
+
             def _undo_update() -> None:
+                current = self._objs.get(match_id)
+                # Restore the pre-image ONLY if the row is exactly as this unit left it.
+                # A concurrent writer who advanced it since must not be overwritten by a
+                # rollback that isn't theirs (Codex re-review, 2026-08-08).
+                if current is None or current.version != written_version:
+                    return
                 self._objs[match_id] = before
                 history = self._history.get(match_id)
                 if history:
@@ -161,7 +169,12 @@ class InMemoryObjectStore:
         created_id = created.id
 
         def _undo_create() -> None:
-            self._objs.pop(created_id, None)
+            current = self._objs.get(created_id)
+            # Delete ONLY if nobody has built on the row since this unit created it; a
+            # concurrent writer's update must survive our rollback (their data, not ours).
+            if current is None or current.version != 1:
+                return
+            del self._objs[created_id]
             if created_id in self._object_ids:
                 self._object_ids.remove(created_id)
             for key in created.natural_keys:

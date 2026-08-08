@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
 from aqelyn.conventions import ActorRef, new_id
@@ -163,6 +163,27 @@ if TYPE_CHECKING:
 @dataclass
 class Runtime:
     """The wired kernel plus the shared infrastructure it injects."""
+
+    async def close(self) -> None:
+        """Close every connection pool the factory opened — deduplicated, so stores that
+        share a pool (knowledge graph, session store) do not double-close it.
+
+        The kernel's service close hooks fire only for *started* services; tests and tools
+        that use the stores directly must call this instead, or the Postgres runtime leaks
+        its ~20 pools per construction until the server refuses connections (the CI
+        `TooManyConnectionsError` from Codex's review of ECR-0123, 2026-08-08)."""
+
+        import asyncpg
+
+        pools: dict[int, asyncpg.Pool] = {}
+        for field in fields(self):
+            store = getattr(self, field.name)
+            pool = getattr(store, "_pool", None)
+            if isinstance(pool, asyncpg.Pool) and id(pool) not in pools:
+                pools[id(pool)] = pool
+        for pool in pools.values():
+            if not pool.is_closing():
+                await pool.close()
 
     kernel: AQKernel
     event_bus: InMemoryEventBus

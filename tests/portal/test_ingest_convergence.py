@@ -88,11 +88,5 @@ async def test_same_hostname_from_two_tenants_gets_separate_objects(backend: str
                 assert stored is not None
                 assert stored.tenant_id == tenant
     finally:
-        if backend == "postgres":
-            from aqelyn.evidence.postgres import PostgresEvidenceStore
-            from aqelyn.findings.postgres import PostgresFindingStore
-
-            assert isinstance(runtime.evidence_store, PostgresEvidenceStore)
-            assert isinstance(runtime.finding_store, PostgresFindingStore)
-            await runtime.evidence_store.close()
-            await runtime.finding_store.close()
+        # Close EVERY pool the factory opened (no-op on the memory backend).
+        await runtime.close()

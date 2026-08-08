@@ -95,8 +95,12 @@ class InMemoryEvidenceStore:
         self._custody.append(custody_entry)
 
         def _undo() -> None:
-            if rec in chain:
-                chain.remove(rec)
+            # Remove ONLY while this record is still the chain tail. If a concurrent append
+            # has already chained onto it, removing it would corrupt THEIR record's
+            # prev_hash — the phantom row is disclosed, the corruption is not acceptable.
+            if not (chain and chain[-1] is rec):
+                return
+            chain.pop()
             self._by_id.pop(rec.id, None)
             if custody_entry in self._custody:
                 self._custody.remove(custody_entry)

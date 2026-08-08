@@ -202,6 +202,49 @@ async def test_memory_rollback_spares_unrelated_concurrent_writes(portal: Any) -
     assert set(portal.runtime.object_store._objs) == {external_ids[0]}
 
 
+async def test_memory_rollback_spares_a_concurrent_update_to_the_same_row(portal: Any) -> None:
+    """Codex's same-row probe: a concurrent writer updates the SAME object the unit already
+    touched; the rollback must not overwrite their update with the unit's pre-image."""
+
+    from aqelyn.portal.ingest import PORTAL_SOURCE_ID
+    from aqelyn.reporting.posture import ensure_posture_object_type, subject_object
+
+    cookie = await portal.account_cookie(tenant_id=TENANT_A, email="e@example.com")
+    assert (await _consent(portal, cookie)).status == 201
+    # A committed first upload creates the object the second unit will UPDATE.
+    assert (await _upload(portal, cookie)).status == 201
+    found, _ = await portal.runtime.finding_store.query(FindingQuery(tenant_id=TENANT_A, limit=10))
+    object_id = found[0].affected_object_ids[0]
+    evidence_count = len(portal.runtime.evidence_store._by_id)
+
+    ensure_posture_object_type(portal.runtime.object_store)
+    concurrent = subject_object(
+        _valid_posture()["observations"][0],
+        source_id=PORTAL_SOURCE_ID,
+        observed_at=datetime.now(UTC),
+        actor=ActorRef(actor_type="user", actor_id=new_id("acc")),
+    ).model_copy(update={"tenant_id": TENANT_A, "labels": {"kept": "yes"}})
+
+    async def _fail_after_same_row_update(**_kwargs: Any) -> Any:
+        # The concurrent writer lands on the SAME row (same tenant + natural key) after the
+        # unit's own update, through the shared store's public API.
+        await portal.runtime.object_store.upsert(concurrent)
+        raise _AuditDown("audit log unavailable")
+
+    portal.audit.append = _fail_after_same_row_update
+    response = await _upload(portal, cookie)
+    assert response.status == 500
+
+    # The concurrent update survived the unit's rollback (LABEL_AFTER must stay 'kept')...
+    survivor = await portal.runtime.object_store.get(object_id)
+    assert survivor is not None
+    assert survivor.labels.get("kept") == "yes"
+    # ...while the unit's own additions rolled back: no new evidence, no new findings.
+    assert len(portal.runtime.evidence_store._by_id) == evidence_count
+    after, _ = await portal.runtime.finding_store.query(FindingQuery(tenant_id=TENANT_A, limit=10))
+    assert sorted(f.id for f in after) == sorted(f.id for f in found)
+
+
 @pytest.mark.skipif(not PG_URL, reason="AQELYN_DATABASE_URL not set")
 async def test_postgres_composite_commits_and_rolls_back_as_one_unit() -> None:
     from aqelyn.consent.postgres import PostgresAuditLog, PostgresConsentStore, connect_pool
@@ -284,10 +327,5 @@ async def test_postgres_composite_commits_and_rolls_back_as_one_unit() -> None:
                 assert count == 0, f"{table} kept rows from the rolled-back unit"
     finally:
         await pool.close()
-        from aqelyn.evidence.postgres import PostgresEvidenceStore
-        from aqelyn.findings.postgres import PostgresFindingStore
-
-        assert isinstance(runtime.evidence_store, PostgresEvidenceStore)
-        assert isinstance(runtime.finding_store, PostgresFindingStore)
-        await runtime.evidence_store.close()
-        await runtime.finding_store.close()
+        # Close EVERY pool the factory opened, not just the two the test touches.
+        await runtime.close()
