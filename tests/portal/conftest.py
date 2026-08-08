@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 
@@ -22,11 +23,13 @@ from aqelyn.identity.memory import (
 from aqelyn.kernel.config import AQELYNConfig
 from aqelyn.kernel.factory import create_inmemory_runtime
 from aqelyn.portal.app import COOKIE_NAME, PortalApplication
+from aqelyn.portal.writes import MemoryAuditedWrites
 
 
 @dataclass
 class PortalHarness:
     app: PortalApplication
+    runtime: Any
     accounts: InMemoryAccountStore
     invites: InMemoryInviteStore
     sessions: InMemorySessionStore
@@ -65,10 +68,11 @@ def portal() -> PortalHarness:
         invites=invites,
         sessions=sessions,
         consent=consent,
-        audit=audit,
+        writes=MemoryAuditedWrites(runtime, consent=consent, audit=audit),
     )
     return PortalHarness(
         app=app,
+        runtime=runtime,
         accounts=accounts,
         invites=invites,
         sessions=sessions,

@@ -103,11 +103,14 @@ class PostgresFindingStore:
     async def close(self) -> None:
         await self._pool.close()
 
-    async def _check_evidence_ids(self, evidence_ids: list[str]) -> None:
-        if self._evidence_exists is None:
+    async def _check_evidence_ids(
+        self, evidence_ids: list[str], *, checker: EvidenceExists | None = None
+    ) -> None:
+        checker = checker if checker is not None else self._evidence_exists
+        if checker is None:
             return
         for evidence_id in evidence_ids:
-            if not await self._evidence_exists(evidence_id):
+            if not await checker(evidence_id):
                 raise EvidenceRequired(f"evidence not found: {evidence_id}")
 
     async def _hydrate(self, conn: asyncpg.Connection, row: asyncpg.Record) -> Finding:
@@ -234,69 +237,84 @@ class PostgresFindingStore:
         )
 
     async def raise_finding(self, f: Finding) -> Finding:
-        validate_finding(f)
-        await self._check_evidence_ids(f.evidence_ids)
-        now = utc_now()
-        event_type: str | None = None
-        event_payload: dict[str, object] = {}
         async with self._pool.acquire() as conn, conn.transaction():
-            row = await conn.fetchrow(
-                f"SELECT {_FINDING_COLS} FROM aq_finding "
-                "WHERE tenant_id IS NOT DISTINCT FROM $1 AND finding_type=$2 "
-                "AND dedup_key=$3 FOR UPDATE",
-                f.tenant_id,
-                f.finding_type,
-                f.dedup_key,
-            )
-            if row is not None:
-                result = await self._hydrate(conn, row)
-                result.last_detected_at = now
-                result.evidence_ids = list(dict.fromkeys([*result.evidence_ids, *f.evidence_ids]))
-                result.affected_object_ids = list(
-                    dict.fromkeys([*result.affected_object_ids, *f.affected_object_ids])
-                )
-                result.version += 1
-                # ECR-0063: escalation follows the latest emission; `severity_score`
-                # stays write-once so ECR-0062's keyset cursor remains safe.
-                result.current_severity_score = f.severity_score
-                if result.status == "resolved":
-                    result.status = "open"
-                    result.resolved_at = None
-                    audit_entry = AuditEntry(
-                        at=now,
-                        actor=ActorRef(actor_type="system", actor_id=f.source_engine),
-                        action="regressed",
-                        from_status="resolved",
-                        to_status="open",
-                    )
-                    result.audit.append(audit_entry)
-                    await self._append_audit(conn, result.id, [audit_entry])
-                    event_type = "aqelyn.finding.regressed"
-                    event_payload = {"dedup_key": result.dedup_key}
-                await self._save(conn, result)
-            else:
-                result = f.model_copy(deep=True)
-                if result.current_severity_score is None:
-                    result.current_severity_score = result.severity_score
-                if not result.id:
-                    result.id = new_id("fnd")
-                result.version = 1
-                result.first_detected_at = now
-                result.last_detected_at = now
-                result.audit = [
-                    AuditEntry(
-                        at=now,
-                        actor=ActorRef(actor_type="system", actor_id=f.source_engine),
-                        action="raised",
-                        to_status=result.status,
-                    )
-                ]
-                await self._insert(conn, result)
-                event_type = "aqelyn.finding.raised"
-                event_payload = {"finding_type": result.finding_type, "severity": result.severity}
+            result, event_type, event_payload = await self._raise_on(conn, f)
         if event_type is not None:
             await self._emit(event_type, result, event_payload)
         return result
+
+    async def _raise_on(
+        self,
+        conn: asyncpg.Connection,
+        f: Finding,
+        *,
+        evidence_exists: EvidenceExists | None = None,
+    ) -> tuple[Finding, str | None, dict[str, object]]:
+        """The raise on an externally-held transaction. Returns the event to publish instead of
+        publishing it, so an ECR-0124 composite emits only after its outer transaction commits;
+        ``evidence_exists`` lets that composite check evidence on the same uncommitted
+        transaction."""
+
+        validate_finding(f)
+        await self._check_evidence_ids(f.evidence_ids, checker=evidence_exists)
+        now = utc_now()
+        event_type: str | None = None
+        event_payload: dict[str, object] = {}
+        row = await conn.fetchrow(
+            f"SELECT {_FINDING_COLS} FROM aq_finding "
+            "WHERE tenant_id IS NOT DISTINCT FROM $1 AND finding_type=$2 "
+            "AND dedup_key=$3 FOR UPDATE",
+            f.tenant_id,
+            f.finding_type,
+            f.dedup_key,
+        )
+        if row is not None:
+            result = await self._hydrate(conn, row)
+            result.last_detected_at = now
+            result.evidence_ids = list(dict.fromkeys([*result.evidence_ids, *f.evidence_ids]))
+            result.affected_object_ids = list(
+                dict.fromkeys([*result.affected_object_ids, *f.affected_object_ids])
+            )
+            result.version += 1
+            # ECR-0063: escalation follows the latest emission; `severity_score`
+            # stays write-once so ECR-0062's keyset cursor remains safe.
+            result.current_severity_score = f.severity_score
+            if result.status == "resolved":
+                result.status = "open"
+                result.resolved_at = None
+                audit_entry = AuditEntry(
+                    at=now,
+                    actor=ActorRef(actor_type="system", actor_id=f.source_engine),
+                    action="regressed",
+                    from_status="resolved",
+                    to_status="open",
+                )
+                result.audit.append(audit_entry)
+                await self._append_audit(conn, result.id, [audit_entry])
+                event_type = "aqelyn.finding.regressed"
+                event_payload = {"dedup_key": result.dedup_key}
+            await self._save(conn, result)
+        else:
+            result = f.model_copy(deep=True)
+            if result.current_severity_score is None:
+                result.current_severity_score = result.severity_score
+            if not result.id:
+                result.id = new_id("fnd")
+            result.version = 1
+            result.first_detected_at = now
+            result.last_detected_at = now
+            result.audit = [
+                AuditEntry(
+                    at=now,
+                    actor=ActorRef(actor_type="system", actor_id=f.source_engine),
+                    action="raised",
+                    to_status=result.status,
+                )
+            ]
+            await self._insert(conn, result)
+            event_type = "aqelyn.finding.raised"
+            event_payload = {"finding_type": result.finding_type, "severity": result.severity}
+        return result, event_type, event_payload
 
     async def get(self, finding_id: str) -> Finding | None:
         validate_finding_id(finding_id)

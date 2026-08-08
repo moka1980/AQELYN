@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from typing import Any
 
 from aqelyn.conventions import ActorRef, new_id, utc_now
 from aqelyn.conventions.errors import (
@@ -41,6 +42,15 @@ class InMemoryFindingStore:
         self.mode = mode
         self._bus = event_bus
         self._evidence_exists = evidence_exists
+
+    def _snapshot(self) -> dict[str, Any]:
+        """State capture for ECR-0124's atomic composites (memory backend only)."""
+
+        return {"by_id": copy.deepcopy(self._by_id), "dedup": dict(self._dedup)}
+
+    def _restore(self, snapshot: dict[str, Any]) -> None:
+        self._by_id = snapshot["by_id"]
+        self._dedup = snapshot["dedup"]
 
     async def _check_evidence(self, f: Finding) -> None:
         if self._evidence_exists is None:

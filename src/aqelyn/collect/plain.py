@@ -240,8 +240,7 @@ PLAIN_NB: dict[str, dict[str, str]] = {
             "eksponer det mot internett."
         ),
         "good": (
-            "Eksternt skrivebord er av — ingen kan logge inn på denne datamaskinen over "
-            "nettverket."
+            "Eksternt skrivebord er av — ingen kan logge inn på denne datamaskinen over nettverket."
         ),
     },
 }

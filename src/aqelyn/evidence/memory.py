@@ -124,6 +124,23 @@ class InMemoryEvidenceStore:
         validate_evidence_id(evidence_id)
         return evidence_id in self._by_id
 
+    def _snapshot(self) -> dict[str, Any]:
+        """State capture for ECR-0124's atomic composites (memory backend only). The public
+        surface stays append-only; a restore is the composite's transaction rollback."""
+
+        return {
+            "by_id": dict(self._by_id),
+            "chains": {tenant: list(chain) for tenant, chain in self._chains.items()},
+            "custody": list(self._custody),
+            "packages": dict(self._packages),
+        }
+
+    def _restore(self, snapshot: dict[str, Any]) -> None:
+        self._by_id = snapshot["by_id"]
+        self._chains = snapshot["chains"]
+        self._custody = snapshot["custody"]
+        self._packages = snapshot["packages"]
+
     async def custody_of(self, evidence_id: str) -> list[dict[str, Any]]:
         validate_evidence_id(evidence_id)
         return [c for c in self._custody if c["evidence_id"] == evidence_id]

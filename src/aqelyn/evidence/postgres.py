@@ -70,60 +70,70 @@ class PostgresEvidenceStore:
 
     async def add(self, record: EvidenceRecord) -> EvidenceRecord:
         async with self._pool.acquire() as conn, conn.transaction():
-            await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", record.tenant_id or "")
-            tail = await conn.fetchrow(
-                "SELECT seq, record_hash FROM aq_evidence "
-                "WHERE tenant_id IS NOT DISTINCT FROM $1 ORDER BY seq DESC LIMIT 1",
-                record.tenant_id,
-            )
-            seq = (tail["seq"] + 1) if tail else 1
-            prev_hash = tail["record_hash"] if tail else None
-            content_hash = self._content_hash(record)
-            base = record.model_copy(
-                update={
-                    "id": record.id or new_id("evd"),
-                    "seq": seq,
-                    "prev_hash": prev_hash,
-                    "content_hash": content_hash,
-                    "recorded_at": utc_now(),
-                    "record_hash": "",
-                }
-            )
-            rec = base.model_copy(
-                update={"record_hash": compute_record_hash(base.model_dump(mode="json"), prev_hash)}
-            )
-            await conn.execute(
-                f"INSERT INTO aq_evidence ({_COLS}) VALUES "
-                "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
-                rec.id,
-                rec.tenant_id,
-                rec.evidence_type,
-                rec.schema_version,
-                rec.subject.model_dump_json(),
-                rec.collected_at,
-                rec.recorded_at,
-                json.dumps(rec.collector.model_dump()),
-                rec.source_id,
-                rec.method,
-                json.dumps(rec.content) if rec.content is not None else None,
-                rec.content_ref.model_dump_json() if rec.content_ref else None,
-                rec.content_hash,
-                rec.confidence,
-                json.dumps(rec.labels),
-                rec.seq,
-                rec.prev_hash,
-                rec.record_hash,
-                json.dumps(rec.signature) if rec.signature else None,
-                json.dumps(rec.anchor) if rec.anchor else None,
-            )
-            await conn.execute(
-                "INSERT INTO aq_evidence_custody (evidence_id, action, actor, at) "
-                "VALUES ($1,$2,$3,$4)",
-                rec.id,
-                "intake",
-                json.dumps(rec.collector.model_dump()),
-                rec.recorded_at,
-            )
+            rec = await self._add_on(conn, record)
+        await self._emit_recorded(rec)
+        return rec
+
+    async def _add_on(self, conn: asyncpg.Connection, record: EvidenceRecord) -> EvidenceRecord:
+        """The chained insert on an externally-held transaction — no event is published here, so
+        an ECR-0124 composite can emit only after its outer transaction commits."""
+
+        await conn.execute("SELECT pg_advisory_xact_lock(hashtext($1))", record.tenant_id or "")
+        tail = await conn.fetchrow(
+            "SELECT seq, record_hash FROM aq_evidence "
+            "WHERE tenant_id IS NOT DISTINCT FROM $1 ORDER BY seq DESC LIMIT 1",
+            record.tenant_id,
+        )
+        seq = (tail["seq"] + 1) if tail else 1
+        prev_hash = tail["record_hash"] if tail else None
+        content_hash = self._content_hash(record)
+        base = record.model_copy(
+            update={
+                "id": record.id or new_id("evd"),
+                "seq": seq,
+                "prev_hash": prev_hash,
+                "content_hash": content_hash,
+                "recorded_at": utc_now(),
+                "record_hash": "",
+            }
+        )
+        rec = base.model_copy(
+            update={"record_hash": compute_record_hash(base.model_dump(mode="json"), prev_hash)}
+        )
+        await conn.execute(
+            f"INSERT INTO aq_evidence ({_COLS}) VALUES "
+            "($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)",
+            rec.id,
+            rec.tenant_id,
+            rec.evidence_type,
+            rec.schema_version,
+            rec.subject.model_dump_json(),
+            rec.collected_at,
+            rec.recorded_at,
+            json.dumps(rec.collector.model_dump()),
+            rec.source_id,
+            rec.method,
+            json.dumps(rec.content) if rec.content is not None else None,
+            rec.content_ref.model_dump_json() if rec.content_ref else None,
+            rec.content_hash,
+            rec.confidence,
+            json.dumps(rec.labels),
+            rec.seq,
+            rec.prev_hash,
+            rec.record_hash,
+            json.dumps(rec.signature) if rec.signature else None,
+            json.dumps(rec.anchor) if rec.anchor else None,
+        )
+        await conn.execute(
+            "INSERT INTO aq_evidence_custody (evidence_id, action, actor, at) VALUES ($1,$2,$3,$4)",
+            rec.id,
+            "intake",
+            json.dumps(rec.collector.model_dump()),
+            rec.recorded_at,
+        )
+        return rec
+
+    async def _emit_recorded(self, rec: EvidenceRecord) -> None:
         if self._bus is not None:
             await self._bus.publish(
                 Event(
@@ -139,7 +149,6 @@ class PostgresEvidenceStore:
                     partition_key=rec.subject.object_ids[0] if rec.subject.object_ids else rec.id,
                 )
             )
-        return rec
 
     async def get(self, evidence_id: str, *, actor: ActorRef) -> EvidenceRecord:
         validate_evidence_id(evidence_id)
@@ -156,9 +165,15 @@ class PostgresEvidenceStore:
         return _row(row)
 
     async def exists(self, evidence_id: str) -> bool:
-        validate_evidence_id(evidence_id)
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT 1 FROM aq_evidence WHERE id=$1", evidence_id)
+            return await self._exists_on(conn, evidence_id)
+
+    async def _exists_on(self, conn: asyncpg.Connection, evidence_id: str) -> bool:
+        """The lookup on an externally-held connection — inside an ECR-0124 composite
+        transaction, this is the only way to see evidence added but not yet committed."""
+
+        validate_evidence_id(evidence_id)
+        row = await conn.fetchrow("SELECT 1 FROM aq_evidence WHERE id=$1", evidence_id)
         return row is not None
 
     async def custody_count(self, evidence_id: str) -> int:

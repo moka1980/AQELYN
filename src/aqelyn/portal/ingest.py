@@ -13,7 +13,8 @@ malformed upload.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -22,6 +23,7 @@ from aqelyn.events import Subject
 from aqelyn.evidence.models import EvidenceRecord
 from aqelyn.findings.models import Finding
 from aqelyn.kernel.factory import Runtime
+from aqelyn.objects.models import AQObject
 from aqelyn.reporting.posture import (
     PostureDocumentError,
     ensure_posture_object_type,
@@ -42,6 +44,20 @@ class UploadRefused(Exception):
         self.message = message
 
 
+@dataclass(frozen=True)
+class IngestWriteOps:
+    """The three writes an ingest performs, as injectable callables (ECR-0124).
+
+    The default ops are the runtime stores' public methods. An atomic composite substitutes
+    connection-bound variants so the whole ingest and its audit event share one transaction —
+    the ingest logic itself stays this module's single implementation either way.
+    """
+
+    upsert: Callable[[AQObject], Awaitable[AQObject]]
+    add_evidence: Callable[[EvidenceRecord], Awaitable[EvidenceRecord]]
+    raise_finding: Callable[[Finding], Awaitable[Finding]]
+
+
 async def ingest_posture_document(
     runtime: Runtime,
     document: Mapping[str, Any],
@@ -50,6 +66,7 @@ async def ingest_posture_document(
     digest: str,
     observed_at: datetime,
     actor: ActorRef,
+    ops: IngestWriteOps | None = None,
 ) -> list[Finding]:
     """Validate and ingest a posture document into ``tenant_id``; return the findings raised."""
 
@@ -59,8 +76,12 @@ async def ingest_posture_document(
         raise UploadRefused(str(exc)) from exc
 
     object_store = runtime.object_store
-    evidence_store = runtime.evidence_store
-    finding_store = runtime.finding_store
+    if ops is None:
+        ops = IngestWriteOps(
+            upsert=object_store.upsert,
+            add_evidence=runtime.evidence_store.add,
+            raise_finding=runtime.finding_store.raise_finding,
+        )
     ensure_posture_object_type(object_store)
 
     raised: list[Finding] = []
@@ -71,8 +92,8 @@ async def ingest_posture_document(
             observed_at=observed_at,
             actor=actor,
         ).model_copy(update={"tenant_id": tenant_id})
-        subject_id = (await object_store.upsert(subject)).id
-        evidence = await evidence_store.add(
+        subject_id = (await ops.upsert(subject)).id
+        evidence = await ops.add_evidence(
             EvidenceRecord(
                 id="",
                 evidence_type="posture.observation",
@@ -102,7 +123,7 @@ async def ingest_posture_document(
             observed_at=observed_at,
             affected_object_ids=[subject_id],
         ).model_copy(update={"tenant_id": tenant_id})
-        raised.append(await finding_store.raise_finding(finding))
+        raised.append(await ops.raise_finding(finding))
 
     raised.sort(key=lambda item: (-item.severity_score, item.id))
     return raised

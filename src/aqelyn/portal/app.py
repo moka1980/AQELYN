@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from aqelyn.consent.models import ConsentScope
-from aqelyn.consent.store import AuditLog, ConsentStore
+from aqelyn.consent.store import ConsentStore
 from aqelyn.conventions import ActorRef
 from aqelyn.conventions.errors import AQError
 from aqelyn.findings.models import FindingQuery
@@ -32,7 +32,8 @@ from aqelyn.identity.store import (
     SessionStore,
 )
 from aqelyn.kernel.factory import Runtime
-from aqelyn.portal.ingest import UploadRefused, ingest_posture_document
+from aqelyn.portal.ingest import UploadRefused
+from aqelyn.portal.writes import AuditedWrites
 from aqelyn.surface.models import SurfaceResponse
 
 COOKIE_NAME = "aq_portal"
@@ -100,14 +101,16 @@ class PortalApplication:
         invites: InviteStore,
         sessions: SessionStore,
         consent: ConsentStore,
-        audit: AuditLog,
+        writes: AuditedWrites,
     ) -> None:
         self._runtime = runtime
         self._accounts = accounts
         self._invites = invites
         self._sessions = sessions
         self._consent = consent
-        self._audit = audit
+        # ECR-0124: every audited write goes through the atomic composite; the application
+        # deliberately holds no direct audit-log reference.
+        self._writes = writes
 
     async def handle(
         self,
@@ -226,17 +229,11 @@ class PortalApplication:
             return _error(401, "unauthenticated", "a valid session is required")
         payload = self._json_body(body)
         text_version = self._string_field(payload, "text_version")
-        record = await self._consent.record(
+        record = await self._writes.grant_consent(
             tenant_id=session.tenant_id,
             account_id=session.account_id,
             scope=CONSENT_SCOPE,
             text_version=text_version,
-        )
-        await self._audit.append(
-            tenant_id=session.tenant_id,
-            actor_account_id=session.account_id,
-            action="consent_granted",
-            detail=text_version,
         )
         return SurfaceResponse.json(201, {"consent_id": record.id})
 
@@ -258,23 +255,17 @@ class PortalApplication:
             return _error(400, "invalid_scan", "the uploaded scan must be a JSON object")
         digest = f"sha256:{sha256(body).hexdigest()}"
         try:
-            findings = await ingest_posture_document(
-                self._runtime,
+            findings = await self._writes.ingest_scan(
                 document,
                 # The tenant is the session's, never anything the caller sent.
                 tenant_id=session.tenant_id,
+                account_id=session.account_id,
                 digest=digest,
                 observed_at=_utcnow(),
                 actor=self._actor(session.account_id),
             )
         except UploadRefused as exc:
             return _error(422, "scan_refused", exc.message)
-        await self._audit.append(
-            tenant_id=session.tenant_id,
-            actor_account_id=session.account_id,
-            action="scan_ingested",
-            detail=digest,
-        )
         return SurfaceResponse.json(
             201,
             {

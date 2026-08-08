@@ -101,6 +101,26 @@ class InMemoryObjectStore:
                 obj = nxt
         return copy.deepcopy(obj)
 
+    def _snapshot(self) -> dict[str, Any]:
+        """State capture for ECR-0124's atomic composites (memory backend only)."""
+
+        return {
+            "objs": copy.deepcopy(self._objs),
+            "object_ids": list(self._object_ids),
+            "rels": copy.deepcopy(self._rels),
+            "nk": dict(self._nk),
+            "history": copy.deepcopy(self._history),
+            "seq": self._seq,
+        }
+
+    def _restore(self, snapshot: dict[str, Any]) -> None:
+        self._objs = snapshot["objs"]
+        self._object_ids = snapshot["object_ids"]
+        self._rels = snapshot["rels"]
+        self._nk = snapshot["nk"]
+        self._history = snapshot["history"]
+        self._seq = snapshot["seq"]
+
     async def upsert(self, obj: AQObject) -> AQObject:
         if not obj.sources:
             raise MissingProvenance("object requires at least one source")
