@@ -146,7 +146,8 @@ async def test_memory_failed_write_leaves_no_audit_event(portal: Any) -> None:
     async def _fail(_finding: Any) -> Any:
         raise RuntimeError("finding store down")
 
-    portal.runtime.finding_store.raise_finding = _fail
+    # Poison the quiet write the composite's injected op actually calls.
+    portal.runtime.finding_store._raise_quiet = _fail
     response = await _upload(portal, cookie)
     assert response.status == 500
     # The inverse direction: no audit event may claim an ingest that never happened,
@@ -155,6 +156,50 @@ async def test_memory_failed_write_leaves_no_audit_event(portal: Any) -> None:
     assert portal.runtime.evidence_store._by_id == {}
     assert portal.runtime.object_store._objs == {}
     assert events == []
+
+
+async def test_memory_rollback_spares_unrelated_concurrent_writes(portal: Any) -> None:
+    """Codex's data-loss probe: an unrelated write lands WHILE the portal unit is in flight;
+    the unit's rollback must erase only its own rows — not the bystander's."""
+
+    from aqelyn.portal.ingest import PORTAL_SOURCE_ID
+    from aqelyn.reporting.posture import ensure_posture_object_type, subject_object
+
+    cookie = await portal.account_cookie(tenant_id=TENANT_A, email="d@example.com")
+    assert (await _consent(portal, cookie)).status == 201
+    events = await _record_unit_events(portal.runtime)
+
+    ensure_posture_object_type(portal.runtime.object_store)
+    external = subject_object(
+        _valid_posture(ref="bystander-host")["observations"][0],
+        source_id=PORTAL_SOURCE_ID,
+        observed_at=datetime.now(UTC),
+        actor=ActorRef(actor_type="user", actor_id=new_id("acc")),
+    ).model_copy(update={"tenant_id": "33333333-3333-4333-8333-333333333333"})
+    external_ids: list[str] = []
+
+    async def _fail_after_external_write(**_kwargs: Any) -> Any:
+        # The bystander writes mid-unit, through the shared store's public API.
+        stored = await portal.runtime.object_store.upsert(external)
+        external_ids.append(stored.id)
+        raise _AuditDown("audit log unavailable")
+
+    portal.audit.append = _fail_after_external_write
+    response = await _upload(portal, cookie)
+    assert response.status == 500
+
+    # The bystander's row survived the portal unit's rollback...
+    assert external_ids
+    survivor = await portal.runtime.object_store.get(external_ids[0])
+    assert survivor is not None
+    assert survivor.tenant_id == "33333333-3333-4333-8333-333333333333"
+    # ...its event flowed normally (it was never part of the unit)...
+    assert events == ["aqelyn.object.created"]
+    # ...and the unit's own writes are fully gone.
+    found, _ = await portal.runtime.finding_store.query(FindingQuery(tenant_id=TENANT_A, limit=10))
+    assert found == []
+    assert portal.runtime.evidence_store._by_id == {}
+    assert set(portal.runtime.object_store._objs) == {external_ids[0]}
 
 
 @pytest.mark.skipif(not PG_URL, reason="AQELYN_DATABASE_URL not set")

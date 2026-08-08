@@ -56,13 +56,11 @@ class InMemoryConsentStore:
                 ):
                     self._records[index] = record.model_copy(update={"revoked_at": now})
 
-    def _snapshot(self) -> list[ConsentRecord]:
-        """State capture for ECR-0124's atomic composites (memory backend only)."""
+    def _discard(self, record_id: str) -> None:
+        """Precise undo of one `record` call — ECR-0124's composite rolls back only the
+        consent row its own unit wrote, never anything a concurrent writer added."""
 
-        return list(self._records)
-
-    def _restore(self, snapshot: list[ConsentRecord]) -> None:
-        self._records = list(snapshot)
+        self._records = [r for r in self._records if r.id != record_id]
 
 
 class InMemoryAuditLog:
@@ -88,12 +86,3 @@ class InMemoryAuditLog:
 
     async def list(self, *, tenant_id: str) -> list[AuditEvent]:
         return [e for e in self._events if e.tenant_id == tenant_id]
-
-    def _snapshot(self) -> tuple[AuditEvent, ...]:
-        """State capture for ECR-0124's atomic composites (memory backend only). The public
-        surface stays append-only; a restore is the composite's transaction rollback."""
-
-        return tuple(self._events)
-
-    def _restore(self, snapshot: tuple[AuditEvent, ...]) -> None:
-        self._events = [*snapshot]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from typing import Any
 
 from aqelyn.conventions import ActorRef, new_id, sha256_hex, utc_now
@@ -56,6 +57,16 @@ class InMemoryEvidenceStore:
         return sha256_hex(record.content if record.content is not None else record.content_ref)
 
     async def add(self, record: EvidenceRecord) -> EvidenceRecord:
+        rec, _undo = await self._add_quiet(record)
+        if self._bus is not None:
+            await self._emit(rec)
+        return rec
+
+    async def _add_quiet(self, record: EvidenceRecord) -> tuple[EvidenceRecord, Callable[[], None]]:
+        """The chained add without its event, plus a precise undo of THIS record only
+        (ECR-0124). An atomic composite defers the event until its whole unit succeeds and
+        calls the undo if it does not — removing only the record this call appended."""
+
         chain = self._chains.setdefault(record.tenant_id, [])
         seq = len(chain) + 1
         prev_hash = chain[-1].record_hash if chain else None
@@ -75,17 +86,22 @@ class InMemoryEvidenceStore:
         )
         chain.append(rec)
         self._by_id[rec.id] = rec
-        self._custody.append(
-            {
-                "evidence_id": rec.id,
-                "action": "intake",
-                "actor": rec.collector.model_dump(),
-                "at": rec.recorded_at.isoformat(),
-            }
-        )
-        if self._bus is not None:
-            await self._emit(rec)
-        return rec
+        custody_entry = {
+            "evidence_id": rec.id,
+            "action": "intake",
+            "actor": rec.collector.model_dump(),
+            "at": rec.recorded_at.isoformat(),
+        }
+        self._custody.append(custody_entry)
+
+        def _undo() -> None:
+            if rec in chain:
+                chain.remove(rec)
+            self._by_id.pop(rec.id, None)
+            if custody_entry in self._custody:
+                self._custody.remove(custody_entry)
+
+        return rec, _undo
 
     async def _emit(self, rec: EvidenceRecord) -> None:
         assert self._bus is not None
@@ -123,23 +139,6 @@ class InMemoryEvidenceStore:
     async def exists(self, evidence_id: str) -> bool:
         validate_evidence_id(evidence_id)
         return evidence_id in self._by_id
-
-    def _snapshot(self) -> dict[str, Any]:
-        """State capture for ECR-0124's atomic composites (memory backend only). The public
-        surface stays append-only; a restore is the composite's transaction rollback."""
-
-        return {
-            "by_id": dict(self._by_id),
-            "chains": {tenant: list(chain) for tenant, chain in self._chains.items()},
-            "custody": list(self._custody),
-            "packages": dict(self._packages),
-        }
-
-    def _restore(self, snapshot: dict[str, Any]) -> None:
-        self._by_id = snapshot["by_id"]
-        self._chains = snapshot["chains"]
-        self._custody = snapshot["custody"]
-        self._packages = snapshot["packages"]
 
     async def custody_of(self, evidence_id: str) -> list[dict[str, Any]]:
         validate_evidence_id(evidence_id)
