@@ -200,11 +200,18 @@ class PostgresObjectStore:
 
     async def upsert(self, obj: AQObject) -> AQObject:
         async with self._pool.acquire() as conn, conn.transaction():
-            return await self._upsert_on(conn, obj)
+            result, event_type, actor, payload = await self._upsert_on(conn, obj)
+        # Only a committed row announces itself (ECR-0124: no phantom events).
+        await self._emit(event_type, result, actor, payload)
+        return result
 
-    async def _upsert_on(self, conn: asyncpg.Connection, obj: AQObject) -> AQObject:
+    async def _upsert_on(
+        self, conn: asyncpg.Connection, obj: AQObject
+    ) -> tuple[AQObject, str, ActorRef, dict[str, Any]]:
         """The upsert on an externally-held transaction, so a caller can make the object part
-        of one atomic unit with the evidence, finding, and audit rows it anchors (ECR-0124)."""
+        of one atomic unit with the evidence, finding, and audit rows it anchors (ECR-0124).
+        Returns the event to publish instead of publishing it — the caller emits only after
+        its transaction commits, so a rolled-back unit never announced anything."""
 
         if not obj.sources:
             raise MissingProvenance("object requires at least one source")
@@ -226,13 +233,7 @@ class PostgresObjectStore:
             existing.updated_at = now
             existing.updated_by = obj.updated_by
             await self._save(conn, existing)
-            await self._emit(
-                "aqelyn.object.updated",
-                existing,
-                existing.updated_by,
-                {"changed_fields": ["*"]},
-            )
-            return existing
+            return existing, "aqelyn.object.updated", existing.updated_by, {"changed_fields": ["*"]}
         created = obj.model_copy(deep=True)
         if not created.id:
             created.id = new_id("obj")
@@ -240,13 +241,12 @@ class PostgresObjectStore:
         created.created_at = now
         created.updated_at = now
         await self._insert(conn, created)
-        await self._emit(
-            "aqelyn.object.created",
+        return (
             created,
+            "aqelyn.object.created",
             created.created_by,
             {"object_type": created.object_type},
         )
-        return created
 
     async def update(self, obj: AQObject, *, expected_version: int) -> AQObject:
         async with self._pool.acquire() as conn, conn.transaction():

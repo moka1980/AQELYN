@@ -56,6 +56,27 @@ class _AuditDown(RuntimeError):
     pass
 
 
+_UNIT_EVENT_TYPES = (
+    "aqelyn.object.created",
+    "aqelyn.object.updated",
+    "aqelyn.evidence.recorded",
+    "aqelyn.finding.raised",
+)
+
+
+async def _record_unit_events(runtime: Any) -> list[str]:
+    """Subscribe to every event type an ingest unit can produce; return the live list."""
+
+    seen: list[str] = []
+
+    async def _on(event: Any) -> None:
+        seen.append(event.event_type)
+
+    for event_type in _UNIT_EVENT_TYPES:
+        await runtime.event_bus.subscribe(event_type, _on)
+    return seen
+
+
 async def _consent(portal: Any, cookie: str) -> Any:
     return await portal.app.handle(
         "POST", "/api/v1/consent", _auth(cookie), json.dumps({"text_version": "v1"}).encode()
@@ -76,11 +97,18 @@ def _poison_audit(portal: Any) -> None:
 
 
 async def test_memory_positive_control_consent_and_upload_audited(portal: Any) -> None:
+    events = await _record_unit_events(portal.runtime)
     cookie = await portal.account_cookie(tenant_id=TENANT_A, email="ok@example.com")
     assert (await _consent(portal, cookie)).status == 201
     assert (await _upload(portal, cookie)).status == 201
     actions = [e.action for e in await portal.audit.list(tenant_id=TENANT_A)]
     assert actions == ["consent_granted", "scan_ingested"]
+    # A committed unit DOES announce itself, in original write order.
+    assert events == [
+        "aqelyn.object.created",
+        "aqelyn.evidence.recorded",
+        "aqelyn.finding.raised",
+    ]
 
 
 async def test_memory_failed_audit_rolls_back_consent(portal: Any) -> None:
@@ -96,6 +124,7 @@ async def test_memory_failed_audit_rolls_back_consent(portal: Any) -> None:
 async def test_memory_failed_audit_rolls_back_the_whole_ingest(portal: Any) -> None:
     cookie = await portal.account_cookie(tenant_id=TENANT_A, email="b@example.com")
     assert (await _consent(portal, cookie)).status == 201
+    events = await _record_unit_events(portal.runtime)
     _poison_audit(portal)
     response = await _upload(portal, cookie)
     assert response.status == 500
@@ -104,11 +133,15 @@ async def test_memory_failed_audit_rolls_back_the_whole_ingest(portal: Any) -> N
     assert portal.runtime.evidence_store._by_id == {}
     assert portal.runtime.object_store._objs == {}
     assert [e.action for e in await portal.audit.list(tenant_id=TENANT_A)] == ["consent_granted"]
+    # No phantom events: the bus never heard about the rolled-back rows.
+    assert events == []
 
 
 async def test_memory_failed_write_leaves_no_audit_event(portal: Any) -> None:
     cookie = await portal.account_cookie(tenant_id=TENANT_A, email="c@example.com")
     assert (await _consent(portal, cookie)).status == 201
+
+    events = await _record_unit_events(portal.runtime)
 
     async def _fail(_finding: Any) -> Any:
         raise RuntimeError("finding store down")
@@ -117,10 +150,11 @@ async def test_memory_failed_write_leaves_no_audit_event(portal: Any) -> None:
     response = await _upload(portal, cookie)
     assert response.status == 500
     # The inverse direction: no audit event may claim an ingest that never happened,
-    # and the partial writes (object, evidence) roll back with it.
+    # and the partial writes (object, evidence) roll back with it — events included.
     assert [e.action for e in await portal.audit.list(tenant_id=TENANT_A)] == ["consent_granted"]
     assert portal.runtime.evidence_store._by_id == {}
     assert portal.runtime.object_store._objs == {}
+    assert events == []
 
 
 @pytest.mark.skipif(not PG_URL, reason="AQELYN_DATABASE_URL not set")
@@ -142,6 +176,7 @@ async def test_postgres_composite_commits_and_rolls_back_as_one_unit() -> None:
             raise _AuditDown("audit log unavailable")
 
     try:
+        events = await _record_unit_events(runtime)
         # Positive control first: the composite commits consent, ingest, and audit together.
         good_tenant = str(uuid.uuid4())
         actor = ActorRef(actor_type="user", actor_id=new_id("acc"))
@@ -163,6 +198,13 @@ async def test_postgres_composite_commits_and_rolls_back_as_one_unit() -> None:
             "consent_granted",
             "scan_ingested",
         ]
+        # A committed unit announces itself, in original write order.
+        assert events == [
+            "aqelyn.object.created",
+            "aqelyn.evidence.recorded",
+            "aqelyn.finding.raised",
+        ]
+        events.clear()
 
         # The probe: a poisoned audit inside the transaction takes every row down with it.
         bad_tenant = str(uuid.uuid4())
@@ -187,6 +229,8 @@ async def test_postgres_composite_commits_and_rolls_back_as_one_unit() -> None:
             )
         found, _ = await runtime.finding_store.query(FindingQuery(tenant_id=bad_tenant, limit=10))
         assert found == []
+        # No phantom events: the rolled-back unit never announced its objects/evidence/findings.
+        assert events == []
         async with pool.acquire() as conn:
             for table in ("aq_object", "aq_evidence", "aq_finding", "aq_audit_event"):
                 count = await conn.fetchval(
