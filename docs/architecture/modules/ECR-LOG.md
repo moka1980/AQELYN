@@ -7903,8 +7903,22 @@ Postgres composite replays all collected events after the commit in original wri
 memory composite swaps the stores' event sink/bus for buffers under its lock — a failed unit's
 events are dropped with its rows. Tests subscribe to every unit event type and assert silence on
 rollback and exact order on commit; 3 further mutations red (pg object event emitted in-txn;
-memory buffering removed; memory success-flush dropped). Still true: the memory composite
-serializes uploads (lock).
+memory buffering removed; memory success-flush dropped).
+
+**Second re-review blocker resolved (Codex, 2026-08-08): rollback touches only the unit's own
+writes.** The first phantom-event cut snapshotted whole memory stores and swapped shared event
+wiring — Codex's probe showed an unrelated concurrent object write erased by a portal rollback.
+The memory backend now mirrors the Postgres shape through the same injected-ops seam: each memory
+store exposes a quiet write (`_upsert_quiet`/`_add_quiet`/`_raise_quiet`) that returns its event
+and a precise undo of that ONE write; the composite defers the events and runs the undos in
+reverse on failure. Whole-store `_snapshot`/`_restore` and the buffered sink/bus are deleted; the
+audit append is the unit's final write (a failed audit has nothing of its own to undo; consent
+uses a one-row `_discard`). The bystander probe is a repo test: the external row and its event
+survive the rollback, the unit's rows and events do not. 3 further mutations red (undo made
+destructive beyond its row; undo loop removed; object event emitted mid-unit). Still true: the
+memory composite serializes composites against each other (lock); a concurrent EXTERNAL evidence
+append into the same tenant chain during a unit is not serialized — inherent to in-memory undo,
+named for the deploy-gate review; the deployed portal runs Postgres.
 
 ## ECR-0125 — the route census byte-compares its 404s
 
