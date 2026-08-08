@@ -7,6 +7,11 @@ from datetime import datetime
 from typing import Protocol
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+from aqelyn.conventions import require_typed_id
+from aqelyn.conventions.errors import AQError, CertificateNotFound
+from aqelyn.objects import ObjectStore
+from aqelyn.secrets import CertificateAsset
 from tools.s003_baseline import (
     BaselineAssessment,
     BaselineDefinition,
@@ -17,11 +22,6 @@ from tools.s003_baseline import (
 )
 from tools.s003_surface import attribute_listener_observations, classify_bind
 from tools.s004_handin import HandedInCaptureSet
-
-from aqelyn.conventions import require_typed_id
-from aqelyn.conventions.errors import AQError, CertificateNotFound
-from aqelyn.objects import ObjectStore
-from aqelyn.secrets import CertificateAsset
 
 
 class CertificateLifecycleOwner(Protocol):

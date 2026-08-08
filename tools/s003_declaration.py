@@ -19,8 +19,6 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from tools.first_run import FactorReading
-from tools.s003_estate import UnitInventoryDocument, ensure_private_workdir
 
 from aqelyn.conventions import ActorRef, require_typed_id
 from aqelyn.mission import MISSION_OBJECT_TYPE, MissionImpactResult, MissionView
@@ -33,6 +31,8 @@ from aqelyn.objects import (
     SourceRef,
 )
 from aqelyn.vuln import FactorUnknownCause
+from tools.first_run import FactorReading
+from tools.s003_estate import UnitInventoryDocument, ensure_private_workdir
 
 DECLARATION_FILENAME = "criticality-declaration.json"
 DECLARATION_NATURAL_KEY = "s003:criticality"

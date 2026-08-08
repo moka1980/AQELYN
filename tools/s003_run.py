@@ -11,6 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from aqelyn.objects import ObjectStore
+from aqelyn.vuln import CoverageReport
 from tools.first_run import (
     RunReport,
     coverage_factor_readings,
@@ -36,9 +38,6 @@ from tools.s003_surface import (
     surface_factor_readings,
     surface_roadmap_dependencies,
 )
-
-from aqelyn.objects import ObjectStore
-from aqelyn.vuln import CoverageReport
 
 
 class S003RunError(RuntimeError):
