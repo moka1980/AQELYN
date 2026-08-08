@@ -7915,10 +7915,24 @@ reverse on failure. Whole-store `_snapshot`/`_restore` and the buffered sink/bus
 audit append is the unit's final write (a failed audit has nothing of its own to undo; consent
 uses a one-row `_discard`). The bystander probe is a repo test: the external row and its event
 survive the rollback, the unit's rows and events do not. 3 further mutations red (undo made
-destructive beyond its row; undo loop removed; object event emitted mid-unit). Still true: the
-memory composite serializes composites against each other (lock); a concurrent EXTERNAL evidence
-append into the same tenant chain during a unit is not serialized — inherent to in-memory undo,
-named for the deploy-gate review; the deployed portal runs Postgres.
+destructive beyond its row; undo loop removed; object event emitted mid-unit).
+
+**Third re-review blockers resolved (Codex, 2026-08-08): guarded undos + `Runtime.close()`.**
+(1) The per-write undo restored its pre-image unconditionally, so a concurrent update to the SAME
+row landing after the unit's write was overwritten by the rollback. Every memory undo is now
+conditional: the object/finding pre-image restores only if the row still carries the exact version
+this unit wrote; a created row is deleted only at version 1; an evidence record is removed only
+while it is still the chain tail (removing it mid-chain would corrupt the next record's
+`prev_hash`). Codex's same-row probe is a repo test: the concurrent label survives, the unit's
+evidence/findings roll back. (2) CI run 31267942064 failed with `TooManyConnectionsError`: the new
+runtime tests closed evidence/finding pools and leaked the factory's ~20 others. `Runtime.close()`
+now closes every asyncpg pool the factory opened, deduplicated across pool-sharing stores; the
+tests use it and assert that NO runtime field still holds an open pool. 2 further mutations red
+(unconditional restore; close() reverted to the two-pool leak). Residual, disclosed: when the
+version guard declines a restore, the unit's merged-in changes remain embedded in the surviving
+row (the concurrent writer built on them) — the anomaly is bounded to rows a concurrent writer
+touched mid-unit, and the deployed portal runs Postgres, where row locks make the case unreachable.
+Still true: the memory composite serializes composites against each other (lock).
 
 ## ECR-0125 — the route census byte-compares its 404s
 
