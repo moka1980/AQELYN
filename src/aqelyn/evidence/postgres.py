@@ -155,6 +155,12 @@ class PostgresEvidenceStore:
             )
         return _row(row)
 
+    async def exists(self, evidence_id: str) -> bool:
+        validate_evidence_id(evidence_id)
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT 1 FROM aq_evidence WHERE id=$1", evidence_id)
+        return row is not None
+
     async def custody_count(self, evidence_id: str) -> int:
         validate_evidence_id(evidence_id)
         return len(await self.custody_of(evidence_id))

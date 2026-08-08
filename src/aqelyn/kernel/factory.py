@@ -11,11 +11,12 @@ from aqelyn.conventions.errors import ConfigError, StoreUnavailable
 from aqelyn.events import EventTypeRegistry, InMemoryEventBus
 from aqelyn.evidence import (
     BlobStore,
+    EvidenceStore,
     InMemoryBlobStore,
     InMemoryEvidenceStore,
     register_evidence_events,
 )
-from aqelyn.findings import InMemoryFindingStore, register_finding_events
+from aqelyn.findings import FindingStore, InMemoryFindingStore, register_finding_events
 from aqelyn.governance import (
     ComplianceEngine,
     GovernanceConfig,
@@ -166,8 +167,8 @@ class Runtime:
     kernel: AQKernel
     event_bus: InMemoryEventBus
     object_store: ObjectStore
-    evidence_store: InMemoryEvidenceStore
-    finding_store: InMemoryFindingStore
+    evidence_store: EvidenceStore
+    finding_store: FindingStore
     finding_read_service: FindingReadService
     blob_store: InMemoryBlobStore
     knowledge_graph: KnowledgeGraph
@@ -434,9 +435,9 @@ def _register_runtime_services(
     kernel: AQKernel,
     *,
     object_store: ObjectStore,
-    evidence_store: InMemoryEvidenceStore,
+    evidence_store: EvidenceStore,
     blob_store: BlobStore,
-    finding_store: InMemoryFindingStore,
+    finding_store: FindingStore,
     knowledge_graph: KnowledgeGraph,
     trust_engine: TrustEngine,
     mission_engine: MissionEngine,
@@ -502,6 +503,8 @@ def _register_runtime_services(
     ispm_engine: ISPMEngine,
     ispm_known_surface_source: IdentityKnownSurfaceSource,
     close_object_store: Callable[[], Awaitable[None]] | None = None,
+    close_evidence_store: Callable[[], Awaitable[None]] | None = None,
+    close_finding_store: Callable[[], Awaitable[None]] | None = None,
     close_compliance_snapshot_store: Callable[[], Awaitable[None]] | None = None,
     close_workflow_run_store: Callable[[], Awaitable[None]] | None = None,
     close_iag_certification_store: Callable[[], Awaitable[None]] | None = None,
@@ -612,6 +615,20 @@ def _register_runtime_services(
             dependencies=("event_bus",),
             health_check=lambda: _check_object_store(object_store),
             close=close_object_store,
+        )
+    )
+    kernel.register(
+        _RuntimeService(
+            "evidence_store",
+            dependencies=("event_bus",),
+            close=close_evidence_store,
+        )
+    )
+    kernel.register(
+        _RuntimeService(
+            "finding_store",
+            dependencies=("evidence_store",),
+            close=close_finding_store,
         )
     )
     graph_service = KnowledgeGraphService(knowledge_graph, object_store)
@@ -1670,6 +1687,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         PostgresDSPMStore,
         register_dspm_events,
     )
+    from aqelyn.evidence.postgres import PostgresEvidenceStore
     from aqelyn.executive import (
         EmptyExecutiveValueSource,
         EmptyMaterialExceptionSource,
@@ -1684,6 +1702,7 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         PostgresExposureStore,
         register_exposure_events,
     )
+    from aqelyn.findings.postgres import PostgresFindingStore
     from aqelyn.forecast import (
         EmptyActualValueSource,
         EmptyMetricHistorySource,
@@ -1809,9 +1828,14 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         mode=cfg.tenant_mode,
         event_sink=sink,
     )
-    evidence_store = InMemoryEvidenceStore(mode=cfg.tenant_mode, event_bus=bus)
-    finding_store = InMemoryFindingStore(
-        mode=cfg.tenant_mode, event_bus=bus, evidence_exists=evidence_store.exists
+    evidence_store = await PostgresEvidenceStore.connect(
+        cfg.database_url, mode=cfg.tenant_mode, event_bus=bus
+    )
+    finding_store = await PostgresFindingStore.connect(
+        cfg.database_url,
+        mode=cfg.tenant_mode,
+        event_bus=bus,
+        evidence_exists=evidence_store.exists,
     )
     knowledge_graph = PostgresKnowledgeGraph(object_store._pool)
     blob_store = InMemoryBlobStore()
@@ -2314,6 +2338,8 @@ async def create_runtime(config: AQELYNConfig | None = None) -> Runtime:
         ispm_engine=ispm_engine,
         ispm_known_surface_source=ispm_known_surface_source,
         close_object_store=object_store.close,
+        close_evidence_store=evidence_store.close,
+        close_finding_store=finding_store.close,
         close_compliance_snapshot_store=compliance_snapshot_store.close,
         close_workflow_run_store=workflow_run_store.close,
         close_iag_certification_store=iag_certification_store.close,
