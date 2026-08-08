@@ -7892,9 +7892,19 @@ either direction — no unaudited state, no audit event for work that never happ
 with a positive control. 5 mutations red: audit moved outside the ingest transaction; memory
 ingest rollback removed; memory consent rollback removed; consent composite back to two
 independent steps; evidence gate switched to a cross-connection check (positive control refuses).
-Named, not built: object-store events still publish inside the transaction (a rolled-back unit can
-have announced object updates to in-process engines — pre-existing store behavior, now disclosed;
-the clean fix is a transactional event outbox); the memory composite serializes uploads.
+
+**Re-review blocker resolved (Codex, 2026-08-08): no phantom events.** The first cut deferred
+evidence/finding events but disclosed that object events (Postgres) and all memory-backend events
+still published inside the unit — Codex's probe showed the bus hearing `object.created` /
+`evidence.recorded` / `finding.raised` for rows that were rolled back. Now EVERY event defers
+until the unit commits, on both backends: `PostgresObjectStore._upsert_on` returns its event and
+the public `upsert` emits post-commit (the same convention evidence/findings already had), the
+Postgres composite replays all collected events after the commit in original write order, and the
+memory composite swaps the stores' event sink/bus for buffers under its lock — a failed unit's
+events are dropped with its rows. Tests subscribe to every unit event type and assert silence on
+rollback and exact order on commit; 3 further mutations red (pg object event emitted in-txn;
+memory buffering removed; memory success-flush dropped). Still true: the memory composite
+serializes uploads (lock).
 
 ## ECR-0125 — the route census byte-compares its 404s
 
